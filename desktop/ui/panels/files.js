@@ -405,7 +405,19 @@ $('file-filter').addEventListener('keydown', (ev) => {
 
 // The list is a picture of the disk, and a picture goes stale while you work.
 $('files-refresh').onclick = () => {
-  // A fresh index too: the tree may have changed under the search as well.
+  // A word still in the field is a search still wanted: the refresh rebuilds
+  // the tree and the search runs again. Dropping the results but keeping the
+  // word would read as "ไม่พบ" over files that exist.
+  const query = filesState.query;
+  if (query) {
+    // The field's own debounce would fire the same word again right after —
+    // the refresh's re-run and the timer's re-run are one search, not two.
+    clearTimeout(fileSearchTimer);
+    filesState.searching = true;
+    renderFiles();
+    void searchFiles(query);
+    return;
+  }
   filesState.results = null;
   void refreshFiles();
 };

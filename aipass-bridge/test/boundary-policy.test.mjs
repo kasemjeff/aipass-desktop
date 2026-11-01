@@ -32,10 +32,12 @@ test('a missing backend is never silently downgraded to a run', () => {
   assert.equal(p.fs, 'none');
 });
 
-test('an unknown mode becomes off, not a refusal and not a run', () => {
+test('an unknown mode is a refusal, never a silent downgrade to off', () => {
+  // A typo ("readonly") that downgraded to 'off' would run unsandboxed — the
+  // one thing the module header says it never ships.
   const p = resolvePolicy({ sandboxMode: 'bogus', backend: 'none' });
-  assert.equal(p.sandboxMode, 'off');
-  assert.equal(p.refuse, null);
+  assert.equal(p.sandboxMode, 'bogus');
+  assert.match(p.refuse, /unknown sandbox mode/);
 });
 
 test('backendFor returns none on every platform in phase 1', () => {

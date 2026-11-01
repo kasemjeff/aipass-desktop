@@ -23,7 +23,7 @@ import { renderGitTab, renderMediaTab, renderScheduleTab } from './panels/tools.
  * @param {object} ctx the window it draws into
  */
 export function createSettings(ctx) {
-  const { $, el, state, rpc, addNote, addCommandOut, friendly, applyTheme, refreshHeader, refreshSkills, renderSkillList, renderMemoryFacts, installSkillDialog, applySettingsToUi, stageLabel, fillProviders, paintPluginPanels, hideModal, openModal } = ctx;
+  const { $, el, state, rpc, addNote, addCommandOut, friendly, applyTheme, refreshHeader, refreshSkills, renderSkillList, renderMemoryFacts, installSkillDialog, applySettingsToUi, stageLabel, fillProviders, paintPluginPanels, hideModal, openModal, askConfirm } = ctx;
 
 
 /* The pages of the sheet — one tab each. A tab renders its own page and
@@ -265,7 +265,7 @@ const renderProvidersTab = async (page, sheet) => {    // Who answers the run: t
           };
           const del = el('button', 'danger-btn', 'ลบ');
           del.onclick = async () => {
-            if (!window.confirm(`ลบผู้ให้บริการ "${p.id}"? (key ที่บันทึกไว้จะหายด้วย)`)) return;
+            if (!(await askConfirm({ title: 'ลบผู้ให้บริการ', message: `ลบ "${p.id}"?`, note: 'key ที่บันทึกไว้จะหายด้วย', danger: true, confirmLabel: 'ลบ' }))) return;
             await rpc('provider.remove', { id: p.id })
               .catch((e) => { out.className = 'install-out err'; out.textContent = `err: ${e.message}`; });
             await paint();
@@ -534,8 +534,8 @@ const renderPluginsTab = async (page, sheet) => {    let live = sheet.details;
           const first = rec
             ? `ลบปลั๊กอิน "${name}"? ไฟล์จะถูกเก็บไว้ใน .trash (กู้คืนได้)`
             : `"${name}" ไม่ได้ติดตั้งผ่านแอป — ไฟล์นี้คือผลงานของคุณ ยืนยันว่าจะย้ายไป .trash?`;
-          if (!window.confirm(first)) return;
-          if (!rec && !window.confirm('ยืนยันอีกครั้ง: ย้ายโฟลเดอร์นี้ไป .trash?')) return;
+          if (!(await askConfirm({ title: 'ลบปลั๊กอิน', message: first, danger: true, confirmLabel: 'ย้ายไป .trash' }))) return;
+          if (!rec && !(await askConfirm({ title: 'ยืนยันอีกครั้ง', message: 'ย้ายโฟลเดอร์นี้ไป .trash?', danger: true, confirmLabel: 'ยืนยัน' }))) return;
           del.disabled = true;
           const res = await rpc('plugins.remove', { name, force: true }).catch((e) => {
             out.className = 'install-out err';
@@ -689,7 +689,7 @@ const renderMcpTab = async (page, sheet) => {    let live = sheet.mcpReady;
         };
         const del = el('button', 'danger-btn', 'ลบ');
         del.onclick = async () => {
-          if (!window.confirm(`ลบ MCP server "${s.name}" ออกจาก${s.scope === 'project' ? 'โปรเจกต์นี้' : 'การตั้งค่าส่วนกลาง'}?`)) return;
+          if (!(await askConfirm({ title: 'ลบ MCP server', message: `ลบ "${s.name}" ออกจาก${s.scope === 'project' ? 'โปรเจกต์นี้' : 'การตั้งค่าส่วนกลาง'}?`, danger: true, confirmLabel: 'ลบ' }))) return;
           del.disabled = true;
           const res = await rpc('mcp.remove', { name: s.name, scope: s.scope }).catch(() => null);
           if (res) { live = res; paintMcp(); } else del.disabled = false;
@@ -1148,7 +1148,7 @@ async function openSettings(pageId = null) {
   // that read and write it, and the two answers only the backend has. The
   // window's own helpers ride along too, so a page that acts on the machine
   // (git, media, the schedule) can talk to it the way the other pages do.
-  const sheet = { draft, read, write, control, row, details, mcpReady, rpc, el, state, addNote, addCommandOut, friendly };
+  const sheet = { draft, read, write, control, row, details, mcpReady, rpc, el, state, addNote, addCommandOut, friendly, askConfirm };
   const tabs = details
     ? [...TABS,
       { id: 'plugins', icon: '🧩', title: 'ปลั๊กอิน', sub: `โค้ดเสริมจาก ${details.dir}`, custom: 'plugins', render: renderPluginsTab, save: saveEmptyTab },

@@ -7,6 +7,16 @@ procedure, acceptance criteria and rollback live in [`docs/RELEASE.md`](docs/REL
 
 ### Added
 
+- **The window asks in its own dialog.** `window.confirm`/`window.prompt` (and
+  one bare `confirm`) are gone from `desktop/ui` — they answer nothing on
+  WKWebView and WebKitGTK, and one install dialog read a missing confirm as a
+  yes and overwrote a playbook. `desktop/ui/ask.js` (`createAsk(ctx)`) asks
+  through the sheet instead: `askConfirm`/`askText` return a promise, Escape
+  and an outside close settle it as no/null, and a destructive ask's confirm
+  button carries the danger look. Thirteen sites ask this way now; "ลืม" on a
+  checkpoint asks where it never did; a guard test fails the build if a native
+  confirm/prompt returns. The files panel re-runs an active search on refresh
+  instead of showing a false "ไม่พบ" over files that exist.
 - **Fewer `[403] refused at the edge`.** Walks (`glob`, `tree`, `search`, the
   retrieval and symbol indexes) now skip `AppData/Local/Temp` (and the app's
   update staging areas) with a note instead of spilling thousands of

@@ -1366,12 +1366,17 @@ export function createTools(ctx) {
     async diagnose(arg) {
       const wanted = String(arg ?? '').trim();
       if (!wanted) return 'err: DIAGNOSE needs a path — DIAGNOSE src/foo.ts';
+      // Every tool path is confined to the project root — a language server
+      // must not become the one read that is not (its didOpen ships the file
+      // whole to the server process).
+      const abs = trySafe(wanted);
+      if (!abs) return `err: ${wanted} leaves the project — DIAGNOSE stays inside it.`;
       if (!lsp) {
         return 'err: no language server is available for this run — install one (rust-analyzer, typescript-language-server, pyright, gopls) or add it to ~/.aipass/lsp.json with approved: true.';
       }
       let result;
       try {
-        result = await lsp.diagnostics(wanted);
+        result = await lsp.diagnostics(abs);
       } catch (err) {
         return `err: the language server could not be asked: ${String(err?.message ?? err)}`;
       }

@@ -57,6 +57,9 @@ export const FLOORS = {
   'desktop/ui/panels/files.js': { lines: 87, branches: 66, functions: 69 },
   'desktop/ui/panels/sessions.js': { lines: 86, branches: 70, functions: 68 },
   'desktop/ui/panels/context.js': { lines: 60, branches: 50, functions: 35 },
+  // The window's own ask: confirm and prompt through the sheet, on every
+  // platform (the native dialogs answer nothing on WKWebView/WebKitGTK).
+  'desktop/ui/ask.js': { lines: 90, branches: 75, functions: 88 },
   // The backend the window talks to.
   'aipass-bridge/harness/rpc.mjs': { lines: 92, branches: 74, functions: 66 },
   // The backend's methods, one module per domain.

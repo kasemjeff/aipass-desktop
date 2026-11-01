@@ -540,16 +540,102 @@ fn roll_content_back_in(home: &std::path::Path) -> bool {
     true
 }
 
+/// The window's last geometry: where it was, how big, and whether it was
+/// maximized. A window that forgets is a window the person re-shapes every
+/// morning — the screen did not change overnight, and the app has no excuse.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+struct WindowGeometry {
+    width: u32,
+    height: u32,
+    x: i32,
+    y: i32,
+    maximized: bool,
+}
+
+fn window_geometry_path(home: &std::path::Path) -> PathBuf {
+    home.join("desktop-window.json")
+}
+
+fn load_window_geometry_from(home: &std::path::Path) -> Option<WindowGeometry> {
+    let body = std::fs::read_to_string(window_geometry_path(home)).ok()?;
+    serde_json::from_str(&body).ok()
+}
+
+fn save_window_geometry_to(home: &std::path::Path, geometry: &WindowGeometry) {
+    let path = window_geometry_path(home);
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    // A few dozen bytes a person never reads: a torn write costs one
+    // default-sized window, not data, so it is written directly.
+    let _ = std::fs::write(&path, serde_json::to_string(geometry).unwrap_or_default());
+}
+
+fn load_window_geometry() -> Option<WindowGeometry> {
+    load_window_geometry_from(&aipass_home())
+}
+
+/// Open a folder in the platform's file manager. The log folder is where a
+/// person is sent when something looks wrong — the alerts name the path, and
+/// this opens it without the copying. A missing helper binary is noted, not
+/// fatal: the path is still on screen to open by hand.
+fn reveal_folder(path: &std::path::Path) {
+    let _ = std::fs::create_dir_all(path);
+    #[cfg(target_os = "windows")]
+    let opened = std::process::Command::new("explorer").arg(path).spawn();
+    #[cfg(target_os = "macos")]
+    let opened = std::process::Command::new("open").arg(path).spawn();
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let opened = std::process::Command::new("xdg-open").arg(path).spawn();
+    if let Err(err) = opened {
+        note(&format!("เปิดโฟลเดอร์ไม่ได้: {} — {err}", path.display()));
+    }
+}
+
 /// Take the backend down with the app.
 ///
 /// The child runs in its own process group on unix (set when it is spawned),
-/// so one signal reaches both the backend and the bridge it started; on
-/// Windows `taskkill /T` does the same job by walking the tree.
+/// so one signal reaches both the backend and the bridge it started. On
+/// Windows the graceful first ask is `taskkill` without `/F` — it posts a
+/// close, which a console child may take a moment to act on; three seconds
+/// later the forced one goes out anyway. The app is quitting, so patience
+/// here is bounded: a child that will not leave does not hold the door.
 #[cfg(windows)]
 fn stop_backend(pid: u32) {
     let _ = Command::new("taskkill")
+        .args(["/PID", &pid.to_string(), "/T"])
+        .status();
+    for _ in 0..30 {
+        if !pid_alive(pid) {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    let _ = Command::new("taskkill")
         .args(["/PID", &pid.to_string(), "/T", "/F"])
         .status();
+}
+
+/// Is the pid still on the machine? `taskkill`'s own exit code cannot say —
+/// it succeeds when the request was sent, not when the process is gone.
+#[cfg(windows)]
+fn pid_alive(pid: u32) -> bool {
+    match Command::new("tasklist")
+        .args(["/FI", &format!("PID eq {pid}"), "/NH", "/FO", "CSV"])
+        .output()
+    {
+        Ok(out) => tasklist_says_alive(pid, &String::from_utf8_lossy(&out.stdout)),
+        // Cannot ask — assume alive and take the forced path: quitting must
+        // not hang on a question the machine would not answer.
+        Err(_) => true,
+    }
+}
+
+/// The CSV line for a found pid quotes it; an empty filter answer says
+/// "INFO: no tasks". The quotes are the fact, the rest is decoration.
+#[cfg(windows)]
+fn tasklist_says_alive(pid: u32, stdout: &str) -> bool {
+    stdout.contains(&format!("\"{pid}\""))
 }
 
 #[cfg(not(windows))]
@@ -659,6 +745,10 @@ struct Backend {
     /// The app itself, for the handover: the shell is what has to close for
     /// the installer to do its work.
     handle: tauri::AppHandle,
+    /// A weak look back at the Arc this backend lives in, filled right after
+    /// construction. `port_owner_with_deadline` needs a `'static` handle to
+    /// ask the probe on its own thread — a `&self` cannot cross a thread.
+    self_handle: Mutex<Option<std::sync::Weak<Backend>>>,
 }
 
 impl Backend {
@@ -770,6 +860,31 @@ impl Backend {
         }
     }
 
+    /// The probe, with a deadline. A wedged node would hold whoever waits
+    /// forever — a probe with no deadline once held the supervisor's child
+    /// mutex with it. The ask runs on its own thread and eight seconds is all
+    /// it gets: the caller takes "unknown" and moves on. A losing thread is
+    /// at most one per wedged probe, and it owns one wedged child already; it
+    /// finishes into the void without holding anything the supervisor needs.
+    fn port_owner_with_deadline(&self) -> PortOwner {
+        let backend = self
+            .self_handle
+            .lock()
+            .unwrap()
+            .as_ref()
+            .and_then(std::sync::Weak::upgrade);
+        let Some(backend) = backend else {
+            return PortOwner::Unknown;
+        };
+        let (sender, receiver) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = sender.send(backend.port_owner());
+        });
+        receiver
+            .recv_timeout(Duration::from_secs(8))
+            .unwrap_or(PortOwner::Unknown)
+    }
+
     /// One watch tick: a dead child is replaced, a live one resets the backoff.
     fn tick(&self) {
         if self.quitting.load(Ordering::SeqCst) {
@@ -851,7 +966,15 @@ impl Backend {
                 return;
             }
             Death::PortBusy => {
-                match busy_outcome(self.port_owner()) {
+                // The probe can take seconds, and the mutex guards the child
+                // slot — not the port. Every other path that wants the slot
+                // (the boot gate, a spawn, shutdown) must not queue behind a
+                // subprocess nobody can hurry, and the child in the slot is
+                // dead anyway: put the slot down, ask the port, pick it up.
+                drop(guard);
+                let outcome = busy_outcome(self.port_owner_with_deadline());
+                let mut guard = self.child.lock().unwrap();
+                match outcome {
                     BusyOutcome::Adopt => {
                         // One of our backends is already answering there — a second
                         // window, a browser `aipass desktop`, an instance this app
@@ -887,6 +1010,8 @@ impl Backend {
                         self.port_busy.store(false, Ordering::SeqCst);
                     }
                 }
+                self.backoff_and_restart(status, &mut guard);
+                return;
             }
             Death::Crash => {
                 // A genuine crash — the only death that reaches the blame
@@ -895,6 +1020,15 @@ impl Backend {
                 // (a signal on unix) names no fault, and rolls nothing back.
             }
         }
+        self.backoff_and_restart(status, &mut guard);
+    }
+
+    /// The backoff bookkeeping and the restart, shared by the deaths that
+    /// reach them: the counter moves, the note is said, and a new child takes
+    /// the slot. Split out of `tick` so the port probe can put the child
+    /// mutex down and pick it back up without the two tripping over each
+    /// other.
+    fn backoff_and_restart(&self, status: Option<std::process::ExitStatus>, guard: &mut Option<std::process::Child>) {
         let mut fails = self.fails.lock().unwrap();
         let mut next = self.next_try.lock().unwrap();
         if Instant::now() < *next {
@@ -1182,7 +1316,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 port: backend_port,
                 cwd: project_root.clone(),
                 handle: app.handle().clone(),
+                self_handle: Mutex::new(None),
             });
+            // The weak self-handle goes in before anything can ask a probe:
+            // the deadline wrapper needs it to hand the ask to a thread.
+            *backend.self_handle.lock().unwrap() = Some(Arc::downgrade(&backend));
             // Adopt a backend that is already answering (a browser `aipass
             // desktop`, say); otherwise start one. An adopted backend is not
             // ours to respawn — the supervisor's child stays None.
@@ -1285,13 +1423,31 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .theme(desktop_theme())
             .inner_size(1280.0, 860.0)
             .min_inner_size(900.0, 600.0)
+            // Built hidden: the remembered shape goes on before the first
+            // paint, so the window comes back where it was instead of opening
+            // at the default and jumping.
+            .visible(false)
             .build()?;
+
+            if let Some(geometry) = load_window_geometry() {
+                let _ = window.set_size(tauri::PhysicalSize::new(geometry.width, geometry.height));
+                let _ = window.set_position(tauri::PhysicalPosition::new(geometry.x, geometry.y));
+                if geometry.maximized {
+                    let _ = window.maximize();
+                }
+            }
+            let _ = window.show();
 
             // The backend is part of the app, not a service, so quitting takes
             // it down with it — and stops the supervisor, so the exit reads as
             // deliberate rather than as a crash to answer.
             let window_handle = window.clone();
             let backend_handle = backend.clone();
+            // The shape a drag leaves behind: the resize/move events fire
+            // faster than a disk wants writes, so the newest geometry waits
+            // here and a slow thread commits it.
+            let geometry_slot: Arc<Mutex<Option<WindowGeometry>>> = Arc::new(Mutex::new(None));
+            let geometry_handle = geometry_slot.clone();
             window.on_window_event(move |event| {
                 match event {
                     // Closing the window hides it instead of killing the app:
@@ -1303,15 +1459,52 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         api.prevent_close();
                         let _ = window_handle.hide();
                     }
-                    tauri::WindowEvent::Destroyed => backend_handle.shutdown(),
+                    // The window is the shape the person last left it in —
+                    // moved or resized, the newest fact lands in the slot and
+                    // the slow writer below commits it.
+                    tauri::WindowEvent::Resized(_) | tauri::WindowEvent::Moved(_) => {
+                        let size = window_handle.inner_size().ok();
+                        let position = window_handle.outer_position().ok();
+                        if let (Some(size), Some(position)) = (size, position) {
+                            *geometry_handle.lock().unwrap() = Some(WindowGeometry {
+                                width: size.width,
+                                height: size.height,
+                                x: position.x,
+                                y: position.y,
+                                maximized: window_handle.is_maximized().unwrap_or(false),
+                            });
+                        }
+                    }
+                    tauri::WindowEvent::Destroyed => {
+                        // The slow writer may not have woken yet: the last
+                        // shape goes down with the window now, or the next
+                        // start opens a window that forgot.
+                        if let Some(geometry) = geometry_handle.lock().unwrap().take() {
+                            save_window_geometry_to(&aipass_home(), &geometry);
+                        }
+                        backend_handle.shutdown();
+                    }
                     _ => {}
                 }
             });
 
+            // The slow writer: every 800 ms it commits whatever shape is
+            // waiting, which during a drag turns hundreds of events into a
+            // handful of writes — and the last one is the truth.
+            {
+                let pending = geometry_slot.clone();
+                std::thread::spawn(move || loop {
+                    std::thread::sleep(Duration::from_millis(800));
+                    let Some(geometry) = pending.lock().unwrap().take() else { continue };
+                    save_window_geometry_to(&aipass_home(), &geometry);
+                });
+            }
+
             let show_item = MenuItem::with_id(app, "show", "แสดงหน้าต่าง", true, None::<&str>)?;
             let cli_item = MenuItem::with_id(app, "install-cli", "ติดตั้ง CLI (aipass)", true, None::<&str>)?;
+            let log_item = MenuItem::with_id(app, "log-folder", "เปิดโฟลเดอร์ log", true, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, "quit", "ออก", true, None::<&str>)?;
-            let tray_menu = Menu::with_items(app, &[&show_item, &cli_item, &quit_item])?;
+            let tray_menu = Menu::with_items(app, &[&show_item, &cli_item, &log_item, &quit_item])?;
 
             let tray = tauri::tray::TrayIconBuilder::new()
                 .icon(tray_icon(app.handle()))
@@ -1362,6 +1555,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 let _ = window.set_title(&format!("aipass desktop — {message}"));
                             }
                         }
+                        // The log folder is where a person is sent when
+                        // something looks wrong — the alerts name the path,
+                        // and this opens it without the copying.
+                        "log-folder" => reveal_folder(&aipass_home().join("logs")),
                         // Exit runs the same path as the window closing:
                         // Destroyed still fires, so a backend this window
                         // started is still taken down here, not left orphaned.
@@ -1371,7 +1568,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 })
                 .build(app)?;
             tray.on_tray_icon_event(|tray, event| {
-                if matches!(event, tauri::tray::TrayIconEvent::DoubleClick { .. }) {
+                // One click opens the window: the tray is where the window
+                // lives while it is hidden, and a click is the natural way to
+                // knock on it. The double-click variant stays handled too —
+                // show is idempotent, so a double-click costing two shows
+                // costs nothing.
+                if matches!(
+                    event,
+                    tauri::tray::TrayIconEvent::Click { .. } | tauri::tray::TrayIconEvent::DoubleClick { .. }
+                ) {
                     if let Some(window) = tray.app_handle().get_webview_window("main") {
                         let _ = window.show();
                         let _ = window.set_focus();
@@ -1677,6 +1882,30 @@ mod tests {
         let project = home.join("project");
         std::fs::create_dir_all(&project).expect("scratch project");
         project
+    }
+
+    #[test]
+    fn the_tasklist_line_says_whether_the_pid_lives() {
+        // The CSV row quotes the pid; the "no tasks" answer does not. A pid
+        // that merely CONTAINS the digits is not the pid.
+        assert!(tasklist_says_alive(42, "\"node.exe\",\"42\",\"Console\",\"1\",\"1,000 K\""));
+        assert!(!tasklist_says_alive(
+            42,
+            "INFO: no tasks are running which match the specified criteria."
+        ));
+        assert!(!tasklist_says_alive(4, "\"node.exe\",\"142\",\"Console\",\"1\""));
+    }
+
+    #[test]
+    fn the_window_geometry_round_trips_through_the_home() {
+        let home = scratch_home();
+        assert_eq!(load_window_geometry_from(&home), None, "nothing remembered yet");
+        let geometry = WindowGeometry { width: 1280, height: 860, x: 120, y: -40, maximized: false };
+        save_window_geometry_to(&home, &geometry);
+        assert_eq!(load_window_geometry_from(&home), Some(geometry), "the shape comes back whole");
+        // A torn or foreign file is one default-sized window, not a crash.
+        std::fs::write(window_geometry_path(&home), "{not json").expect("torn file");
+        assert_eq!(load_window_geometry_from(&home), None);
     }
 
     #[test]

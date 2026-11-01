@@ -33,7 +33,19 @@ export function backendFor(p = platform()) {
  *  derived from the platform. */
 export function resolvePolicy({ sandboxMode = 'off', platform: p = platform(), backend = null, allowHosts = [] } = {}) {
   const b = backend ?? backendFor(p);
-  const mode = SANDBOX_MODES.includes(sandboxMode) ? sandboxMode : 'off';
+  // An unknown mode is a refusal, not a downgrade to 'off': a typo
+  // ("readonly") that ran unsandboxed would be the one thing this module's
+  // header says it never ships.
+  if (!SANDBOX_MODES.includes(sandboxMode)) {
+    return {
+      sandboxMode, backend: b,
+      refuse: `unknown sandbox mode "${sandboxMode}" — the command was not run. One of: ${SANDBOX_MODES.join(', ')}.`,
+      fs: 'none', needsProjection: false,
+      net: { mode: 'off', hosts: [] },
+      danger: false,
+    };
+  }
+  const mode = sandboxMode;
   // 'off' and 'danger-full-access' carry no boundary: the command runs with
   // the person's rights, exactly as it did before this module existed.
   if (mode === 'off' || mode === 'danger-full-access') {
