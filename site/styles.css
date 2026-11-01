@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AiPASS Desktop — AI Coding Agent ภาษาไทย สำหรับ Windows, macOS, Linux</title>
+  <meta name="description" content="ดาวน์โหลด AiPASS Desktop โอเพนซอร์ส AI coding agent ภาษาไทย ตรวจ diff ทุกไฟล์ก่อนอนุมัติ ใช้ผ่าน Chrome ที่ล็อกอินอยู่ รองรับ Windows macOS Linux ฟรี MIT">
+  <link rel="canonical" href="https://kasemjeff.github.io/aipass-desktop/">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="AiPASS Desktop">
+  <meta property="og:title" content="AiPASS Desktop — AI Coding Agent ภาษาไทย สำหรับ Windows, macOS, Linux">
+  <meta property="og:description" content="โอเพนซอร์ส AI coding agent ภาษาไทย ตรวจ diff ทุกไฟล์ก่อนอนุมัติ ใช้ผ่าน Chrome ที่ล็อกอินอยู่ รองรับ Windows macOS Linux ฟรี MIT">
+  <meta property="og:url" content="https://kasemjeff.github.io/aipass-desktop/">
+  <meta property="og:image" content="https://kasemjeff.github.io/aipass-desktop/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="AiPASS Desktop — AI Coding Agent ภาษาไทย">
+  <meta name="twitter:description" content="โอเพนซอร์ส AI coding agent ภาษาไทย ตรวจ diff ทุกไฟล์ก่อนอนุมัติ ใช้ผ่าน Chrome ที่ล็อกอินอยู่">
+  <meta name="twitter:image" content="https://kasemjeff.github.io/aipass-desktop/og.png">
+  <meta name="theme-color" content="#0b1220">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "SoftwareApplication",
+        "name": "AiPASS Desktop",
+        "alternateName": "AiPASS Desktop (TH)",
+        "description": "Open-source, Thai-first AI coding agent and agent harness for Windows, macOS and Linux. Review every diff, approve edits, resume sessions.",
+        "applicationCategory": "DeveloperApplication",
+        "operatingSystem": "Windows, macOS, Linux",
+        "softwareVersion": "0.2.0",
+        "license": "https://opensource.org/licenses/MIT",
+        "isAccessibleForFree": true,
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+        "downloadUrl": "https://github.com/kasemjeff/TH-aipassport-desktop/releases/latest",
+        "codeRepository": "https://github.com/kasemjeff/TH-aipassport-desktop",
+        "url": "https://kasemjeff.github.io/aipass-desktop/",
+        "screenshot": "https://kasemjeff.github.io/aipass-desktop/og.png",
+        "sameAs": ["https://github.com/kasemjeff/TH-aipassport-desktop"]
+      },
+      {
+        "@type": "FAQPage",
+        "mainEntity": [
+          {
+            "@type": "Question",
+            "name": "AiPASS Desktop คืออะไร?",
+            "acceptedAnswer": { "@type": "Answer", "text": "โปรแกรมเดสก์ท็อปโอเพนซอร์สสำหรับใช้งาน AI agent เขียนโค้ด รองรับ Windows macOS Linux ตรวจ diff ทุกไฟล์ก่อนอนุมัติ ใช้ผ่าน Chrome ที่ล็อกอินอยู่ ไม่มี dependency ที่ต้องติดตั้ง" }
+          },
+          {
+            "@type": "Question",
+            "name": "ต้องใช้ API key ไหม?",
+            "acceptedAnswer": { "@type": "Answer", "text": "ไม่จำเป็นสำหรับการตั้งค่าเริ่มต้น ต้องมีบัญชี de.aipass.net และ Chrome หรือ Chromium ที่ล็อกอินอยู่ บริการจะใช้ session ของแท็บนั้น" }
+          },
+          {
+            "@type": "Question",
+            "name": "มันแก้ไฟล์ของฉันได้เลยไหม?",
+            "acceptedAnswer": { "@type": "Answer", "text": "ไม่ มัน stage การแก้ไขไว้ใน overlay ให้คุณตรวจ diff และ tick เฉพาะไฟล์ที่อนุมัติ ไม่มีอะไรลงดิสก์ก่อนคุณอนุมัติ" }
+          },
+          {
+            "@type": "Question",
+            "name": "ข้อมูลเก็บที่ไหน มี telemetry ไหม?",
+            "acceptedAnswer": { "@type": "Answer", "text": "state อยู่ใน ~/.aipass/ ในเครื่องของคุณ ไม่มี telemetry ส่งออก ดู PRIVACY.md ใน repo" }
+          },
+          {
+            "@type": "Question",
+            "name": "AiPASS Desktop ฟรีไหม?",
+            "acceptedAnswer": { "@type": "Answer", "text": "ซอฟต์แวร์เป็นโอเพนซอร์สภายใต้ MIT ไม่มีค่าใช้จ่าย บริการ de.aipass.net อาจมีโควตาตามบัญชีของคุณ" }
+          }
+        ]
+      },
+      {
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+          { "@type": "ListItem", "position": 1, "name": "Home", "item": "https://kasemjeff.github.io/aipass-desktop/" }
+        ]
+      }
+    ]
+  }
+  </script>
+</head>
+<body>
+  <a class="skip-link" href="#main">ข้ามไปเนื้อหาหลัก</a>
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="brand" href="./">AiPASS Desktop</a>
+      <nav aria-label="หลัก">
+        <a href="#features">ความสามารถ</a>
+        <a href="#install">ติดตั้ง</a>
+        <a href="#faq">FAQ</a>
+        <a href="https://github.com/kasemjeff/TH-aipassport-desktop" rel="noopener">GitHub</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="hero">
+      <div class="container hero-inner">
+        <div class="hero-text">
+          <p class="eyebrow">Open-source · Thai-first · MIT</p>
+          <h1>AiPASS Desktop</h1>
+          <p class="lead">AI coding agent ภาษาไทย สำหรับ Windows, macOS และ Linux — ตรวจ diff ทุกไฟล์ก่อนอนุมัติ ใช้ผ่าน Chrome ที่คุณล็อกอินอยู่ ไม่มี dependency ที่ต้องติดตั้ง</p>
+          <div class="cta-row">
+            <a class="btn btn-primary" href="https://github.com/kasemjeff/TH-aipassport-desktop/releases/latest">ดาวน์โหลด (Releases)</a>
+            <a class="btn btn-ghost" href="https://github.com/kasemjeff/TH-aipassport-desktop">ดูบน GitHub</a>
+          </div>
+          <p class="meta">Tauri + Node · zero dependencies · VS Code panel · CLI</p>
+        </div>
+        <div class="hero-media">
+          <img src="og.png" alt="AiPASS Desktop หน้าต่างหลัก แสดง sessions, project tree และ diff ของไฟล์" width="1200" height="630" loading="eager">
+        </div>
+      </div>
+    </section>
+
+    <section id="what" class="section">
+      <div class="container">
+        <h2>AiPASS Desktop คืออะไร?</h2>
+        <p>AiPASS Desktop เป็นโปรแกรมเดสก์ท็อปโอเพนซอร์สสำหรับใช้งาน AI agent เขียนโค้ดในโปรเจกต์ของคุณ มันเชื่อมต่อไปยัง de.aipass.net ผ่านแท็บ Chrome ที่คุณล็อกอินอยู่ ทุกการแก้ไขไฟล์จะถูก stage ไว้ใน overlay ให้คุณตรวจ diff และอนุมัติทีละไฟล์ รองรับ resume, rename และ fork session ได้</p>
+        <p>Thai-first: ตอบเป็นภาษาไทยเป็นหลัก มี eval คู่ไทย/อังกฤษ และหน้าต่างที่เขียนเป็นไทยก่อน ไม่ใช่แปลงมาจากอังกฤษ</p>
+      </div>
+    </section>
+
+    <section id="features" class="section alt">
+      <div class="container">
+        <h2>จุดเด่น</h2>
+        <ul class="features">
+          <li><strong>ตรวจสอบได้ ไม่ใช่กล่องดำ</strong> — ทุก tool call เป็น row ที่เปิดดูได้ ทุก edit ที่ค้างเป็นไฟล์พร้อม diff จริง</li>
+          <li><strong>ไม่มีอะไรลงดิสก์โดยไม่ได้รับอนุมัติ</strong> — dry run แสดง diff และไม่เขียนอะไร; edit ลงดิสก์เฉพาะเมื่อคุณ tick</li>
+          <li><strong>หน้าต่างและ terminal ไม่แยกกัน</strong> — harness เดียว settings ไฟล์เดียว (~/.aipass/settings.json)</li>
+          <li><strong>credential ไม่ออกจาก browser</strong> — request รันเป็น page JS ในแท็บของคุณ cookie ไปเอง ไม่เก็บ token</li>
+          <li><strong>ทำงานได้ทุกที่ที่มี Node</strong> — zero dependencies ไม่มี build step สำหรับหน้าต่าง</li>
+          <li><strong>VS Code panel + CLI</strong> — ใช้ harness เดียวกันจาก editor หรือ terminal</li>
+        </ul>
+      </div>
+    </section>
+
+    <section id="install" class="section">
+      <div class="container">
+        <h2>ติดตั้ง</h2>
+        <p>ต้องมี Node ≥ 20, Chrome/Chromium และบัญชี de.aipass.net</p>
+        <pre><code>git clone https://github.com/kasemjeff/TH-aipassport-desktop.git
+cd TH-aipassport-desktop
+npm run setup        # ตั้งค่าเครื่องครั้งแรก
+npm run desktop      # เปิดหน้าต่าง (port 8790)</code></pre>
+        <p>สำหรับ native app (installer): <code>npm run desktop:build</code> — ดูรายละเอียดใน <a href="https://github.com/kasemjeff/TH-aipassport-desktop/blob/main/docs/INSTALL.md">docs/INSTALL.md</a></p>
+        <p>ดาวน์โหลด installer ล่าสุด: <a href="https://github.com/kasemjeff/TH-aipassport-desktop/releases/latest">Releases</a></p>
+      </div>
+    </section>
+
+    <section id="faq" class="section alt">
+      <div class="container">
+        <h2>คำถามที่พบบ่อย</h2>
+        <details>
+          <summary>AiPASS Desktop คืออะไร?</summary>
+          <p>โปรแกรมเดสก์ท็อปโอเพนซอร์สสำหรับใช้งาน AI agent เขียนโค้ด รองรับ Windows macOS Linux ตรวจ diff ทุกไฟล์ก่อนอนุมัติ ใช้ผ่าน Chrome ที่ล็อกอินอยู่ ไม่มี dependency ที่ต้องติดตั้ง</p>
+        </details>
+        <details>
+          <summary>ต้องใช้ API key ไหม?</summary>
+          <p>ไม่จำเป็นสำหรับการตั้งค่าเริ่มต้น ต้องมีบัญชี de.aipass.net และ Chrome หรือ Chromium ที่ล็อกอินอยู่ บริการจะใช้ session ของแท็บนั้น</p>
+        </details>
+        <details>
+          <summary>มันแก้ไฟล์ของฉันได้เลยไหม?</summary>
+          <p>ไม่ มัน stage การแก้ไขไว้ใน overlay ให้คุณตรวจ diff และ tick เฉพาะไฟล์ที่อนุมัติ ไม่มีอะไรลงดิสก์ก่อนคุณอนุมัติ</p>
+        </details>
+        <details>
+          <summary>ข้อมูลเก็บที่ไหน มี telemetry ไหม?</summary>
+          <p>state อยู่ใน ~/.aipass/ ในเครื่องของคุณ ไม่มี telemetry ส่งออก ดู PRIVACY.md ใน repo</p>
+        </details>
+        <details>
+          <summary>AiPASS Desktop ฟรีไหม?</summary>
+          <p>ซอฟต์แวร์เป็นโอเพนซอร์สภายใต้ MIT ไม่มีค่าใช้จ่าย บริการ de.aipass.net อาจมีโควตาตามบัญชีของคุณ</p>
+        </details>
+      </div>
+    </section>
+
+    <section id="docs" class="section">
+      <div class="container">
+        <h2>เอกสาร</h2>
+        <ul>
+          <li><a href="https://github.com/kasemjeff/TH-aipassport-desktop/blob/main/README.md">README</a> — ภาพรวมทั้งหมด</li>
+          <li><a href="https://github.com/kasemjeff/TH-aipassport-desktop/blob/main/docs/INSTALL.md">INSTALL.md</a> — การติดตั้งแต่ละแพลตฟอร์ม</li>
+          <li><a href="https://github.com/kasemjeff/TH-aipassport-desktop/blob/main/docs/FAQ.md">FAQ.md</a> — คำถามที่พบบ่อย</li>
+          <li><a href="https://github.com/kasemjeff/TH-aipassport-desktop/blob/main/docs/TROUBLESHOOTING.md">TROUBLESHOOTING.md</a> — เมื่อ что-то พัง</li>
+          <li><a href="https://github.com/kasemjeff/TH-aipassport-desktop/blob/main/CHANGELOG.md">CHANGELOG.md</a> — ประวัติการเปลี่ยนแปลง</li>
+        </ul>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container">
+      <p>AiPASS Desktop — open-source (MIT). โปรเจกต์ชุมชน ไม่ได้รับการรับรองจากผู้ให้บริการ de.aipass.net ดู <a href="https://github.com/kasemjeff/TH-aipassport-desktop/blob/main/TRADEMARK.md">TRADEMARK.md</a></p>
+      <p><a href="https://github.com/kasemjeff/TH-aipassport-desktop">GitHub</a> · <a href="https://github.com/kasemjeff/TH-aipassport-desktop/releases/latest">Releases</a> · <a href="https://github.com/kasemjeff/TH-aipassport-desktop/blob/main/CONTRIBUTING.md">Contributing</a></p>
+    </div>
+  </footer>
+</body>
+</html>
+```
+
+Wait I accidentally wrote Russian "что-то" in TROUBLESHOOTING link text? I wrote "เมื่อ что-то พัง" — that's a typo/mistake, should be "เมื่อ何か พัง" no. Should be Thai: "เมื่อมีปัญหา". Let me fix that in the file. I'll correct via edit after writing, or just fix in content now. I'll fix now: "TROUBLESHOOTING.md — วิธีแก้เมื่อมีปัญหา".
+
+Also remove the `<link rel="icon" href="favicon.svg">` since no favicon file exists; either create a simple favicon.svg or remove. I'll create a minimal favicon.svg to avoid 404. Add to site.
+
+Let me write the other files. I'll correct the typo in index.html via edit afterward, and add favicon.
+
+Let me write styles.css, robots.txt, sitemap.xml, 404.html, llms.txt, favicon.svg, pages.yml.<|end|><|start|>startTime to=write<|channel|>analysis <|constrain|>xml<|message|><rfl:parameter name="content">
+:root {
+  --bg: #0b1220;
+  --bg-alt: #121a2b;
+  --card: #162033;
+  --text: #e8edf5;
+  --muted: #9aa7bd;
+  --accent: #5b8cff;
+  --accent-2: #3dd68c;
+  --border: #24304a;
+  --code: #0a0f1a;
+  --max: 1120px;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans Thai", "Noto Sans", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+.skip-link { position: absolute; left: -9999px; }
+.skip-link:focus { left: 1rem; top: 1rem; background: #fff; color: #000; padding: .5rem; z-index: 10; }
+.container { max-width: var(--max); margin: 0 auto; padding: 0 1.25rem; }
+
+.site-header { position: sticky; top: 0; background: rgba(11,18,32,.85); backdrop-filter: blur(8px); border-bottom: 1px solid var(--border); z-index: 5; }
+.header-inner { display: flex; align-items: center; justify-content: space-between; height: 60px; gap: 1rem; }
+.brand { font-weight: 700; color: var(--text); font-size: 1.1rem; }
+nav { display: flex; gap: 1rem; flex-wrap: wrap; }
+nav a { color: var(--muted); font-size: .95rem; }
+nav a:hover { color: var(--text); }
+
+.hero { padding: 4rem 0 3rem; }
+.hero-inner { display: grid; grid-template-columns: 1fr 1fr; gap: 2.5rem; align-items: center; }
+.eyebrow { color: var(--accent-2); font-size: .85rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; margin: 0 0 .5rem; }
+h1 { font-size: clamp(2rem, 4vw, 3rem); margin: 0 0 .75rem; line-height: 1.15; }
+.lead { color: var(--muted); font-size: 1.1rem; margin: 0 0 1.5rem; }
+.cta-row { display: flex; gap: .75rem; flex-wrap: wrap; margin-bottom: 1rem; }
+.btn { display: inline-block; padding: .7rem 1.2rem; border-radius: 8px; font-weight: 600; font-size: .95rem; }
+.btn-primary { background: var(--accent); color: #fff; }
+.btn-primary:hover { background: #4a7bef; text-decoration: none; }
+.btn-ghost { border: 1px solid var(--border); color: var(--text); }
+.btn-ghost:hover { background: var(--card); text-decoration: none; }
+.meta { color: var(--muted); font-size: .85rem; margin: 0; }
+.hero-media img { width: 100%; height: auto; border-radius: 12px; border: 1px solid var(--border); box-shadow: 0 20px 60px rgba(0,0,0,.4); }
+
+.section { padding: 3.5rem 0; }
+.section.alt { background: var(--bg-alt); }
+h2 { font-size: clamp(1.5rem, 3vw, 2rem); margin: 0 0 1rem; }
+p { margin: 0 0 1rem; color: var(--text); }
+.features { list-style: none; padding: 0; margin: 0; display: grid; gap: 1rem; }
+.features li { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 1rem 1.2rem; }
+.features strong { color: var(--accent-2); }
+pre { background: var(--code); border: 1px solid var(--border); border-radius: 10px; padding: 1rem; overflow-x: auto; color: #d6e0f0; font-size: .9rem; }
+code { font-family: "JetBrains Mono", "Fira Code", Consolas, monospace; }
+details { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: .8rem 1rem; margin-bottom: .6rem; }
+summary { cursor: pointer; font-weight: 600; }
+details p { color: var(--muted); margin-top: .6rem; }
+ul { padding-left: 1.2rem; }
+.site-footer { border-top: 1px solid var(--border); padding: 2rem 0; color: var(--muted); font-size: .9rem; }
+.site-footer a { color: var(--muted); }
+.site-footer a:hover { color: var(--text); }
+
+@media (max-width: 760px) {
+  .hero-inner { grid-template-columns: 1fr; }
+  .hero { padding: 2.5rem 0 2rem; }
+  nav { gap: .6rem; }
+}
