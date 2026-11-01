@@ -18,6 +18,7 @@ import { createMiscCommands } from './features/misc-commands.js';
 import { createPending } from './features/pending.js';
 import { createSessionTree } from './features/session-tree.js';
 import { createCheckpoints } from './features/checkpoints.js';
+import { createAsk } from './ask.js';
 import { createCommands } from './commands.js';
 import { createBanners } from './banners.js';
 import { createSettings } from './settings.js';
@@ -326,6 +327,15 @@ ctx.refreshContextPanel = refreshContextPanel;
 // Exposed for the test harness (ui.test.mjs drives the panel directly).
 globalThis.__ctx = ctx;
 
+// The confirm and prompt of the window — every destructive or typed ask in
+// the panels and features goes through these, because window.confirm and
+// window.prompt answer nothing on WKWebView and WebKitGTK. It is wired
+// before the settings sheet: the sheet hands askConfirm to its pages, so
+// the factory must have run by the time createSettings destructures ctx.
+const ask = createAsk(ctx);
+const { askConfirm, askText } = ask;
+Object.assign(ctx, ask);
+
 // The settings sheet: one page per tab, one save for all of them.
 const settingsSheet = createSettings(ctx);
 const { openSettings } = settingsSheet;
@@ -548,6 +558,12 @@ ctx.showDiff = showDiff;
  * first control, and where the focus came from is remembered so closing it
  * puts the user back where they were.
  */
+// An ask (desktop/ui/ask.js) waiting on this sheet learns about the close
+// through here: every path out of the sheet — a button, Escape, another
+// surface taking the modal — ends in hideModal, so the hook is the one place
+// a promise can be settled from.
+let modalCloseHook = null;
+
 function openModal() {
   const modal = $('modal');
   if (modal.classList.contains('hidden')) {
@@ -586,6 +602,9 @@ function trapFocus(ev) {
 }
 
 function hideModal() {
+  const closed = modalCloseHook;
+  modalCloseHook = null;
+  if (closed) closed();
   $('modal').classList.add('hidden');
   $('modal').classList.remove('settings-sheet');
   // The model picker is gone, so its Ctrl+R is gone with it: the shortcut
@@ -605,6 +624,10 @@ function hideModal() {
   }
   state.modalReturnFocus = null;
 }
+
+// The ask registers here, and one ask lives at a time — the hook is the
+// sheet's, not the ask's, so registering replaces whatever stood there.
+ctx.setModalCloseHook = (fn) => { modalCloseHook = fn; };
 
 /* ------------------------------------------------------------ permissions */
 
@@ -1891,7 +1914,7 @@ $('add-project').onclick = async () => {
     } catch { /* cancelled */ }
   }
   if (!chosen) {
-    const typed = window.prompt('folder to open (full path):');
+    const typed = await askText({ title: 'เปิดโฟลเดอร์', message: 'โฟลเดอร์ที่จะเปิด — พิมพ์ทางเต็ม', placeholder: 'เช่น D:\\works\\myapp', inputLabel: 'ทางเต็มของโฟลเดอร์' });
     if (typed) await rpc('projects.add', { path: typed }).catch((err) => addNote(err.message));
   }
   const projects = await rpc('projects.list').catch(() => []);
@@ -2510,7 +2533,7 @@ function resumeSession() {
       // Without them a session list only grows, and old runs are unfindable.
       const rename = el('button', 'mini', 'เปลี่ยนชื่อ');
       rename.onclick = async () => {
-        const next = window.prompt('ชื่อใหม่:', s.title ?? '');
+        const next = await askText({ title: 'เปลี่ยนชื่อบทสนทนา', message: 'ชื่อใหม่ของบทสนทนานี้', value: s.title ?? '', inputLabel: 'ชื่อใหม่' });
         if (!next) return;
         await rpc('session.rename', { id: s.id, title: next }).catch((err) => addNote(err.message));
         await refreshSessions();
@@ -2518,7 +2541,7 @@ function resumeSession() {
       };
       const del = el('button', 'mini', 'ลบ');
       del.onclick = async () => {
-        if (!window.confirm(`ลบบทสนทนา "${s.title ?? s.id}"?`)) return;
+        if (!(await askConfirm({ title: 'ลบบทสนทนา', message: `ลบ "${s.title ?? s.id}"?`, danger: true, confirmLabel: 'ลบ' }))) return;
         await rpc('session.delete', { id: s.id }).catch((err) => addNote(err.message));
         if (state.sessionId === s.id) { state.sessionId = null; resetTranscript(); clearTodo(); }
         await refreshSessions();

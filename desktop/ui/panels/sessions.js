@@ -220,7 +220,7 @@ async function drawArchived(ul) {
   const prune = el('button', 'mini', 'ลบที่เก็บเก่า');
   prune.title = 'ลบบทสนทนาที่อยู่ใน archive/ มานานเกิน 90 วัน (ลบถาวร)';
   prune.onclick = async () => {
-    if (!window.confirm('ลบบทสนทนาที่เก็บไว้นานเกิน 90 วันอย่างถาวร?')) return;
+    if (!(await ctx.askConfirm({ title: 'ลบที่เก็บเก่า', message: 'ลบบทสนทนาที่เก็บไว้นานเกิน 90 วันอย่างถาวร?', danger: true, confirmLabel: 'ลบถาวร' }))) return;
     prune.disabled = true;
     try {
       const out = await rpc('session.prune', { olderThanDays: 90, limit: 50 });
@@ -418,7 +418,10 @@ function installSkillDialog({ onInstalled } = {}) {
     const send = (overwrite) => rpc('skills.install', { name, text, target, overwrite });
     let done = await send(false).catch((err) => ({ error: err.message }));
     if (done.error && /already exists/.test(done.error)) {
-      if (typeof confirm === 'function' && !confirm(`มีคู่มือ "${name}" อยู่แล้ว — เขียนทับ?`)) { addNote('ยกเลิกการเขียนทับ'); return; }
+      // The ask goes through the window's own dialog: a bare confirm answers
+      // nothing on WKWebView and WebKitGTK, where a missing confirm used to
+      // read as a yes and overwrote the playbook without being asked.
+      if (!(await ctx.askConfirm({ title: 'เขียนทับคู่มือ', message: `มีคู่มือ "${name}" อยู่แล้ว — เขียนทับ?`, confirmLabel: 'เขียนทับ' }))) { addNote('ยกเลิกการเขียนทับ'); return; }
       done = await send(true).catch((err) => ({ error: err.message }));
     }
     if (done.error) { addNote(`ติดตั้งไม่ได้: ${done.error}`); return; }

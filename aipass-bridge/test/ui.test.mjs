@@ -240,8 +240,10 @@ async function bootApp(backend, { token = null, unauthorizedOnce = false } = {})
   const media = { light: false, listeners: new Set() };
   globalThis.window = {
     prompt: () => null,
-    // The destructive paths ask first: "ลบได้ไหม" — a test that clicks one
-    // of them needs the browser's answer, and the answer a test wants is yes.
+    // A safety net, not a path: the window asks through ask.js now, and the
+    // guard test fails the build if a native confirm/prompt comes back. If
+    // one ever did leak through, it must not silently answer the backend —
+    // a yes here would be a yes nobody saw.
     confirm: () => true,
     matchMedia: (query) => ({
       get matches() { return query.includes('light') ? media.light : !media.light; },
@@ -1221,6 +1223,9 @@ test('the window can enter a worktree and take one away', async () => {
   assert.ok(drop, 'the window offers to take one away');
   drop.dispatch('click');
   await tick(); await tick();
+  assert.match(node('modal-title').textContent, /ลบ worktree/, 'the removal asks first, in the sheet');
+  buttonIn(node('modal-actions'), /ลบ/).dispatch('click');
+  await tick(); await tick();
   assert.ok(sent.some((c) => c.method === 'worktree.remove'), 'the worktree was removed');
 });
 
@@ -1776,6 +1781,8 @@ test('the archive is a door both ways', async () => {
   // prunes only what has been in the archive for months.
   const prune = bar.children.filter((b) => b.tagName === 'BUTTON')[1];
   prune.dispatch('click');
+  await tick(); await tick();
+  buttonIn(node('modal-actions'), /ลบถาวร/).dispatch('click');
   await tick(); await tick();
   assert.ok(calls.includes('session.prune'), 'the prune asks the backend to do it');
 });
@@ -3842,6 +3849,9 @@ test('a restore says what came back and what was removed', async () => {
   const row = node('checkpoint-list').children[0];
   buttonIn(row, /ย้อนกลับ/).dispatch('click');
   await tick(); await tick();
+  assert.match(node('modal-title').textContent, /ย้อนกลับไฟล์/, 'the restore asks first, in the sheet');
+  buttonIn(node('modal-actions'), /ย้อนกลับ/).dispatch('click');
+  await tick(); await tick();
   assert.deepEqual(asked, [{ id: 'cp-1' }], 'the backend was asked for that checkpoint');
   const log = node('log').textContent;
   assert.match(log, /กลับมา 1 ไฟล์/, 'the reader is told what came back');
@@ -3912,6 +3922,9 @@ test('the git page commits with a message, and refuses an empty one', async () =
   const fields = inputsIn(page);
   fields[0].value = 'แก้ README';
   commit.dispatch('click');
+  await tick(); await tick();
+  assert.match(node('modal-title').textContent, /ยืนยัน commit/, 'the commit asks first, in the sheet');
+  buttonIn(node('modal-actions'), /^commit$/).dispatch('click');
   await tick(); await tick();
   assert.deepEqual(committed, [{ message: 'แก้ README' }], 'the commit carries the message the person wrote');
   assert.match(node('log').textContent, /commit แล้ว/, 'and the window says the commit is done');
@@ -4312,4 +4325,153 @@ test('the panel toggle flips aria-expanded', async () => {
   assert.equal(btn.getAttribute('aria-expanded'), 'true');
   btn.dispatch('click');
   assert.equal(node('panel-toggle').checked, true);
+});
+
+/* ------------------------------------------------------------------ ask */
+
+// The ask factory against three bare nodes: it only ever writes into
+// modal-title/modal-body/modal-actions and calls the two sheet verbs, so a
+// fake modal answers for the sheet without a backend behind it.
+function askContext() {
+  const ids = new Map();
+  const node = (id) => {
+    if (!ids.has(id)) ids.set(id, new El('div'));
+    return ids.get(id);
+  };
+  // The real modal starts hidden (index.html); the borrow logic reads that
+  // class to tell "the sheet is open" from "the ask is alone in it".
+  node('modal').className = 'hidden';
+  let hook = null;
+  const ctx = {
+    $: (id) => node(id),
+    el: (tag, cls, text) => {
+      const e = new El(tag);
+      if (cls) e.className = cls;
+      if (text != null) e.textContent = text;
+      return e;
+    },
+    openModal: () => node('modal').classList.remove('hidden'),
+    // The real hideModal fires the close hook before its cleanup — the fake
+    // mirrors that, because "the sheet went away" is what settles the ask.
+    hideModal: () => {
+      node('modal').classList.add('hidden');
+      const h = hook;
+      hook = null;
+      if (h) h();
+    },
+    setModalCloseHook: (fn) => { hook = fn; },
+  };
+  return { ctx, node };
+}
+
+test('askConfirm answers true only from its confirm button', async () => {
+  const { ctx, node } = askContext();
+  const { createAsk } = await import('../../desktop/ui/ask.js');
+  const { askConfirm } = createAsk(ctx);
+  const p = askConfirm({ title: 'ลบบทสนทนา', message: 'ลบ "x"?', danger: true, confirmLabel: 'ลบ' });
+  assert.equal(node('modal-title').textContent, 'ลบบทสนทนา');
+  const [cancel, confirm] = node('modal-actions').children;
+  assert.equal(confirm.className, 'danger-btn', 'a destructive ask carries the danger look');
+  assert.equal(cancel.textContent, 'ยกเลิก');
+  confirm.onclick();
+  assert.equal(await p, true, 'the promise resolves with the answer');
+  assert.equal(node('modal').classList.contains('hidden'), true, 'and the sheet goes away');
+});
+
+test('askConfirm reads cancel and an outside close as no', async () => {
+  const { ctx, node } = askContext();
+  const { createAsk } = await import('../../desktop/ui/ask.js');
+  const { askConfirm } = createAsk(ctx);
+  const p = askConfirm({ title: 'ยืนยัน' });
+  node('modal-actions').children[0].onclick();
+  assert.equal(await p, false, 'cancel is a no');
+  const p2 = askConfirm({ title: 'ยืนยันอีกครั้ง' });
+  ctx.hideModal(); // Escape, or another surface taking the sheet
+  assert.equal(await p2, false, 'a sheet that closed without an answer is a no, not a dead button');
+});
+
+test('askText returns what was typed, and null when it is dismissed', async () => {
+  const { ctx, node } = askContext();
+  const { createAsk } = await import('../../desktop/ui/ask.js');
+  const { askText } = createAsk(ctx);
+  const p = askText({ title: 'เปลี่ยนชื่อ', value: 'เก่า', inputLabel: 'ชื่อใหม่' });
+  const input = node('modal-body').children.find((c) => c.tagName === 'INPUT');
+  assert.equal(input.value, 'เก่า', 'the field opens with the value it was handed');
+  input.value = 'ใหม่';
+  input.dispatch('keydown', { key: 'Enter' });
+  assert.equal(await p, 'ใหม่', 'Enter confirms the typed text');
+  const p2 = askText({ title: 'เปิดโฟลเดอร์' });
+  node('modal-actions').children[0].onclick();
+  assert.equal(await p2, null, 'cancel is null — the caller must tell it from an empty answer');
+  const p3 = askText({ title: 'เปิดโฟลเดอร์', value: 'เดิม' });
+  const input2 = node('modal-body').children.find((c) => c.tagName === 'INPUT');
+  input2.value = 'พิมพ์ใหม่';
+  node('modal-actions').children[1].onclick();
+  assert.equal(await p3, 'พิมพ์ใหม่', 'the confirm button submits too, not only Enter');
+});
+
+test('a second ask settles the first as its own kind of no, and takes the sheet', async () => {
+  const { ctx, node } = askContext();
+  const { createAsk } = await import('../../desktop/ui/ask.js');
+  const { askConfirm, askText } = createAsk(ctx);
+  const first = askText({ title: 'first' });
+  const second = askConfirm({ title: 'second' });
+  assert.equal(await first, null, 'a superseded text ask reads as null — its own no, not a confirm');
+  assert.equal(node('modal-title').textContent, 'second', 'and the sheet shows the second ask');
+  node('modal-actions').children[1].onclick();
+  assert.equal(await second, true);
+});
+
+test('an ask inside an open sheet borrows it and hands it back whole', async () => {
+  // The settings sheet IS the modal: a delete confirm opened from inside it
+  // must not close the sheet or throw its page away — window.confirm never
+  // did, and neither may the ask.
+  const { ctx, node } = askContext();
+  const { createAsk } = await import('../../desktop/ui/ask.js');
+  const { askConfirm } = createAsk(ctx);
+  // A sheet is open, the way the settings one is: its own title, a page node
+  // in the body, and an action of its own.
+  node('modal').classList.remove('hidden');
+  node('modal-title').textContent = 'settings';
+  const page = ctx.el('div', 'settings-page', 'the page the reader was on');
+  node('modal-body').append(page);
+  const done = ctx.el('button', 'primary', 'บันทึก');
+  node('modal-actions').append(done);
+
+  const p = askConfirm({ title: 'ลบผู้ให้บริการ', message: 'ลบ "x"?', danger: true });
+  assert.equal(node('modal-title').textContent, 'ลบผู้ให้บริการ', 'the ask borrows the sheet');
+  node('modal-actions').children[1].onclick();
+  assert.equal(await p, true, 'the answer comes back');
+  assert.equal(node('modal-title').textContent, 'settings', 'and the sheet is the sheet again');
+  assert.equal(node('modal-body').children.includes(page), true, 'the page node is back — live, not a copy');
+  assert.equal(node('modal-actions').children.includes(done), true, 'so are its actions');
+  assert.equal(node('modal').classList.contains('hidden'), false, 'the sheet never closed');
+});
+
+test('the window sheet itself answers an ask through Escape', async () => {
+  const { tick } = await bootApp(BACKEND);
+  const { askConfirm } = globalThis.__ctx;
+  const p = askConfirm({ title: 'ยืนยัน commit', message: 'commit?', danger: true });
+  await tick();
+  assert.match(globalThis.document.getElementById('modal-title').textContent, /ยืนยัน commit/, 'the ask opened the real sheet');
+  globalThis.document.dispatch('keydown', { key: 'Escape' });
+  assert.equal(await p, false, 'the Escape path settles the ask as no');
+});
+
+test('no native confirm or prompt is left anywhere in the window', () => {
+  const dir = path.join(repo, 'desktop', 'ui');
+  const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) => {
+    const p = path.join(d, e.name);
+    return e.isDirectory() ? walk(p) : (e.name.endsWith('.js') ? [p] : []);
+  });
+  const offenders = [];
+  for (const file of walk(dir)) {
+    const src = fs.readFileSync(file, 'utf8');
+    // askConfirm rides along in the guard's blind spot: a bare confirm( or
+    // prompt( is the shape WebKitGTK swallows, and a window.confirm( is the
+    // shape that no-ops on WKWebView. A commented mention fails loud — a
+    // guard that stays quiet about itself is a guard nobody trusts.
+    if (/window\.confirm\(|window\.prompt\(|(?<![.\w])confirm\(|(?<![.\w])prompt\(/.test(src)) offenders.push(path.relative(dir, file));
+  }
+  assert.deepEqual(offenders, [], 'the window asks through ask.js, not the native dialogs WebKitGTK swallows');
 });

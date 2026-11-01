@@ -37,7 +37,7 @@ const optionEl = (value, text) => {
  * undo that.
  */
 export async function renderGitTab(page, sheet) {
-  const { el, rpc, state, addCommandOut, friendly } = sheet;
+  const { el, rpc, state, addCommandOut, friendly, askConfirm } = sheet;
 
   const head = el('div', 'plugin-head');
   const branch = el('div', 'plugin-name', 'กำลังอ่านสถานะ…');
@@ -120,7 +120,7 @@ export async function renderGitTab(page, sheet) {
   commit.onclick = async () => {
     const text = message.value.trim();
     if (!text) { note.textContent = 'commit ต้องมีข้อความ — git ไม่รับ commit ที่ไม่มีข้อความ'; return; }
-    if (!window.confirm(`commit ข้อความว่า "${text}"? — commit เขียนลงประวัติของ repo แล้ว ย้อนกลับยาก`)) return;
+    if (!(await askConfirm({ title: 'ยืนยัน commit', message: `commit ข้อความว่า "${text}"?`, note: 'commit เขียนลงประวัติของ repo แล้ว ย้อนกลับยาก', confirmLabel: 'commit' }))) return;
     commit.disabled = true;
     const done = await rpc('git.commit', { message: text }).catch((err) => ({ error: err.message }));
     commit.disabled = false;

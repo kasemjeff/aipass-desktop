@@ -158,7 +158,7 @@ async function removeWorktree(path) {
   const ask = files.length
     ? `ลบ worktree นี้? — ยังมี ${files.length} ไฟล์ที่ไม่ได้ merge การลบจะทำให้ไฟล์เหล่านั้นหายไป`
     : 'ลบ worktree นี้? — โฟลเดอร์จะถูกลบออกจากเครื่อง (branch ยังอยู่ใน repo)';
-  if (!window.confirm(ask)) return;
+  if (!(await ctx.askConfirm({ title: 'ลบ worktree', message: ask, danger: true, confirmLabel: 'ลบ' }))) return;
   const done = await ctx.rpc('worktree.remove', { path, force: true }).catch((err) => ({ error: err.message }));
   if (done.error) { ctx.addNote(`ลบ worktree ไม่ได้: ${ctx.friendly(done.error)}`); return; }
   const sameProject2 = (a, b) => String(a).replace(/\\/g, '/').toLowerCase() === String(b).replace(/\\/g, '/').toLowerCase();

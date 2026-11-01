@@ -43,7 +43,7 @@ export function createCheckpoints(ctx) {
   /** Put a checkpoint's files back as they were. */
   async function restoreCheckpoint(cp, files = []) {
     const what = files.length ? `${files.length} ไฟล์ (${files.slice(0, 3).join(', ')}${files.length > 3 ? '...' : ''})` : 'ทุกไฟล์';
-    if (!window.confirm(`ย้อนกลับ ${what}? การกระทำนี้ไม่สามารถเลิกได้`)) return;
+    if (!(await ctx.askConfirm({ title: 'ย้อนกลับไฟล์', message: `ย้อนกลับ ${what}?`, note: 'การกระทำนี้ไม่สามารถเลิกได้', danger: true, confirmLabel: 'ย้อนกลับ' }))) return;
     const done = await ctx.rpc('checkpoints.restore', { id: cp.id }).catch((err) => ({ error: err.message }));
     if (done.error) { ctx.addNote(`ย้อนกลับไม่ได้: ${ctx.friendly(done.error)}`); return; }
     const restored = done.restored ?? [];
@@ -54,8 +54,10 @@ export function createCheckpoints(ctx) {
     await refreshCheckpoints();
   }
 
-  /** Forget a checkpoint without restoring it. */
+  /** Forget a checkpoint without restoring it. The ask is the point: the
+   *  button says the forget cannot be undone, so it asks before doing it. */
   async function removeCheckpoint(cp) {
+    if (!(await ctx.askConfirm({ title: 'ลบจุดย้อนกลับ', message: 'ลบจุดย้อนกลับนี้? — ย้อนกลับด้วยจุดนี้ไม่ได้อีก', danger: true, confirmLabel: 'ลบ' }))) return;
     const done = await ctx.rpc('checkpoints.remove', { id: cp.id }).catch((err) => ({ error: err.message }));
     if (done.error) { ctx.addNote(`ลบไม่ได้: ${ctx.friendly(done.error)}`); return; }
     ctx.addNote('ลบจุดย้อนกลับแล้ว');

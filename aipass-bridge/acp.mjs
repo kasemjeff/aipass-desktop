@@ -6,6 +6,7 @@
 import { createInterface } from 'node:readline';
 import path from 'node:path';
 import { Harness } from './harness/harness.mjs';
+import { Emitter } from './harness/events.mjs';
 import { Settings, aipassHome, harnessOptions } from './harness/settings.mjs';
 import { SessionStore } from './harness/session.mjs';
 
@@ -26,34 +27,57 @@ function errReply(id, code, message) {
   out({ jsonrpc: '2.0', id, error: { code, message } });
 }
 
-// server -> client request (permission)
-function requestPermission(session, tool, args) {
+// server -> client request (permission). The editor answers in the ACP
+// shape; the engine answers through permissions.answer with the request id
+// the question carried.
+function requestPermission(session, question) {
   return new Promise((resolve) => {
     const id = `perm-${nextId++}`;
     pending.set(id, resolve);
-    out({ jsonrpc: '2.0', id, method: 'session/request_permission', params: { sessionId: session.id, tool, args } });
+    out({
+      jsonrpc: '2.0',
+      id,
+      method: 'session/request_permission',
+      params: {
+        sessionId: session.id,
+        tool: question.kind,
+        args: question.arg,
+        preview: question.preview ?? '',
+        risk: question.risk,
+      },
+    });
     // timeout: default deny
     setTimeout(() => {
-      if (pending.has(id)) { pending.delete(id); resolve({ allow: false }); }
+      if (pending.has(id)) { pending.delete(id); resolve({ outcome: { outcome: 'rejected' } }); }
     }, 30000);
   });
 }
 
+// The editor's answer, read into the one word the engine understands. The
+// ACP shape nests the decision; a bare word is accepted too. Anything
+// unreadable is a deny — the answer that keeps the machine safe.
+function permissionDecision(answer) {
+  const word = typeof answer === 'string'
+    ? answer
+    : answer?.outcome?.outcome ?? answer?.outcome ?? answer?.decision ?? '';
+  const said = String(word).toLowerCase();
+  return said === 'allow' || said === 'always' ? said : 'deny';
+}
+
 function makeHarness(root, options = {}) {
   const store = new SessionStore(path.join(aipassHome(), 'sessions'));
+  // A real Emitter, not a stub: the permission engine asks whether anyone is
+  // listening before it asks a question (isObserved), and a shim without the
+  // answer crashed every gated call instead of asking. The session wires its
+  // own listeners after the harness exists — they need its id.
+  const events = new Emitter();
   const h = new Harness({
     root,
     options: harnessOptions({ ...options, subagent: false }),
     store,
-    events: {
-      emit: (name, payload) => {
-        if (name === 'note') notify('session/update', { sessionId: null, type: 'note', text: payload?.text });
-      },
-      on: () => {},
-      off: () => {},
-    },
+    events,
   });
-  return h;
+  return { h, events };
 }
 
 rl.on('line', async (line) => {
@@ -81,13 +105,19 @@ rl.on('line', async (line) => {
 
     if (method === 'session/new') {
       const root = params.root || process.cwd();
-      const h = makeHarness(root, params.options || {});
+      const { h, events } = makeHarness(root, params.options || {});
       const session = await h.startSession({ title: params.title || null });
       const sid = session?.id || `s-${sessions.size + 1}`;
       const entry = { id: sid, harness: h, root };
-      // permission callback
-      h.permissions = h.permissions || {};
-      h.options = h.options || {};
+      // The notes ride to the editor as updates; a permission question rides
+      // out as a request and its answer rides back into the engine, keyed by
+      // the id the question carried.
+      events.on('note', (payload) => notify('session/update', { sessionId: null, type: 'note', text: payload?.text }));
+      events.on('permission_request', (question) => {
+        void requestPermission(entry, question).then((answer) => {
+          try { h.permissions.answer(question.id, permissionDecision(answer)); } catch { /* already answered */ }
+        });
+      });
       sessions.set(sid, entry);
       reply(id, { sessionId: sid });
       return;
@@ -117,8 +147,10 @@ rl.on('line', async (line) => {
     if (method === 'session/cancel') {
       const entry = sessions.get(params.sessionId);
       if (!entry) { errReply(id, -32000, 'unknown session'); return; }
-      try { entry.harness.abort?.abort?.(); } catch { /* gone */ }
-      entry.harness.stopAsked = true;
+      // The harness's own cancel is the whole stop: the run in flight, the
+      // gates parked behind it, and the stop that lands between two runs —
+      // a field nothing read could promise none of that.
+      entry.harness.cancel();
       reply(id, { cancelled: true });
       return;
     }
