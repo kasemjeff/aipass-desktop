@@ -1,5 +1,8 @@
-# ✳ aipass
+# AiPASS Desktop — open-source AI coding agent for Windows, macOS & Linux
 
+> **AiPASS Desktop** is an open-source, Thai-first AI coding agent for Windows, macOS and Linux —
+> review every diff, approve edits, resume and fork sessions. MIT licensed, zero dependencies.
+>
 > **The desktop window and the agent harness for [de.aipass.net](https://de.aipass.net/chat)** —
 > a file-editing agent you can watch, approve and resume — running on top of the
 > community bridge that reaches the site through your own logged-in browser tab.
@@ -11,7 +14,12 @@
   <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgray?style=flat-square" alt="Platforms" />
 </p>
 
-![the aipass desktop window](./public/image.png)
+<p align="left">
+  🌐 <a href="https://kasemjeff.github.io/aipass-desktop/">Landing page</a> ·
+  ⬇ <a href="https://github.com/kasemjeff/aipass-desktop/releases/latest">Download (Releases)</a>
+</p>
+
+![AiPASS Desktop AI coding agent window showing sessions, project tree and a file diff](./public/image.png)
 
 <p align="center">
   <em>The window: sessions on the left, the project tree under them, the
@@ -148,6 +156,9 @@ and the CLI*, below.
 
 ## Installing
 
+Download the latest installer from [Releases](https://github.com/kasemjeff/aipass-desktop/releases/latest),
+or build from source below.
+
 ### What you need
 
 | you need | why |
@@ -162,8 +173,8 @@ and the CLI*, below.
 From a fresh clone, this is the whole machine setup:
 
 ```bash
-git clone https://github.com/kasemjeff/TH-aipassport-harness.git
-cd TH-aipassport-harness
+git clone https://github.com/kasemjeff/aipass-desktop.git
+cd aipass-desktop
 npm run setup
 ```
 
@@ -432,6 +443,7 @@ The design and operations docs live in [`docs/`](./docs/):
 | [`docs/TECH_STACK.md`](./docs/TECH_STACK.md) | what runs where, and the reasons each piece is what it is |
 | [`docs/DATA_FORMATS.md`](./docs/DATA_FORMATS.md) | what lands on disk: settings, session JSONL, the token, uploads, eval results |
 | [`docs/TROUBLESHOOTING.md`](./docs/TROUBLESHOOTING.md) | when something is broken: doctor, the common failures, where the logs are |
+| [`docs/FAQ.md`](./docs/FAQ.md) | frequently asked questions: official status, API keys, Chrome, data, offline, Node, Rust, sessions, uninstall |
 | [`docs/RELIABILITY.md`](./docs/RELIABILITY.md) | what healthy means: the SLIs and their targets, the error budget, degradation modes |
 | [`docs/RELEASE.md`](./docs/RELEASE.md) | versioning, the release checklist, upgrade and rollback, dependency review |
 | [`docs/INSTALL.md`](./docs/INSTALL.md) | the install system: what an install guarantees, what each platform ships, what macOS needs |
