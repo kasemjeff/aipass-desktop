@@ -1,0 +1,15 @@
+# AiPASS Desktop
+
+> Open-source, Thai-first AI coding agent and agent harness for Windows, macOS and Linux. MIT licensed, zero dependencies.
+
+AiPASS Desktop is a desktop app for running a reviewable AI coding agent in your project. It connects to de.aipass.net through your own logged-in Chrome tab, stages every file edit as a diff you approve, and keeps sessions you can resume or fork.
+
+## Key pages
+- Home: https://kasemjeff.github.io/aipass-desktop/
+- Repository: https://github.com/kasemjeff/aipass-desktop
+- Releases: https://github.com/kasemjeff/aipass-desktop/releases/latest
+- README: https://github.com/kasemjeff/aipass-desktop/blob/main/README.md
+- Install guide: https://github.com/kasemjeff/aipass-desktop/blob/main/docs/INSTALL.md
+- FAQ: https://github.com/kasemjeff/aipass-desktop/blob/main/docs/FAQ.md
+- Troubleshooting: https://github.com/kasemjeff/aipass-desktop/blob/main/docs/TROUBLESHOOTING.md
+- Changelog: https://github.com/kasemjeff/aipass-desktop/blob/main/CHANGELOG.md

@@ -3,6 +3,9 @@
   "version": "0.2.0",
   "private": true,
   "license": "MIT",
+  "homepage": "https://kasemjeff.github.io/aipass-desktop/",
+  "repository": { "type": "git", "url": "https://github.com/kasemjeff/aipass-desktop.git" },
+  "bugs": { "url": "https://github.com/kasemjeff/aipass-desktop/issues" },
   "description": "AiPASS in a desktop window — bridge, chat and a file agent with a pi-style harness.",
   "bin": {
     "aipass": "aipass-bridge/bin/aipass.mjs"
