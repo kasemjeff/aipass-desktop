@@ -7,7 +7,7 @@ niawjunior/aipass-bridge:
     https://github.com/niawjunior/aipass-bridge
 
 The upstream bridge, Chrome extension and CLI remain under the copyright of
-the aipass-bridge contributors, niawjunior and Pheem49. The desktop window,
+the aipass-bridge contributors, niawjunior. The desktop window,
 the agent harness and the documentation added in this repository are under
 the copyright of kasemjeff. The combined work is distributed under the MIT
 License in LICENSE.

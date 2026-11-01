@@ -12,7 +12,7 @@
 
 The bridge, Chrome extension and CLI began in
 [niawjunior/aipass-bridge](https://github.com/niawjunior/aipass-bridge). The
-upstream copyright holders are **niawjunior**, **Pheem49** and the other
+upstream copyright holders are **niawjunior** and the other
 `aipass-bridge` authors. They are named here for provenance and attribution,
 not as contributors to this repository.
 

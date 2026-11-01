@@ -98,7 +98,7 @@ npm run doctor        # ตรวจเครื่องและ service
 
 **kasemjeff** เป็นผู้ร่วมพัฒนาเพียงคนเดียวของ repo นี้ ดู [AUTHORS.md](./AUTHORS.md)
 
-โค้ด bridge, extension และ CLI สืบต่อจาก upstream ซึ่งมี **niawjunior**, **Pheem49**
+โค้ด bridge, extension และ CLI สืบต่อจาก upstream ซึ่งมี **niawjunior**
 และผู้เขียนคนอื่น ๆ เป็นเจ้าของลิขสิทธิ์เดิม ข้อความลิขสิทธิ์อยู่ใน
 [LICENSE](./LICENSE) และ [NOTICE](./NOTICE) ไม่ได้ถูกลบ
 

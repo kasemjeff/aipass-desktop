@@ -13,7 +13,7 @@ This project would not exist without the people and projects below.
 - **[niawjunior/aipass-bridge](https://github.com/niawjunior/aipass-bridge)** —
   the bridge, Chrome extension and CLI this repository continues. MIT
   licensed; copyright is preserved in [LICENSE](./LICENSE).
-- **niawjunior**, **Pheem49** and the other `aipass-bridge` authors — the
+- **niawjunior** and the other `aipass-bridge` authors — the
   upstream copyright holders, credited for the code this repository continues.
 
 ## Design influences
