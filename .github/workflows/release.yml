@@ -70,7 +70,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: Install the Tauri CLI
         run: cargo install tauri-cli --version "^2" --locked
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
