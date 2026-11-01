@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 // aipass setup — one command to get a machine ready to use aipass.
 //
-//   aipass setup            (or: npm run setup)
-//   aipass setup --no-open  don't open browser pages
-//   aipass setup --no-bridge don't start/adopt the bridge
+//   npm run setup            first-run machine setup
+//   npm run setup -- --no-open  don't open browser pages
+//   npm run setup -- --no-bridge don't start/adopt the bridge
 //
-// Checks Node, puts `aipass` on PATH, mints the loopback token (and copies it
-// to the clipboard), starts the bridge, and opens the extension + site pages so
-// the one-time browser steps can be finished. Idempotent — re-run any time.
+// Checks Node, mints the loopback token (and copies it to the clipboard),
+// starts the bridge, and opens the extension + site pages so the one-time
+// browser steps can be finished. Idempotent — re-run any time.
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
@@ -43,10 +43,10 @@ const help = args.includes('--help') || args.includes('-h');
 if (help) {
   console.log(`aipass setup — first-run machine setup
 
-  aipass setup            check Node, PATH, token, bridge, browser pages
-  aipass setup --no-open  don't open browser pages
-  aipass setup --no-bridge don't start/adopt the bridge
-  aipass setup --help     this help
+  npm run setup            check Node, token, bridge, browser pages
+  npm run setup -- --no-open  don't open browser pages
+  npm run setup -- --no-bridge don't start/adopt the bridge
+  npm run setup -- --help     this help
 
   (npm run setup does the same thing from the repo directory)`);
   process.exit(0);
@@ -75,66 +75,8 @@ ok(`state dir: ${STATE}`);
 ok(`token file: ${tp}`);
 info(`token prefix: ${token.slice(0, 8)}… (full token is in the file above)`);
 
-// 3. PATH
-step(3, 'Putting `aipass` on your PATH');
-function aipassOnPath() {
-  try {
-    const cmd = platform() === 'win32' ? 'where' : 'which';
-    const out = execFileSync(cmd, ['aipass'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
-    return out.split(/\r?\n/)[0] || null;
-  } catch {
-    return null;
-  }
-}
-const ourBin = path.join(BRIDGE_DIR, 'bin', 'aipass.mjs');
-let installed = false;
-const found = aipassOnPath();
-if (found) {
-  ok(`already installed: ${found}`);
-  installed = true;
-} else if (platform() === 'win32') {
-  try {
-    execFileSync('npm', ['link'], { cwd: ROOT, stdio: 'inherit' });
-    ok('installed via `npm link`');
-    installed = true;
-  } catch {
-    warn('`npm link` failed');
-    info('manual: npm config set prefix "$env:LOCALAPPDATA\\npm"; npm link');
-    info(`or call directly: node "${ourBin}" --help`);
-  }
-} else {
-  const binds = [path.join(homedir(), '.local', 'bin'), path.join(homedir(), 'bin')];
-  const onPathBind = binds.find((d) => (process.env.PATH || '').split(':').includes(d));
-  if (onPathBind) {
-    fs.mkdirSync(onPathBind, { recursive: true });
-    const link = path.join(onPathBind, 'aipass');
-    try { fs.unlinkSync(link); } catch { /* not there */ }
-    try {
-      fs.symlinkSync(ourBin, link);
-      try { fs.chmodSync(ourBin, 0o755); } catch { /* best effort */ }
-      ok(`symlinked: ${link} -> ${ourBin}`);
-      installed = true;
-    } catch (e) {
-      warn(`symlink failed: ${e.message}`);
-    }
-  }
-  if (!installed) {
-    try {
-      execFileSync('npm', ['link'], { cwd: ROOT, stdio: 'inherit' });
-      ok('installed via `npm link`');
-      installed = true;
-    } catch {
-      warn('`npm link` failed');
-      info('manual options: sh aipass-bridge/install.sh');
-    }
-  }
-}
-if (!installed) {
-  info(`you can still run without installing: node "${ourBin}" --help`);
-}
-
-// 4. Clipboard (best effort)
-step(4, 'Copying the token to your clipboard (best effort)');
+// 3. Clipboard (best effort)
+step(3, 'Copying the token to your clipboard (best effort)');
 let copied = false;
 try {
   if (platform() === 'darwin') {
@@ -153,7 +95,7 @@ else info(`clipboard unavailable; copy the token from ${tp}`);
 
 // 5. Bridge
 if (!noBridge) {
-  step(5, 'Bridge');
+  step(4, 'Bridge');
   async function bridgeUp() {
     try { const r = await fetch(`${BRIDGE}/status`, { signal: AbortSignal.timeout(1500) }); return r.ok; } catch { return false; }
   }
@@ -172,7 +114,7 @@ if (!noBridge) {
       await new Promise((r) => setTimeout(r, 300));
     }
     if (up) ok(`started bridge in background (pid ${child.pid})`);
-    else warn('bridge did not answer; run `aipass dev` to see why');
+    else warn('bridge did not answer; run `npm run dev` to see why');
   }
   try {
     const s = await fetch(`${BRIDGE}/status`).then((r) => r.json());
@@ -183,7 +125,7 @@ if (!noBridge) {
 
 // 6. Browser pages
 if (!noOpen) {
-  step(6, 'Opening the browser steps');
+  step(5, 'Opening the browser steps');
   info(`extension folder: ${EXT_DIR}`);
   function openUrl(url) {
     try {
@@ -208,12 +150,8 @@ if (!noOpen) {
 
 console.log(`\n${bold('Setup complete.')}`);
 console.log(dim('  Next:'));
-console.log('    aipass            open the chat (starts the bridge for you if needed)');
-console.log('    aipass status     check node / bridge / extension');
-console.log('    aipass doctor     full diagnostics');
-console.log('    aipass --help     everything else');
+console.log('    npm run desktop   open the desktop window (starts what it needs)');
 console.log(dim('\n  One-time browser step (if not done yet):'));
 console.log(dim(`    1. chrome://extensions -> Developer mode -> Load unpacked -> ${EXT_DIR}`));
 console.log(dim('    2. https://de.aipass.net/chat -> log in, leave the tab open'));
 console.log(dim('    3. extension popup -> Advanced -> paste the token (already on your clipboard) -> save'));
-console.log(dim('\n  Uninstall the command: npm rm -g aipass  (or remove the symlink aipass setup created)'));

@@ -1000,8 +1000,8 @@ export function createTools(ctx) {
       if (kind) {
         return `err: ${rel} is ${kind === 'binary' ? 'a binary file' : `a ${kind} file`}, not text.\n`
           + 'These tools only read text, and its bytes would be unreadable. Do not try to read it again.\n'
-          + 'To ask a question about this document, attach it to a chat instead:\n'
-          + `  npm run chat -- "your question" --file ${rel}`;
+          + 'To ask a question about this document, attach it to a chat in the window instead:\n'
+          + `  attach ${rel}`;
       }
 
       readSet.add(abs); // seen by the run: the write gate lets CREATE replace it now

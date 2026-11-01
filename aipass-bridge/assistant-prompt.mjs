@@ -3,7 +3,7 @@
 //
 // This is the single source: the block in README.md is checked against it by
 // the test suite, so the copy someone pastes by hand cannot drift from the one
-// `npm run setup-assistant` installs.
+// the README walks you through creating.
 //
 // Normalised at the end because a Windows checkout turns every newline in this
 // file into CRLF, which would both inflate the count past the form's 1000 and

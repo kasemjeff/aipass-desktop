@@ -27,10 +27,11 @@
   diff ต่อไฟล์ให้อนุมัติ, plan card, โหมดสิทธิ์, file panel, playbook และ plugin
 - **`aipass-bridge/harness/`** — แกน agent: loop, tools, protocol, session บนดิสก์,
   compaction, permission/path rules, WAF, provider, plugin และ MCP
-- **`aipass-bridge/`** — bridge, Chrome extension และ CLI ที่สืบต่อจาก
-  [niawjunior/aipass-bridge](https://github.com/niawjunior/aipass-bridge)
+- **`aipass-bridge/`** — bridge และ Chrome extension ที่สืบต่อจาก
+  [niawjunior/aipass-bridge](https://github.com/niawjunior/aipass-bridge) — `agent.mjs`
+  คือ runner ครั้งเดียว (one-shot) ที่ scheduler เรียกใช้ ไม่มีคำสั่ง `aipass` ในเทอร์มินัลแล้ว
 
-หน้าต่าง, CLI และ agent ใช้ `~/.aipass/settings.json` ไฟล์เดียวกัน ค่าที่เปลี่ยนจึงมีผล
+หน้าต่างและ agent ใช้ `~/.aipass/settings.json` ไฟล์เดียวกัน ค่าที่เปลี่ยนจึงมีผล
 ทุกที่ทันที
 
 ## ติดตั้งจาก source
@@ -44,12 +45,12 @@
 | **บัญชี de.aipass.net** | แท็บที่ล็อกอินอยู่คือ credential |
 
 ```bash
-git clone https://github.com/kasemjeff/TH-aipassport-desktop.git
-cd TH-aipassport-desktop
+git clone https://github.com/kasemjeff/aipass-desktop.git
+cd aipass-desktop
 npm run setup
 ```
 
-`setup` จะตรวจ Node, สร้าง `~/.aipass/` และ token, ใส่ `aipass` ใน PATH, คัดลอก token,
+`setup` จะตรวจ Node, สร้าง `~/.aipass/` และ token, คัดลอก token,
 เริ่ม bridge และเปิดหน้าเว็บ/หน้า extensions ให้
 
 ### สองขั้นตอนในเบราว์เซอร์ (ครั้งเดียว)
@@ -59,7 +60,7 @@ npm run setup
 2. เปิด popup ของ extension → **Advanced** → **Loopback token** → วางเนื้อหา
    `~/.aipass/.token` → บันทึก แล้วเปิด <https://de.aipass.net/chat> ล็อกอินและเปิดแท็บนั้นไว้
 
-ตรวจสถานะด้วย `aipass status` และแก้ปัญหาด้วย `aipass doctor`
+สถานะอยู่ที่ header ของหน้าต่าง หรือถาม bridge ตรง ๆ ที่ `GET /status`
 
 ### หน้าต่างเดสก์ท็อป
 
@@ -79,7 +80,6 @@ npm run typecheck     # ไฟล์ที่เปิด // @ts-check
 npm run docs:check    # ลิงก์ Markdown ที่เป็น relative
 npm run coverage:gate # coverage floor ต่อไฟล์
 npm run check         # ก่อน push: lint + test + qa + coverage + docs
-npm run doctor        # ตรวจเครื่องและ service
 ```
 
 ## เอกสาร

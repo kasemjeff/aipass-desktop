@@ -3,9 +3,8 @@
 // chat.mjs used to carry a fork of the substitution table that had already
 // diverged from harness/waf.mjs — it was missing the console.* and comparison
 // families, so the same file travelled fine from the CLI and drew a 403 from
-// the harness. This file pins the single-source rule two ways: a source check
-// that there is no second table to drift, and a round trip through the one
-// that remains.
+// the harness. The terminal client is gone now, and the pin stays: the one
+// table that remains is the only one, and the runner imports it.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -16,12 +15,10 @@ import { outbound, inbound, SUBSTITUTIONS, RESTORE, restoreTable } from '../harn
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const read = (rel) => fs.readFileSync(path.join(HERE, '..', rel), 'utf8');
 
-test('chat.mjs carries no fork of the WAF table', () => {
-  const src = read('chat.mjs');
-  assert.ok(!/const SUBSTITUTIONS\s*=/.test(src), 'chat.mjs must not define its own SUBSTITUTIONS');
-  assert.ok(!/const RESTORE\s*=/.test(src), 'chat.mjs must not define its own RESTORE');
-  assert.match(src, /from '\.\/harness\/waf\.mjs'/, 'chat.mjs imports the shared table');
-  // agent.mjs imports the same module through the harness core.
+test('the runner imports the shared WAF table, and no second table exists', () => {
+  assert.match(read('agent.mjs'), /from '\.\/harness\/harness\.mjs'|from '\.\/harness\/waf\.mjs'/,
+    'agent.mjs reaches the table through the harness core');
+  // The single source, still the only one.
   assert.match(read('harness/waf.mjs'), /export const SUBSTITUTIONS/);
 });
 

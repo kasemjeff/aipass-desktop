@@ -5,7 +5,50 @@ procedure, acceptance criteria and rollback live in [`docs/RELEASE.md`](docs/REL
 
 ## [Unreleased]
 
+### Removed
+
+- **The terminal CLI left the repository.** This repo is the desktop app, and
+  it now ships like one: `bin/aipass.mjs` (the `aipass` dispatcher), the chat
+  TUI (`chat.mjs`), the list printers (`list.mjs`), the stats report
+  (`stats.mjs`), the diagnostics command (`doctor.mjs`), the setup assistant
+  (`setup-assistant.mjs`) and their installers (`install.sh` / `install.ps1`)
+  are gone, with the `npm run chat` / `agent` / `models` / `styles` /
+  `conversations` / `credits` / `doctor` / `stats` / `setup-assistant`
+  shortcuts and the `bin` entry. The desktop no longer offers a "ติดตั้ง CLI"
+  tray item. What stays: `agent.mjs` as the one-shot runner the schedule
+  spawns headlessly (`agent.mjs "<task>" --root <root> --bridge <url>`, bridge
+  derived from `AIPASS_HOST`/`AIPASS_PORT`), and the module commands that are
+  also libraries (`goal.mjs`, `sessions.mjs`, `providers.mjs`, `memory.mjs`,
+  `relocate.mjs`, `scale.mjs`, `acp.mjs`, `mcp.mjs`, `plugin.mjs`), reachable
+  as `node aipass-bridge/<name>.mjs`. Status/diagnostics now live in the
+  window and in the bridge's `GET /status`.
+
 ### Added
+
+- **Timeouts speak, reads batch wider, and a chanting run gets told.** Command
+  ceilings are declared once per tool (`TOOL_TIMEOUTS` in `tools.mjs`: RUN
+  120 s, GIT 15 s, FETCH 20 s) and a timeout now says its own fact — "the
+  command timed out after Ns", with the output printed before the cut and the
+  way out (RUN background, poll JOBS) — instead of a bare `err: exit SIGTERM`.
+  A result the harness cannot spill to disk still names the size it cut, and
+  a FETCH cut at its cap names the cap. Consecutive read-only calls batch
+  beside each other with FETCH and SKILL joining the group and the pool
+  widened from 6 to 10, so a fetch between two reads no longer pays its own
+  serial wait. A run whose replies repeat the same substantial prose three
+  times in a row gets one correction (the chant guard — the loop the call
+  guards cannot see). `npm run bench` records the harness's own
+  micro-benchmarks (dsh's `benchmarks/` habit).
+- **A slow command is moved, not killed.** A foreground `RUN` that outlives
+  its 120 s ceiling used to have its whole process tree torn down — the
+  progress and the output died with it, and the model read `err: exit
+  SIGTERM`. The command now starts as a job from the first tick (same world,
+  same output screening, streaming to its spill file the whole time) and the
+  wait is raced against the ceiling: finishing inside it answers exactly as
+  before; outliving it answers "still running after Ns — moved to background
+  job runN" with the file and the `JOBS` way to poll it, and the work keeps
+  going. VERIFY keeps the plain world (its answer is evidence about one
+  command), and a stop still kills the tree. (dsh's foreground-to-background
+  job hand-over.)
 
 - **The window asks in its own dialog.** `window.confirm`/`window.prompt` (and
   one bare `confirm`) are gone from `desktop/ui` — they answer nothing on

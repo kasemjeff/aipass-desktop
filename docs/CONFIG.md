@@ -31,8 +31,8 @@ drift this file exists to catch.
 | `AIPASS_ALLOW_REMOTE` | off | `1` lets the backend (and the bridge's admin routes) answer non-loopback callers, deliberately | `rpc.mjs` |
 | `AIPASS_BRIDGE` | `http://127.0.0.1:8787` | where the harness finds the bridge | `bridge.mjs` |
 | `AIPASS_BRIDGE_PIDFILE` | `~/.aipass/bridge.pid` | where the bridge records its pid | `bridge-pid.mjs` |
-| `AIPASS_PORT` | `8787` | the bridge's port | `bin/aipass.mjs` |
-| `AIPASS_HOST` | `127.0.0.1` | the bridge's bind host | `bin/aipass.mjs` |
+| `AIPASS_PORT` | `8787` | the bridge's port | `schedule.mjs`, `agent.mjs` |
+| `AIPASS_HOST` | `127.0.0.1` | the bridge's bind host | `schedule.mjs`, `agent.mjs` |
 | `AIPASS_DESKTOP_PORT` | `8790` | the desktop backend's port; the launcher refuses a non-port value | `desktop-rpc.mjs`, `launcher.mjs` |
 | `AIPASS_DESKTOP_NO_OPEN` | off | set: the launcher does not open the window itself | `launcher.mjs` |
 | `AIPASS_SHELL_VERSION` | — | the packaged shell's version, set by the desktop launcher and reported in `/status` | `rpc/core.mjs`, `update.mjs` |

@@ -11,17 +11,16 @@ of this repository. [NOTICE](../NOTICE), [AUTHORS.md](../AUTHORS.md) and
 1. **Back up `~/.aipass/`** before switching. The state format is intended to be
    compatible, but a backup is the only rollback that costs nothing.
 2. Clone this repository and run `npm run setup`.
-3. Run `npm run doctor` and fix anything it names.
-4. Open the extension popup, confirm the loopback token matches
+3. Open the extension popup, confirm the loopback token matches
    `~/.aipass/.token`, and keep a logged-in `de.aipass.net` tab open.
-5. If you used the upstream bridge on a different port, check
+4. If you used the upstream bridge on a different port, check
    `~/.aipass/settings.json` and [CONFIG.md](./CONFIG.md). The default port is
    the same; a stale process holding it is the most common failure.
 
-The bridge, extension and CLI are upstream code continued here. The desktop
+The bridge and extension are upstream code continued here. The desktop
 window and the harness are this repository's work. A bug that exists in the
 upstream transport should be reported here with the version and the
-`doctor` output; do not assume the upstream project is still maintained.
+`/status` output; do not assume the upstream project is still maintained.
 
 ## From the retired `TH-aipassport-harness` checkout
 
@@ -46,7 +45,7 @@ repository. If you have old scripts that clone the harness repo, update the URL.
 Open a bug report with:
 
 - the version you came from and the version you are on;
-- the output of `npm run doctor`;
+- the output of `GET /status` on the bridge, and the newest `~/.aipass/logs/` file;
 - whether `~/.aipass/` was restored from a backup;
 - the operating system and Node version.
 

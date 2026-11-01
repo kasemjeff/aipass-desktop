@@ -284,12 +284,13 @@ same treatment the window's policy has: **a test that says the two agree** on
 the same fixtures. `desktop/AGENTS.md` already has the precedent ("the window
 is served under a policy, not without one").
 
-**The CLI has to move too.** `install_cli_shim` resolves
+**The CLI had to move too.** `install_cli_shim` resolved
 `aipass-bridge/bin/aipass.mjs` from the *resource* dir, so after a content
-update the shim would run the **old** content while the window runs the new
-one. The shim must name the active root. This is the bug that would have made
+update the shim would run the **old** content while the window ran the new
+one. The shim had to name the active root. This was the bug that would have made
 the whole thing quietly wrong, and it is why the root rule is single-sourced
-rather than patched in three places.
+rather than patched in three places. (The shim — and the CLI it served — have
+since been removed from the repository; the root rule outlived them.)
 
 ### 4. The update service
 
@@ -595,7 +596,7 @@ and the fact that the check sends nothing about the machine.
 |---|---|
 | `aipass-bridge/harness/rpc.mjs` | the update methods; `status` carries the shell version and the content source |
 | `desktop/ui/app.js` | the banner, the status line, the `/update` command |
-| `desktop/src-tauri/src/main.rs` | the overlay candidate in `find_root`; the shell version in the child env; the CLI shim points at the active root; the command channel; the backstop |
+| `desktop/src-tauri/src/main.rs` | the overlay candidate in `find_root`; the shell version in the child env; the command channel; the backstop |
 | `package.json` | the `desktop:content-pack` script |
 | `docs/INSTALL.md`, `docs/RELEASE.md`, `docs/MATURITY.md`, `docs/RELIABILITY.md` | the rules, the release lane, the registry row, the SLIs |
 | `AGENTS.md`, `desktop/AGENTS.md`, `SECURITY.md`, `CHANGELOG.md` | the rules and the behavior change |
@@ -616,7 +617,7 @@ exist yet, and each is written with its change.
 | "a content pack whose hash does not match the feed is refused" | integrity comes from the signed feed |
 | "a content pack is promoted atomically — a failed promotion leaves the old content in place" | a crash mid-promotion is not a broken app |
 | "a content release is refused when the shell is too old for it" | `minShell` is enforced, not decorative |
-| "the window and the CLI run the same content" | the shim points at the active root |
+| "the window runs the content the stable link names" | the link points at the live content |
 | "the shell resolves the same root as the Node side" | the two implementations of the rule agree |
 | "an update is never applied while a run is in flight" | a run is not interrupted by an update |
 | "the update check does not run when the network is down" | the cache answers, and nothing is nagged |

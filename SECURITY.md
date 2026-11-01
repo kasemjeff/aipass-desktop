@@ -147,10 +147,10 @@ Then restart the bridge and reload the extension.
   longer destroy anything.
 - **The suite never touches your bridge port** (hardened Oct 2026,
   `aipass-bridge/test/harness.mjs`). The suite turns the no-token escape hatch
-  on for its own bridges, and a CLI the suite runs auto-starts a bridge —
+  on for its own bridges, and a runner the suite spawns auto-starts a bridge —
   DETACHED, with the environment inherited. That bridge bound the developer's
   real port 8787 with the token gate off and outlived the run, because its pid
-  landed in the suite's scratch home where `aipass stop` could not reach it: an
+  landed in the suite's scratch home where nothing could reach it: an
   unauthenticated bridge squatting the real port, which any web page could
   blind-POST to. The suite now names a port of its own and ends any bridge it
   started.
@@ -158,7 +158,7 @@ Then restart the bridge and reload the extension.
   `bridge/server.mjs`). `AIPASS_REQUIRE_AUTH=0` on the DEFAULT port 8787 is
   refused: a cross-origin "simple" request needs no preflight, so the browser
   sends it and the bridge acts on it, and the port is the only thing a web
-  page can guess. The no-token mode is for a foreground `aipass dev` and for
+  page can guess. The no-token mode is for a foreground `npm run dev` and for
   the test suite, and neither wants the shared port — on any other port it is
   fine (`AIPASS_ALLOW_INSECURE_DEFAULT_PORT=1` says it on purpose).
 - **A fetch is a question, not a read** (hardened Oct 2026,
@@ -245,8 +245,8 @@ Then restart the bridge and reload the extension.
 - **Plugins and MCP servers are trusted, not sandboxed** (Oct 2026,
   `harness/install.mjs`, `harness/mcp.mjs`): installing a plugin, or adding an
   MCP server, means running someone else's code in the backend process with the
-  app's rights — which is why install is the consent moment. `aipass plugin
-  inspect` (and the window's install box) prints size and sha256 **without
+  app's rights — which is why install is the consent moment. The plugin
+  inspect report (and the window's install box) prints size and sha256 **without
   executing anything**; staging copies are validated only after that report is
   confirmed (`--yes` exists for scripts and still prints the trust sentence),
   and validation *is* the first execution. The recorded hash is **provenance,

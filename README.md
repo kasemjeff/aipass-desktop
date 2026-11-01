@@ -49,11 +49,11 @@ aipass is two layers, and it matters which is which.
 - **`aipass-bridge/harness/`** — the agent core: the run loop, the file tools,
   the marker protocol, sessions on disk, the compaction budget, permissions and
   path rules, the WAF, providers, plugins, MCP. The window drives the harness;
-  `aipass agent` drives the same one; the VS Code panel in
+  the VS Code panel in
   [`ide-extension/`](./ide-extension/README.md) drives the same backend — the
   surfaces cannot drift apart.
 
-**The bridge, the Chrome extension and the CLI are upstream, and we extend
+**The bridge and the Chrome extension are upstream, and we extend
 them.** They started life as
 **[niawjunior/aipass-bridge](https://github.com/niawjunior/aipass-bridge)** by
 [niawjunior](https://github.com/niawjunior) — an MIT-licensed project this
@@ -128,7 +128,7 @@ eval pairs and a window written in Thai first — not translated into it.
       ┌───────────────────── ours ─────────────────────┐
       │  desktop window  ──┐                            │
       │  vs code panel   ──┼──▶ harness                  │
-      │  aipass agent (CLI)┘    loop · tools · protocol │
+      │                      loop · tools · protocol │
       │                           sessions · permissions │
       │                           WAF · providers        │
       └────────────────────┬────────────────────────────┘
@@ -143,8 +143,8 @@ eval pairs and a window written in Thai first — not translated into it.
 
 No credential is stored anywhere: every request runs as ordinary page
 JavaScript inside your own logged-in tab, so the site's session cookie rides
-along by itself. The bridge has a loopback token of its own — see *The bridge
-and the CLI*, below.
+along by itself. The bridge has a loopback token of its own — see *The bridge*,
+below.
 
 ## Installing
 
@@ -162,27 +162,21 @@ and the CLI*, below.
 From a fresh clone, this is the whole machine setup:
 
 ```bash
-git clone https://github.com/kasemjeff/TH-aipassport-harness.git
-cd TH-aipassport-harness
+git clone https://github.com/kasemjeff/aipass-desktop.git
+cd aipass-desktop
 npm run setup
 ```
 
-(`aipass setup` is the same command, once `aipass` is on your PATH.)
-
-`setup` is idempotent — re-run it any time, and re-running it after moving the
-repo repairs the PATH link. It does six things, in this order:
+`setup` is idempotent — re-run it any time. It does five things, in this order:
 
 1. **Node** — checks the version and stops if it is too old.
 2. **State directory** — creates `~/.aipass/` (`0700`) and mints the loopback
    token at `~/.aipass/.token` (`0600`).
-3. **PATH** — puts `aipass` on your PATH: `npm link` on Windows, a symlink
-   into `~/.local/bin` or `~/bin` elsewhere (falling back to `npm link`),
-   with the manual commands printed if none of that works.
-4. **Clipboard** — copies the token, so pasting it into the extension popup
+3. **Clipboard** — copies the token, so pasting it into the extension popup
    is one keystroke.
-5. **Bridge** — starts it, or adopts the one already running, and waits for
+4. **Bridge** — starts it, or adopts the one already running, and waits for
    `/status` to answer.
-6. **Browser** — opens `de.aipass.net/chat` and `chrome://extensions`, so the
+5. **Browser** — opens `de.aipass.net/chat` and `chrome://extensions`, so the
    two one-time browser steps are in front of you.
 
 ### The two browser steps (once per browser)
@@ -194,8 +188,8 @@ repo repairs the PATH link. It does six things, in this order:
    <https://de.aipass.net/chat>, log in, and leave the tab open: that tab is
    what does the talking.
 
-`aipass status` says where you are; `aipass doctor` explains what is missing
-and what to do about it.
+The bridge's `/status` answers where you are; the window's header shows the
+same.
 
 ### The native app
 
@@ -222,7 +216,6 @@ the environment, never in `settings.json`.
 ### Uninstalling
 
 ```bash
-rm -f ~/.local/bin/aipass      # or: npm rm -g aipass, if you used npm link
 rm -rf ~/.aipass               # only if you want the sessions and settings gone too
 ```
 
@@ -236,34 +229,21 @@ command:
 
 ```bash
 npm run desktop     # the desktop window (starts the bridge itself if needed)
-# or
-aipass desktop
 ```
 
 It starts the bridge if it is not already up, starts the backend on
 `127.0.0.1:8790`, and opens the window. See *The desktop window*.
 
-The terminal, if you want it:
-
-```bash
-aipass dev          # the bridge alone, logs in this terminal (Ctrl+C to stop)
-aipass              # the chat TUI, in a second terminal
-aipass agent "task" # the file agent from the command line
-```
-
 An editor person? [`ide-extension/`](./ide-extension/README.md) installs a
 **VS Code panel** that drives the same agent from the editor — send a task,
 watch the run, approve the staged changes, without leaving the window.
-
-`aipass` lives at `aipass-bridge/bin/aipass.mjs`; without putting it on your
-PATH, `node aipass-bridge/bin/aipass.mjs` is the same thing.
 
 One tip for long runs: Chrome **Settings → Performance → Always keep these
 sites active → add `de.aipass.net`**, so a run is never frozen mid-stream.
 
 ## The desktop window
 
-`npm run desktop` (or `aipass desktop`) starts a small local backend on
+`npm run desktop` starts a small local backend on
 `127.0.0.1:8790` and opens the window. `desktop/ui/` is plain HTML/CSS/JS —
 no build step, open it in a browser to poke at a change. To produce the native
 app instead: `npm run tauri:dev` / `npm run tauri:build` (see
@@ -296,10 +276,10 @@ reachable from it, and the window is what the harness was built to serve.
 ## The harness
 
 The harness is the agent core — the part that turns a model into an agent that
-can work in your project. The window drives it; `aipass agent` drives the same
-one.
+can work in your project. The window drives it; the scheduler's one-shot run
+(`agent.mjs`) is the same engine.
 
-`aipass agent "task"` — or a run in the window — turns the model into a file
+A run in the window — or a scheduled one — turns the model into a file
 agent working in the current project. The model asks, the harness acts:
 
 | Request | What happens |
@@ -345,18 +325,19 @@ Extra capabilities available to the agent: **code navigation**
 (`MCP__<server>__<tool>` from servers in `~/.aipass/mcp.json`), **background
 helpers** (`SUBAGENT` with `background: true`, polled via `JOBS`), **cross-session
 memory** (facts persisted per project, loaded into the next session's first
-turn), and **test-time scaling** (`aipass scale "task" --n N`). Each has an
+turn), and **test-time scaling** (run a task N times, keep the best —
+`scale.mjs`). Each has an
 off-switch or is opt-in; see `docs/MATURITY.md`.
 
 The design of record is [`docs/HARNESS_DESIGN.md`](./docs/HARNESS_DESIGN.md)
 (the system end to end) and [`docs/LOOP_DESIGN.md`](./docs/LOOP_DESIGN.md) (the
 loop itself: stage map, guards, stop reasons, the event stream).
 
-## The bridge and the CLI
+## The bridge
 
 This layer is upstream — **[niawjunior/aipass-bridge](https://github.com/niawjunior/aipass-bridge)**
 — and this repository continues it. The harness talks to it through one
-contract; the window and the CLI sit on the same contract.
+contract; the window sits on the same contract.
 
 The bridge is OpenAI-compatible, so anything that speaks the API can use your
 AIPASS account through your browser session:
@@ -392,9 +373,10 @@ that opens the moment you type `/`.
 | `/file`, `/image`, `/clip` | attach media to the next message |
 | `/clear`, `/help` | clear the screen / palette help |
 
-The CLI is also the way into the harness: `aipass agent "task"`, `aipass scale`,
-`aipass providers`, `aipass memory`, `aipass goal`, `aipass mcp`, `aipass plugin`. The full
-command list, the conversation rules and the known limits live in
+The harness's own stores answer from a terminal too, for scripts:
+`node aipass-bridge/goal.mjs` (the durable goal), `node aipass-bridge/sessions.mjs`
+(archive and restore), `node aipass-bridge/providers.mjs` (the provider
+registry). The full list lives in
 [`aipass-bridge/README.md`](./aipass-bridge/README.md).
 
 ## Configuration
@@ -471,9 +453,7 @@ aipass/
 │  │                        sessions · compaction · permissions · providers
 │  ├─ bridge/               local HTTP + SSE server (upstream)
 │  ├─ extension/            Chrome MV3 worker + content script + keepalive
-│  ├─ bin/aipass.mjs        the `aipass` command (upstream)
-│  ├─ chat.mjs              the terminal chat client (upstream)
-│  └─ agent.mjs             the file agent — a thin front for the harness
+│  └─ agent.mjs             the one-shot runner the schedule spawns
 ├─ docs/                    design and operations docs — see Documentation above
 ├─ evals/                   task fixtures — smoke set, holdout, Thai/English pairs
 ├─ experiments/             the experiment queue: what was tried, what it cost
