@@ -124,6 +124,11 @@ function setup({
     addCommandOut: (text) => outputs.push(text),
     hideModal: () => { modals += 1; },
     openModal: () => { modals += 1; },
+    // The panel asks through the window's own dialog now; these tests answer
+    // through the same globalThis.confirm switch they always have. A missing
+    // switch is an unanswered ask — a "no", never a silent yes.
+    askConfirm: (question) => Promise.resolve(
+      typeof globalThis.confirm === 'function' ? globalThis.confirm(question) : false),
     openSession: (id) => opened.push(id),
     exportSession: (id, title) => exported.push({ id, title }),
   };
@@ -433,11 +438,13 @@ test('the archive opens, returns a session, and only prunes after a confirmation
   // Prune asks first. A "no" is a no-op; yes prunes and reports both counts.
   const prune = () => bar().children[1];
   globalThis.window.confirm = () => false;
+  globalThis.confirm = () => false;
   const before = t.rpcCalls.filter((c) => c.method === 'session.prune').length;
   await click(prune());
   assert.equal(t.rpcCalls.filter((c) => c.method === 'session.prune').length, before);
 
   globalThis.window.confirm = () => true;
+  globalThis.confirm = () => true;
   t.setRpc('session.prune', { count: 1 });
   await click(prune());
   assert.match(t.outputs.at(-1), /1 รายการ/);
@@ -619,15 +626,16 @@ test('the install dialog validates, reads a file, and handles overwrite', async 
   assert.match(t.outputs.at(-1), /เขียนทับ/);
   assert.equal(installed, 1);
 
-  // With no confirm function the retry still happens, and a plain success
-  // omits the overwrite suffix.
+  // With no way to answer the ask, the overwrite never happens: a missing
+  // confirm used to read as a yes and overwrote a playbook silently — the
+  // exact bug the window's own dialog exists to kill.
   delete globalThis.confirm;
   calls = 0;
-  t.setRpc('skills.install', () => (++calls === 1
-    ? { error: 'already exists' }
-    : { overwritten: false }));
+  t.setRpc('skills.install', () => { calls += 1; return { overwritten: true }; });
   await click(install);
-  assert.doesNotMatch(t.outputs.at(-1), /เขียนทับ/);
+  assert.match(t.notes.at(-1), /ยกเลิกการเขียนทับ/);
+  assert.equal(calls, 1, 'the first ask happened; the overwrite retry did not');
+  globalThis.confirm = () => true;
 
   // A retry that fails reports the error; a first failure that is not an
   // overwrite prompt is reported without a retry.
