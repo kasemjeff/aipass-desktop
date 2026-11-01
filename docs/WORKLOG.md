@@ -6,6 +6,59 @@ risks · cleanup done**. This is news, not law: the rules live in `AGENTS.md`,
 durable behavior changes in `CHANGELOG.md`, and the final word is always the
 suite.
 
+## 2026-10-31 — the window asks in its own dialog, and the shell remembers its shape
+
+*Files*: `desktop/ui/ask.js` (new: `createAsk(ctx)` → `askConfirm`/`askText`
+promise dialogs over the sheet; an ask opened inside an open sheet borrows it
+and hands it back whole — live nodes, focus, `settings-sheet` class), `app.js`
+(`setModalCloseHook`, ask wired before `createSettings`, 3 sites),
+`settings.js`/`panels/tools.js`/`panels/sessions.js`/`features/checkpoints.js`/
+`features/worktrees.js` (10 more native confirm/prompt sites replaced;
+checkpoint "ลืม" now asks), `panels/files.js` (refresh re-runs an active search
+instead of a false "ไม่พบ"), `desktop/src-tauri/src/main.rs` (window geometry
+persists — debounced save on move/resize, flush on destroy, restore before
+first paint; tray answers a single click and opens the log folder; backend
+stop asks gracefully for ~3s before `taskkill /F`; port probe has an 8s
+deadline via side thread and no longer holds the child mutex in `tick`),
+harness — `tools.mjs` (DIAGNOSE confined with `trySafe` — it could read any
+file on the machine), `acp.mjs` (a real Emitter, so gated runs ask instead of
+crashing on `isObserved`; `session/cancel` is the harness's whole `cancel()`;
+the editor's answer maps to `permissions.answer`), `boundary.mjs` (unknown
+sandbox mode is refused, never downgraded to `off`); tests — `ui.test.mjs`
+(ask unit + Escape integration + the no-native-dialog guard + answers to the
+new asks), `acp.test.mjs` (real cancel over one process; the drive waits for
+the replies a step needs), `boundary-policy.test.mjs` (pins the refusal),
+`sessions-panel.test.mjs` (came with the merge — its stub answers `askConfirm`
+and its silent-overwrite section pins the new semantics); `scripts/coverage-
+gate.mjs` (ask.js floor), `CHANGELOG.md`.
+
+*Tests*: full suite **fail 0 / pass 1372 / skip 6** (EXIT=0) on the merged
+tree; `cargo test` **30 passed / 0 failed** (incl. geometry round-trip and
+tasklist parsing); release-profile compile checked in a separate target dir.
+`coverage:gate` still names 8 files under their floors (below).
+
+*Deferred*: retrieval index load/save is sync on the event loop (evaluator
+should-fix — tens-of-MB `readFileSync`+parse on `retrieval.status`; needs an
+async `loadIndex` and caller rewiring, kept out of this already-large wave);
+lsp.mjs hardening nits (server dead-marking, waiter overwrite, buffer cap,
+didOpen size cap); `scripts/tmp-patch13.cjs` left untracked for its owner.
+
+*Open risks*: `coverage:gate` has 8 files under floor — 7 predate this
+session (the panels/features WIP shifted transcript/banners/context/core/
+files/options numbers), sessions.js may have moved slightly with the ask
+change; lowering a floor is the human's call, so they stand. `ide-extension/
+extension.js` carries Mimosa medium findings (pre-existing, untouched). The
+running desktop is `D:\aipass-build\target\release\aipass-desktop.exe` — the
+Rust changes reach it only after the app is closed and
+`npm run desktop:build` (or a cargo release build) replaces it; the ui half
+is already mirrored into `debug\ui` and `target\{debug,release}\ui`.
+
+*Cleanup*: the whole desktop WIP plus the retrieval/lsp/acp wave committed
+(`0ad552a`), this session's work committed (`b05049d`, `58817bf`), merged with
+TH-aipassport-desktop's `main` (merge `30e298d`, unrelated histories, `-X
+ours`) and pushed — `master` and `main` both at `58817bf`; `scripts/tmp-
+acp-probe.mjs` removed after debugging.
+
 ## 2026-10-28 — one durable goal per project, chased in rounds
 
 *Files*: harness — `harness/goal.mjs` (new: one JSON per project under
