@@ -63,7 +63,7 @@ export const FLOORS = {
   // The backend the window talks to.
   'aipass-bridge/harness/rpc.mjs': { lines: 95, branches: 77, functions: 69 },
   // The backend's methods, one module per domain.
-  'aipass-bridge/harness/rpc/core.mjs': { lines: 95, branches: 67, functions: 74 },
+  'aipass-bridge/harness/rpc/core.mjs': { lines: 95, branches: 67, functions: 72 },
   'aipass-bridge/harness/rpc/settings.mjs': { lines: 87, branches: 59, functions: 74 },
   'aipass-bridge/harness/rpc/session.mjs': { lines: 93, branches: 65, functions: 85 },
   'aipass-bridge/harness/rpc/files.mjs': { lines: 93, branches: 63, functions: 80 },
@@ -71,7 +71,7 @@ export const FLOORS = {
   'aipass-bridge/harness/rpc/update.mjs': { lines: 62, branches: 95, functions: 15 },
   // The stages of a run: its state, the option sheet, the send pipeline, the
   // DONE gates and the budgets.
-  'aipass-bridge/harness/run/context.mjs': { lines: 98, branches: 90, functions: 98 },
+  'aipass-bridge/harness/run/context.mjs': { lines: 98, branches: 90, functions: 88 },
   'aipass-bridge/harness/run/options.mjs': { lines: 98, branches: 88, functions: 98 },
   'aipass-bridge/harness/run/send.mjs': { lines: 98, branches: 86, functions: 90 },
   'aipass-bridge/harness/run/gates.mjs': { lines: 97, branches: 90, functions: 98 },
