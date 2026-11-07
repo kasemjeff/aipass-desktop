@@ -4692,3 +4692,69 @@ test('a code block copy marks the button copied', async () => {
     Object.defineProperty(globalThis, 'navigator', { value: prevNav, configurable: true, writable: true });
   }
 });
+
+/* ------------------------------------------------- helpers / background jobs */
+
+test('a helper start puts a row on the rail and the end finishes it', async () => {
+  // Live helpers and background jobs are event-driven: the harness emits
+  // helper_start/helper_end and job_start/job_end, and the panel only paints
+  // what the run already told it. A row that never appears means the events
+  // are not wired; a row that never finishes means the end frame is dropped.
+  const { node, tick } = await bootApp(BACKEND);
+  await tick();
+
+  globalThis.__stream.emit('helper_start', { id: 'h1', role: 'searcher', task: 'find every call site of renderRow' });
+  await tick();
+  const list = node('helpers');
+  assert.equal(list.children.length, 1, 'the helper gets a row');
+  assert.match(list.children[0].textContent, /searcher/, 'the row names its role');
+  assert.match(list.children[0].textContent, /find every call site/, 'and its task');
+  assert.match(list.children[0].textContent, /กำลังรัน/, 'it says it is running');
+  assert.equal(node('helpers-count').textContent, '1', 'the count badge names the one helper');
+
+  globalThis.__stream.emit('helper_end', { id: 'h1', ms: 12_000, steps: 4, summary: 'found 3 call sites' });
+  await tick();
+  assert.match(list.children[0].textContent, /เสร็จ/, 'the row finishes');
+  assert.match(list.children[0].textContent, /12s/, 'and says how long it took');
+  assert.match(list.children[0].textContent, /found 3 call sites/, 'and carries the report back');
+});
+
+test('a helper end with no start still paints a finished row', async () => {
+  // A missed frame must not lose the helper: the end frame alone creates the
+  // row, finished, with what it knows.
+  const { node, tick } = await bootApp(BACKEND);
+  await tick();
+  globalThis.__stream.emit('helper_end', { id: 'ghost', role: 'reviewer', task: 'review the diff', summary: 'one nit', error: null });
+  await tick();
+  const list = node('helpers');
+  assert.equal(list.children.length, 1, 'the orphan end still gets a row');
+  assert.match(list.children[0].textContent, /review the diff/, 'and names the task');
+  assert.match(list.children[0].textContent, /one nit/, 'and the summary');
+});
+
+test('a background job shows the job badge, not the helper one', async () => {
+  const { node, tick } = await bootApp(BACKEND);
+  await tick();
+  globalThis.__stream.emit('job_start', { id: 'j1', command: 'npm run lint' });
+  await tick();
+  const list = node('helpers');
+  assert.equal(list.children.length, 1, 'the job gets a row');
+  assert.match(list.children[0].textContent, /job/, 'the badge says job');
+  assert.match(list.children[0].textContent, /npm run lint/, 'and the command');
+  globalThis.__stream.emit('job_end', { id: 'j1', code: 0 });
+  await tick();
+  assert.match(list.children[0].textContent, /เสร็จ/, 'the job finishes when its end arrives');
+});
+
+test('a background subagent only gets a row when it is background', async () => {
+  // A foreground subagent is the run's own work and already on screen; the
+  // background one would otherwise vanish, so only it gets a rail row.
+  const { node, tick } = await bootApp(BACKEND);
+  await tick();
+  globalThis.__stream.emit('subagent_start', { id: 'fg', task: 'inline work' });
+  await tick();
+  assert.equal(node('helpers').children.length, 0, 'the foreground subagent has no row');
+  globalThis.__stream.emit('subagent_start', { id: 'bg', task: 'background work', background: true });
+  await tick();
+  assert.equal(node('helpers').children.length, 1, 'the background one does');
+});

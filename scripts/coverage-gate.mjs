@@ -60,6 +60,24 @@ export const FLOORS = {
   // The window's own ask: confirm and prompt through the sheet, on every
   // platform (the native dialogs answer nothing on WKWebView/WebKitGTK).
   'desktop/ui/ask.js': { lines: 98, branches: 85, functions: 98 },
+  // The modules split out of app.js: the working heartbeat, the event
+  // stream/watchdog, the composer draft, and one module per feature —
+  // each is imported by the same boots, so the same union measures them.
+  'desktop/ui/working.js': { lines: 98, branches: 95, functions: 98 },
+  'desktop/ui/stream.js': { lines: 92, branches: 68, functions: 60 },
+  'desktop/ui/draft.js': { lines: 90, branches: 78, functions: 83 },
+  'desktop/ui/features/checkpoints.js': { lines: 64, branches: 35, functions: 52 },
+  'desktop/ui/features/git-schedule.js': { lines: 54, branches: 54, functions: 57 },
+  'desktop/ui/features/media.js': { lines: 40, branches: 95, functions: 47 },
+  'desktop/ui/features/misc-commands.js': { lines: 48, branches: 35, functions: 34 },
+  'desktop/ui/features/pending.js': { lines: 95, branches: 82, functions: 75 },
+  'desktop/ui/features/session-tree.js': { lines: 89, branches: 43, functions: 52 },
+  'desktop/ui/features/worktrees.js': { lines: 92, branches: 52, functions: 60 },
+  'desktop/ui/panels/helpers.js': { lines: 97, branches: 45, functions: 78 },
+  'desktop/ui/panels/tools.js': { lines: 88, branches: 52, functions: 47 },
+  // The SSE endpoint, split out of rpc.mjs: replay, fan-out subscription,
+  // named pings and the idempotent socket cleanup.
+  'aipass-bridge/harness/rpc/sse.mjs': { lines: 96, branches: 92, functions: 80 },
   // The backend the window talks to.
   'aipass-bridge/harness/rpc.mjs': { lines: 95, branches: 77, functions: 69 },
   // The backend's methods, one module per domain.
