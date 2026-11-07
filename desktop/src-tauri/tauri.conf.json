@@ -30,9 +30,18 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis"],
-    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.ico"],
-    "externalBin": ["../sidecar/node"],
+    "targets": [
+      "nsis"
+    ],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.ico"
+    ],
+    "externalBin": [
+      "../sidecar/node"
+    ],
     "resources": {
       "../../aipass-bridge/bridge": "aipass-bridge/bridge/",
       "../../aipass-bridge/deploy": "aipass-bridge/deploy/",
@@ -54,13 +63,15 @@
       "../../aipass-bridge/providers.mjs": "aipass-bridge/providers.mjs",
       "../../aipass-bridge/relocate.mjs": "aipass-bridge/relocate.mjs",
       "../../aipass-bridge/scale.mjs": "aipass-bridge/scale.mjs",
-      "../../aipass-bridge/setup.mjs": "aipass-bridge/setup.mjs",
       "../../aipass-bridge/sessions.mjs": "aipass-bridge/sessions.mjs",
+      "../../aipass-bridge/setup.mjs": "aipass-bridge/setup.mjs",
       "../main.mjs": "main.mjs",
       "../ui": "ui/"
     },
     "windows": {
-      "webviewInstallMode": { "type": "offlineInstaller" }
+      "webviewInstallMode": {
+        "type": "offlineInstaller"
+      }
     },
     "publisher": "aipass",
     "copyright": "Copyright (c) 2026 niawjunior",
