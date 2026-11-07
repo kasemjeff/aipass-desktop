@@ -1,3 +1,4 @@
+// @ts-check
 // The window's own state.
 //
 // Everything the page remembers between two calls to the backend lives here:

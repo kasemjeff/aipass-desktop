@@ -73,8 +73,8 @@ test('retrieve returns no hits honestly', async () => {
 test('index is cached and reused', async () => {
   const dir = tempDir({ 'a.txt': 'hello world\n' });
   await buildIndex(dir);
-  const first = loadIndex(dir);
-  const second = loadIndex(dir);
+  const first = await loadIndex(dir);
+  const second = await loadIndex(dir);
   assert.equal(first.builtAt, second.builtAt);
 });
 
@@ -82,7 +82,7 @@ test('clearIndex removes the file', async () => {
   const dir = tempDir({ 'a.txt': 'hello world\n' });
   await buildIndex(dir);
   clearIndex(dir);
-  assert.equal(loadIndex(dir), null);
+  assert.equal(await loadIndex(dir), null);
 });
 
 test('clearIndex cancels the build that would write the file', async () => {
@@ -90,7 +90,7 @@ test('clearIndex cancels the build that would write the file', async () => {
   const build = ensureIndex(dir, { force: true });
   clearIndex(dir);
   await assert.rejects(build, /aborted/);
-  assert.equal(loadIndex(dir), null, 'a cancelled build leaves no index behind');
+  assert.equal(await loadIndex(dir), null, 'a cancelled build leaves no index behind');
 });
 
 test('ensureIndex picks up a disk edit after its TTL', async () => {
@@ -131,7 +131,7 @@ test('aborted build writes nothing', async () => {
   const ac = new AbortController();
   ac.abort();
   await assert.rejects(buildIndex(dir, { signal: ac.signal }), /aborted/);
-  assert.equal(loadIndex(dir), null);
+  assert.equal(await loadIndex(dir), null);
 });
 
 test('ensureIndex: an aborted waiter does not fail the others', async () => {
@@ -162,7 +162,7 @@ test('incremental build reads only changed files', async () => {
 test('loadIndex returns the same cached object', async () => {
   const dir = tempDir({ 'a.txt': 'hello world\n' });
   await buildIndex(dir);
-  assert.strictEqual(loadIndex(dir), loadIndex(dir));
+  assert.strictEqual(await loadIndex(dir), await loadIndex(dir));
 });
 
 test('retrieve fills the budget with longer excerpts', async () => {
@@ -206,7 +206,7 @@ test('code-first truncation skips generated files', async () => {
   });
   const { stats } = await buildIndex(dir, { maxFiles: 1 });
   assert.ok(stats.truncated);
-  const idx = loadIndex(dir);
+  const idx = await loadIndex(dir);
   assert.ok(idx.files['src/zzz.js'], 'code file should be indexed');
   assert.ok(!idx.files['docs/aaa.md'], 'docs should be dropped when capped');
   assert.ok(!idx.files['package-lock.json'], 'lockfile should never be indexed');
@@ -216,7 +216,7 @@ test('code-first truncation skips generated files', async () => {
 test('trigram is not counted in chunk length', async () => {
   const dir = tempDir({ 'a.txt': 'ระบบค้นคืนความรู้สำหรับโปรเจกต์\n' });
   await buildIndex(dir);
-  const idx = loadIndex(dir);
+  const idx = await loadIndex(dir);
   const raw = tokenize('ระบบค้นคืนความรู้สำหรับโปรเจกต์');
   const trigrams = raw.filter((t) => t.startsWith('t:')).length;
   assert.ok(trigrams > 0);

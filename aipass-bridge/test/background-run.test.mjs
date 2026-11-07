@@ -106,7 +106,9 @@ test('a DONE over a live job is refused once and then ends as jobs-running (not 
   const overlay = new Overlay(dir);
   const events = new Emitter();
   const rows = [];
+  const notes = [];
   events.on('tool', (p) => rows.push(p));
+  events.on('note', (p) => notes.push(p?.text ?? p?.message ?? ''));
   const sent = [];
   const replies = [
     'RUN background\nnode slow.mjs\nEND\n',
@@ -129,4 +131,30 @@ test('a DONE over a live job is refused once and then ends as jobs-running (not 
   assert.ok(sent.some((m) => /Before DONE: the background command/.test(m)), 'the gate named the live job');
   assert.match(result.summary, /run1/);
   assert.match(result.summary, /\.aipass\/spill\/run1\.txt/);
+  // The run does not leave the job behind: the end-of-run sweeper stops it
+  // and says so — that is the fate the jobs gate's wording now promises.
+  assert.ok(
+    notes.some((n) => /was stopped with the run/.test(n)),
+    `the sweeper must stop the job with the run:\n${JSON.stringify(notes)}`
+  );
+});
+
+test('a RUN and a DONE in the same reply is still gated on the live job', async () => {
+  const dir = tempDir({ 'slow.mjs': SLOW });
+  const overlay = new Overlay(dir);
+  const events = new Emitter();
+  const sent = [];
+  const replies = [
+    'RUN background\nnode slow.mjs\nEND\nDONE everything is fine\n',
+    'DONE still fine\n',
+  ];
+  const result = await runTask('start the slow build and finish', {
+    bridge: scripted(replies, sent),
+    tools: toolsAt(dir, overlay),
+    overlay,
+    events,
+    options: { maxSteps: 4, allowRun: true },
+    first: true,
+  });
+  assert.equal(result.stopReason, 'jobs-running', 'same-reply DONE must not bypass the jobs gate');
 });

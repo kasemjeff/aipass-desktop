@@ -425,7 +425,13 @@ test('a 401 refreshes the token, and the retry carries the new one', async () =>
   const rpcs = shots.filter((s) => s.url.endsWith('/rpc'));
   assert.ok(rpcs.length >= 2, `the call was made and retried (${rpcs.length} calls)`);
   assert.equal(rpcs[0].headers.authorization, 'Bearer tok-old', 'the first try carries the token it had');
-  assert.equal(rpcs[1].headers.authorization, 'Bearer tok-new', 'and the retry carries the refreshed one');
+  // Boot flies its calls in parallel, so the retry is not positional anymore:
+  // what the window guarantees is that once one call bounced off a 401, a
+  // later call goes out with the refreshed token.
+  assert.ok(
+    rpcs.slice(1).some((s) => s.headers.authorization === 'Bearer tok-new'),
+    'a retry carries the refreshed one'
+  );
 });
 
 test('a slash that matches nothing says so instead of vanishing', async () => {
@@ -1676,7 +1682,7 @@ test('a typed draft survives a reload', async () => {
   const { node, tick } = await bootApp(BACKEND);
   node('task').value = 'a paragraph worth keeping';
   node('task').dispatch('input');
-  assert.equal(store.get('aipass.draft'), 'a paragraph worth keeping', 'the draft is stored as you type');
+  assert.equal(store.get('aipass.draft:/tmp/proj'), 'a paragraph worth keeping', 'the draft is stored as you type');
   void tick;
 });
 
@@ -1694,13 +1700,52 @@ test('the draft is gone once the task it held is sent', async () => {
   node('task').value = 'the text that was sent';
   node('task').dispatch('keydown', { key: 'Enter' });
   await tick(); await tick();
-  assert.equal(store.get('aipass.draft'), '', 'the sent text is not stored as a draft');
+  assert.equal(store.get('aipass.draft:/tmp/proj'), '', 'the sent text is not stored as a draft');
 
   // A command goes through the same composer and the same clear.
   node('task').value = '/status';
   node('task').dispatch('keydown', { key: 'Enter' });
   await tick(); await tick();
-  assert.equal(store.get('aipass.draft'), '', 'and a sent command clears the draft too');
+  assert.equal(store.get('aipass.draft:/tmp/proj'), '', 'and a sent command clears the draft too');
+});
+
+test('the draft belongs to the project, not to the window', async () => {
+  // One global draft meant switching project mid-thought left the old
+  // project's paragraph in the new project's composer. Each project has
+  // its own key, the boot adopts the current project's draft, and a
+  // switch swaps in the other project's.
+  const store = new Map([
+    ['aipass.draft', 'legacy global draft'],
+    ['aipass.draft:/tmp/proj', 'draft for proj'],
+    ['aipass.draft:/tmp/other', 'draft for other'],
+  ]);
+  globalThis.localStorage = {
+    getItem: (k) => (store.has(k) ? store.get(k) : null),
+    setItem: (k, v) => store.set(k, String(v)),
+    removeItem: (k) => store.delete(k),
+  };
+  const { node, tick } = await bootApp({
+    ...BACKEND,
+    status: () => ({ ...BACKEND.status(), projects: [
+      { path: '/tmp/proj', name: 'proj', current: true },
+      { path: '/tmp/other', name: 'other', current: false },
+    ] }),
+    'projects.list': () => [
+      { path: '/tmp/proj', name: 'proj', current: true },
+      { path: '/tmp/other', name: 'other', current: false },
+    ],
+    'projects.switch': () => ({ root: '/tmp/other' }),
+  });
+  await tick(); await tick();
+  assert.equal(node('task').value, 'draft for proj', 'the boot pre-fills the adopted project draft, not the legacy global one');
+
+  node('task').value = 'edited draft for proj';
+  node('task').dispatch('input');
+  node('project').value = '/tmp/other';
+  node('project').dispatch('change');
+  await tick(); await tick();
+  assert.equal(node('task').value, 'draft for other', 'switching project swaps in that project draft');
+  assert.equal(store.get('aipass.draft:/tmp/proj'), 'edited draft for proj', 'the old project keeps its own draft');
 });
 
 test('the session list filters as you type', async () => {
@@ -4474,4 +4519,176 @@ test('no native confirm or prompt is left anywhere in the window', () => {
     if (/window\.confirm\(|window\.prompt\(|(?<![.\w])confirm\(|(?<![.\w])prompt\(/.test(src)) offenders.push(path.relative(dir, file));
   }
   assert.deepEqual(offenders, [], 'the window asks through ask.js, not the native dialogs WebKitGTK swallows');
+});
+
+/* --------------------------------- banner fixes + transcript copy (floors) */
+
+test('the welcome card extension fixes are one click each', async () => {
+  const backend = { ...BACKEND, status: () => ({ ...BACKEND.status(), extensions: 0, extensionToken: 'ok' }) };
+  const { screen, tick, calls } = await bootApp(backend);
+  await tick(); await tick();
+  const card = screen('welcome');
+  assert.ok(card, 'the welcome card is up');
+  const open = buttonIn(card, /เปิดโฟลเดอร์/);
+  const gh = buttonIn(card, /โหลดจาก GitHub/);
+  const chromeExt = buttonIn(card, /เปิดหน้าติดตั้ง/);
+  assert.ok(open && gh && chromeExt, 'the three extension fixes are on the card');
+  open.dispatch('click');
+  gh.dispatch('click');
+  chromeExt.dispatch('click');
+  await tick(); await tick();
+  assert.ok(calls.includes('shell.reveal'), 'reveal was asked');
+  assert.ok(calls.includes('extension.install'), 'install was asked');
+  assert.ok(calls.includes('browser.open'), 'chrome extensions page was asked');
+});
+
+test('the welcome card offers Chrome when the bridge is missing', async () => {
+  const backend = { ...BACKEND, status: () => ({ ...BACKEND.status(), bridge: false, chrome: false }) };
+  const { screen, tick, calls } = await bootApp(backend);
+  await tick(); await tick();
+  const dl = buttonIn(screen('welcome'), /ดาวน์โหลด Chrome/);
+  assert.ok(dl, 'the Chrome download is on the card');
+  dl.dispatch('click');
+  await tick();
+  assert.ok(calls.includes('browser.open'), 'the download page was opened');
+});
+
+test('the token fix says when the clipboard refuses', async () => {
+  const backend = { ...BACKEND, status: () => ({ ...BACKEND.status(), extensions: 0, extensionToken: 'missing' }) };
+  const prevNav = globalThis.navigator;
+  Object.defineProperty(globalThis, 'navigator', { value: { clipboard: { writeText: async () => { throw new Error('denied'); } } }, configurable: true, writable: true });
+  try {
+    const first = await bootApp(backend, { token: 'tok' });
+    await first.tick(); await first.tick();
+    const btn = buttonsIn(first.node('log')).find((b) => /วาง token/.test(b.textContent));
+    assert.ok(btn, 'the token fix is on the banner');
+    btn.dispatch('click');
+    await first.tick(); await first.tick();
+    assert.match(first.node('log').textContent, /เขียนคลิปบอร์ดไม่ได้/, 'a refused clipboard says where to copy from');
+  } finally {
+    Object.defineProperty(globalThis, 'navigator', { value: prevNav, configurable: true, writable: true });
+  }
+});
+
+test('pairing from the banner puts the code on the clipboard or says why not', async () => {
+  const backend = {
+    ...BACKEND,
+    status: () => ({ ...BACKEND.status(), extensions: 0, extensionToken: 'missing' }),
+    'pair.code': () => ({ ok: true, code: '123456' }),
+  };
+  const written = [];
+  const prevNav = globalThis.navigator;
+  Object.defineProperty(globalThis, 'navigator', { value: { clipboard: { writeText: async (t) => { written.push(t); } } }, configurable: true, writable: true });
+  try {
+    const { node, tick } = await bootApp(backend);
+    await tick(); await tick();
+    const btn = buttonsIn(node('log')).find((b) => /จับคู่/.test(b.textContent));
+    assert.ok(btn, 'the pairing button is on the banner');
+    btn.dispatch('click');
+    await tick(); await tick();
+    assert.deepEqual(written, ['123456'], 'the code went to the clipboard');
+  } finally {
+    Object.defineProperty(globalThis, 'navigator', { value: prevNav, configurable: true, writable: true });
+  }
+});
+
+test('pairing that fails says so, without a code', async () => {
+  const backend = {
+    ...BACKEND,
+    status: () => ({ ...BACKEND.status(), extensions: 0, extensionToken: 'missing' }),
+    'pair.code': () => ({ ok: false, reason: 'no tab' }),
+  };
+  const prevNav = globalThis.navigator;
+  Object.defineProperty(globalThis, 'navigator', { value: { clipboard: { writeText: async () => {} } }, configurable: true, writable: true });
+  try {
+    const { node, tick } = await bootApp(backend);
+    await tick(); await tick();
+    buttonsIn(node('log')).find((b) => /จับคู่/.test(b.textContent)).dispatch('click');
+    await tick(); await tick();
+    assert.match(node('log').textContent, /ขอ pairing code ไม่ได้/, 'the refusal is on screen');
+  } finally {
+    Object.defineProperty(globalThis, 'navigator', { value: prevNav, configurable: true, writable: true });
+  }
+});
+
+test('the update bar can be dismissed and a failed apply says so', async () => {
+  const backend = {
+    ...BACKEND,
+    'update.check': () => ({
+      ok: true, checkedAt: Date.now(), fromCache: false, stale: false, reason: null,
+      current: { content: '0.2.0', shell: '0.2.0', source: 'bundle' },
+      available: { content: { version: '0.2.1', file: 'f', bytes: 1, sha256: 'a'.repeat(64), notes: '', minShell: '0.2.0' } },
+    }),
+    'update.apply': () => ({ ok: false, reason: 'busy' }),
+  };
+  const { node, tick } = await bootApp(backend);
+  await tick(); await tick();
+  const bar = node('log').children.find((c) => (c.className ?? '').includes('update-bar'));
+  assert.ok(bar, 'the update bar is up');
+  buttonIn(bar, /อัปเดตเดี๋ยวนี้/).dispatch('click');
+  await tick(); await tick();
+  assert.match(node('log').textContent, /อัปเดตไม่สำเร็จ/, 'a failed apply says so');
+  buttonIn(bar, /ไม่ตอนนี้/).dispatch('click');
+  assert.equal(node('log').children.includes(bar), false, 'and dismissal takes the bar away');
+});
+
+test('a signed shell update hands over to the installer', async () => {
+  const backend = {
+    ...BACKEND,
+    'update.check': () => ({
+      ok: true, checkedAt: Date.now(), fromCache: false, stale: false, reason: null,
+      current: { content: '0.2.1', shell: '0.2.0', source: 'bundle' },
+      available: { shell: { version: '0.2.1', file: 'f', bytes: 1, sha256: 'b'.repeat(64), signature: 'signed', notes: '' } },
+    }),
+    'update.install': () => ({ ok: true }),
+  };
+  const { node, tick } = await bootApp(backend);
+  await tick(); await tick();
+  const bar = node('log').children.find((c) => (c.className ?? '').includes('update-bar'));
+  buttonIn(bar, /ติดตั้งเวอร์ชันนี้/).dispatch('click');
+  await tick(); await tick();
+  assert.match(node('log').textContent, /กำลังปิดแอป/, 'the handover is named');
+});
+
+test('the model catalog banner refreshes the list on click', async () => {
+  const backend = {
+    ...BACKEND,
+    status: () => ({ ...BACKEND.status(), catalog: { source: 'fallback', at: 0, count: 0, error: null } }),
+    models: () => ({ source: 'fallback', at: 0, error: null, data: [{ id: 'm', name: 'm', kind: 'chat' }] }),
+  };
+  const { node, tick, calls } = await bootApp(backend);
+  await tick(); await tick();
+  const bar = node('log').children.find((c) => /needs-tab/.test(c.className ?? ''));
+  assert.ok(bar, 'the catalog banner is up');
+  const btn = buttonIn(bar, /ลองใหม่|รีเฟรช|อัปเดต/);
+  assert.ok(btn, 'with a refresh button on it');
+  btn.dispatch('click');
+  await tick(); await tick();
+  assert.ok(calls.includes('models'), 'the click asks for a fresh catalog');
+});
+
+test('a code block copy marks the button copied', async () => {
+  const { createTranscript } = await import('../../desktop/ui/transcript.js');
+  const log = new El('div', 'log');
+  const handlers = [];
+  log.addEventListener = (type, fn) => { if (type === 'click') handlers.push(fn); };
+  const handler = (ev) => { for (const fn of handlers) fn(ev); };
+  const ctx = { el: (tag) => new El(tag), log, state: {}, scrollDown: () => {}, atBottom: () => true, rpc: async () => {} };
+  createTranscript(ctx);
+  assert.ok(handlers.length > 0, 'the transcript listens for code-copy clicks');
+  const written = [];
+  const prevNav = globalThis.navigator;
+  Object.defineProperty(globalThis, 'navigator', { value: { clipboard: { writeText: async (t) => { written.push(t); } } }, configurable: true, writable: true });
+  try {
+    const fakeCode = new El('code'); fakeCode.textContent = 'const x = 1;';
+    const fakePre = new El('pre'); fakePre.querySelector = () => fakeCode;
+    const btn = new El('button');
+    btn.closest = (sel) => (sel === '.code-copy' ? btn : fakePre);
+    handler({ target: btn });
+    await new Promise((r) => setTimeout(r, 10));
+    assert.deepEqual(written, ['const x = 1;'], 'the code text went to the clipboard');
+    assert.equal(btn.textContent, 'copied', 'the button marks the copy done');
+  } finally {
+    Object.defineProperty(globalThis, 'navigator', { value: prevNav, configurable: true, writable: true });
+  }
 });

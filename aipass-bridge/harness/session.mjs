@@ -718,7 +718,7 @@ export class SessionStore {
     return Boolean(rel) && rel !== '..' && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel);
   }
 
-  create({ root = process.cwd(), model = null, title = null, forkedFrom = null }) {
+  create({ root = process.cwd(), model = null, title = null, forkedFrom = null, helper = false }) {
     const dir = this.dirFor(root);
     const header = {
       type: 'header',
@@ -731,6 +731,7 @@ export class SessionStore {
       updated: Date.now(),
       entryCount: 0,
       forkedFrom,
+      helper: helper === true,
       app: APP_VERSION,
       schema: 1,
     };

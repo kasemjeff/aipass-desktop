@@ -21,7 +21,7 @@
 // talk to the sandbox it just started. No credentials are read, held or sent;
 // the chat path goes through the bridge's normal extension route or not at all.
 //
-// Zero dependencies, Node >= 20 builtins only. HTTP goes through node:http
+// Zero dependencies, Node >= 24 builtins only. HTTP goes through node:http
 // with a no-keep-alive agent and exit happens by draining the loop
 // (process.exitCode, never process.exit) — on Windows, process.exit() after
 // network I/O races Node's teardown and trips libuv's win/async.c assert

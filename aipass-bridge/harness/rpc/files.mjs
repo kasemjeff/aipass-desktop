@@ -149,19 +149,19 @@ export function createFilesMethods(ctx) {
       const rel = path.isAbsolute(file) ? path.relative(h.root, file) : file;
       // A path outside the project is not in the index, so it has no symbols —
       // the same answer the SYMBOLS marker gives, and no way out of the root.
-      return { file: rel.replace(/\\/g, '/'), symbols: listSymbols(h.root, rel) };
+      return { file: rel.replace(/\\/g, '/'), symbols: await listSymbols(h.root, rel) };
     },
     async 'symbols.def'(params = {}) {
       const h = targetFor(params);
       const name = String(params.name ?? '').trim();
       if (!name) throw new Error('which name? — /symbols <name>');
-      return { name, definitions: findDefinition(h.root, name) };
+      return { name, definitions: await findDefinition(h.root, name) };
     },
     async 'symbols.refs'(params = {}) {
       const h = targetFor(params);
       const name = String(params.name ?? '').trim();
       if (!name) throw new Error('which name? — /symbols <name>');
-      return { name, references: findReferences(h.root, name) };
+      return { name, references: await findReferences(h.root, name) };
     },
 
     async 'retrieval.status'(params = {}) {

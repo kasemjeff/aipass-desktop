@@ -300,20 +300,41 @@ test('the relocate CLI re-keys the home it is pointed at, and refuses while the 
 
   // While a desktop backend answers, the CLI refuses before touching a file:
   // the running backend holds the old paths and its open sessions.
-  const port = await freePort();
   const backend = http.createServer((req, res) => {
     res.writeHead(200, { 'content-type': 'application/json' });
     res.end(JSON.stringify({ ok: true, result: {} }));
   });
-  await new Promise((r) => backend.listen(port, '127.0.0.1', r));
+  // freePort() releases its socket before handing the port over: under the
+  // coverage gate four files bind ports at once, and the released port can
+  // be claimed in between. Retry with a fresh port instead of failing.
+  let port = await freePort();
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await new Promise((resolve, reject) => {
+        backend.once('error', reject);
+        backend.listen(port, '127.0.0.1', resolve);
+      });
+      break;
+    } catch {
+      if (attempt >= 4) throw new Error('could not bind a port for the fake backend after retries');
+      port = await freePort();
+    }
+  }
   t.after(() => backend.close());
   const refused = await run({ AIPASS_DESKTOP_PORT: String(port) });
   assert.equal(refused.status, 1);
   assert.match(refused.stderr, /desktop app is running/);
   assert.equal(store.list(newRoot).length, 0, 'nothing moved on the refusal');
 
-  // Nothing on the desktop port: the CLI does the work for real.
-  const done = await run({ AIPASS_DESKTOP_PORT: String(await freePort()) });
+  // Nothing on the desktop port: the CLI does the work for real. The port
+  // is only probably free - the release race can hand the CLI a port
+  // another file just bound, which reads as the app running. A refusal
+  // here means the port was taken, not that the home moved: retry.
+  let done;
+  for (let attempt = 0; ; attempt++) {
+    done = await run({ AIPASS_DESKTOP_PORT: String(await freePort()) });
+    if (done.status === 0 || attempt >= 4 || !/desktop app is running/.test(done.stderr)) break;
+  }
   assert.equal(done.status, 0, done.stderr);
   assert.match(done.stdout, /relocated/);
   assert.equal(store.list(newRoot).length, 1, 'the CLI re-keyed the real home');

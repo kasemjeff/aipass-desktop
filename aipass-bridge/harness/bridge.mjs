@@ -98,6 +98,12 @@ export const TRANSIENT_SEND = /no extension connected|could not establish connec
 export const SEND_ATTEMPTS = 6; // ≈5s of patience at SEND_RETRY_MS — longer than a cycle gap
 export const SEND_RETRY_MS = Number(process.env.AIPASS_SEND_RETRY_MS) || 1000; // tests shrink it
 
+// Keep a model call from waiting forever when an intermediary accepts the
+// request but stops forwarding the body. SSE keepalives count as progress, so
+// these clocks only fire when the transport is genuinely silent.
+export const DEFAULT_FIRST_BYTE_TIMEOUT_MS = 120_000;
+export const DEFAULT_STREAM_STALL_TIMEOUT_MS = 180_000;
+
 // The edge in front of the site answers 429 when the account moves too fast —
 // ten messages in four minutes was enough to draw one (docs/HARNESS_DESIGN.md
 // has the recording). Nothing about the payload is wrong: the same body goes
@@ -427,7 +433,10 @@ export class BridgeClient {
   // person must see (a mid-reply model switch) that are not the answer.
   // `rateBucket` is `undefined` (the environment/default), a
   // `{capacity, refillMs}` override, or `false` to send unpaced.
-  constructor(base = DEFAULT_BRIDGE_URL, { model = null, rateWaits = RATE_WAITS_MS, onNote = null, onStreamNote = null, rateBucket = undefined } = {}) {
+  constructor(base = DEFAULT_BRIDGE_URL, {
+    model = null, rateWaits = RATE_WAITS_MS, onNote = null, onStreamNote = null,
+    rateBucket = undefined, firstByteTimeoutMs = undefined, stallTimeoutMs = undefined,
+  } = {}) {
     this.base = String(base).replace(/\/+$/, '');
     // The edge in front of de.aipass.net is the only firewall in the picture:
     // the WAF table exists for it and for nothing else. A provider that is a
@@ -441,6 +450,12 @@ export class BridgeClient {
     this.rateWaits = rateWaits;
     this.onNote = onNote;
     this.onStreamNote = onStreamNote;
+    this.firstByteTimeoutMs = firstByteTimeoutMs === undefined
+      ? Number(process.env.AIPASS_FIRST_BYTE_TIMEOUT_MS) || DEFAULT_FIRST_BYTE_TIMEOUT_MS
+      : Math.max(0, Number(firstByteTimeoutMs) || 0);
+    this.stallTimeoutMs = stallTimeoutMs === undefined
+      ? Number(process.env.AIPASS_STREAM_STALL_TIMEOUT_MS) || DEFAULT_STREAM_STALL_TIMEOUT_MS
+      : Math.max(0, Number(stallTimeoutMs) || 0);
     const bucket = rateBucket === undefined ? rateBucketConfig() : rateBucket;
     this.bucket = bucket ? new TokenBucket(typeof bucket === 'object' ? bucket : {}) : null;
   }
@@ -512,9 +527,23 @@ export class BridgeClient {
     // the answer arrives when it is ready — so a caller may give the request
     // its own clock (the media timeout, not the idle one). A stop, which is
     // the caller's signal, still wins: the two are combined, not swapped.
-    const timer = timeoutMs ? AbortSignal.timeout(timeoutMs) : null;
-    const deadline = signal && timer ? AbortSignal.any([signal, timer]) : (signal ?? timer);
-    const res = await fetch(`${this.base}/v1/chat/completions`, {
+    const requestTimer = timeoutMs ? AbortSignal.timeout(timeoutMs) : null;
+    const stallController = new AbortController();
+    let streamTimer = null;
+    let timeoutKind = null;
+    const armStreamTimer = (ms, kind) => {
+      if (streamTimer) clearTimeout(streamTimer);
+      if (!ms) return;
+      streamTimer = setTimeout(() => {
+        timeoutKind = kind;
+        stallController.abort();
+      }, ms);
+    };
+    armStreamTimer(this.firstByteTimeoutMs, 'first-byte');
+    const signals = [signal, requestTimer, stallController.signal].filter(Boolean);
+    const deadline = signals.length > 1 ? AbortSignal.any(signals) : (signals[0] ?? null);
+    try {
+      const res = await fetch(`${this.base}/v1/chat/completions`, {
       method: 'POST',
       headers: this.#headers({ 'content-type': 'application/json' }),
       body: JSON.stringify({
@@ -545,48 +574,70 @@ export class BridgeClient {
         stream: true,
         messages: [{ role: 'user', content }],
       }),
-      ...(deadline ? { signal: deadline } : {}),
-    });
-    if (!res.ok) throw new Error(`bridge returned ${res.status}: ${(await res.text()).slice(0, 300)}`);
+        ...(deadline ? { signal: deadline } : {}),
+      });
+      if (!res.ok) throw new Error(`bridge returned ${res.status}: ${(await res.text()).slice(0, 300)}`);
 
-    let out = '';
-    let reasoning = '';
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buf = '';
-    for (;;) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      buf += decoder.decode(value, { stream: true });
-      let cut;
-      while ((cut = buf.indexOf('\n\n')) !== -1) {
-        const frame = buf.slice(0, cut); buf = buf.slice(cut + 2);
-        const data = frame.split('\n').filter((l) => l.startsWith('data:')).map((l) => l.slice(5).trim()).join('');
-        if (!data || data === '[DONE]') continue;
-        let evt;
-        try { evt = JSON.parse(data); } catch { continue; }
-        if (evt.error) throw new Error(evt.error.message);
-        const delta = evt.choices?.[0]?.delta ?? {};
+      let out = '';
+      let reasoning = '';
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = '';
+      for (;;) {
+        const read = reader.read();
+        let abortRead = null;
+        if (deadline) {
+          abortRead = new Promise((_, reject) => {
+            const onAbort = () => reject(deadline.reason ?? new Error('stream aborted'));
+            if (deadline.aborted) onAbort();
+            else deadline.addEventListener('abort', onAbort, { once: true });
+            read.finally(() => deadline.removeEventListener('abort', onAbort)).catch(() => {});
+          });
+        }
+        const { value, done } = await (abortRead ? Promise.race([read, abortRead]) : read);
+        if (done) break;
+        armStreamTimer(this.stallTimeoutMs, 'stall');
+        buf += decoder.decode(value, { stream: true });
+        let cut;
+        while ((cut = buf.indexOf('\n\n')) !== -1) {
+          const frame = buf.slice(0, cut); buf = buf.slice(cut + 2);
+          const data = frame.split('\n').filter((l) => l.startsWith('data:')).map((l) => l.slice(5).trim()).join('');
+          if (!data || data === '[DONE]') continue;
+          let evt;
+          try { evt = JSON.parse(data); } catch { continue; }
+          if (evt.error) throw new Error(evt.error.message);
+          const delta = evt.choices?.[0]?.delta ?? {};
         // A note is not the answer and never flips the resend gate: a retry
         // repeating a note is harmless, a retry repeating an answer is not.
         // This matters most exactly when the edge is refusing — the page's
         // own waiting line arrives this way — so reading the note as "the
         // answer started" would close the gate and turn a wait the layers
         // below are handling into a fatal error.
-        if (typeof delta.note === 'string' && delta.note) {
-          this.onStreamNote?.(delta.note);
-          // The reasoning echo rides the same delta for clients that never
-          // learned the field (the chat console reads reasoning): it shows
-          // and records here too, it just does not count as answer content.
-          if (delta.reasoning_content) { reasoning += delta.reasoning_content; onReasoning(delta.reasoning_content); }
-          if (delta.content) onText(delta.content);
-          continue;
+          if (typeof delta.note === 'string' && delta.note) {
+            this.onStreamNote?.(delta.note);
+            // The reasoning echo rides the same delta for clients that never
+            // learned the field (the chat console reads reasoning): it shows
+            // and records here too, it just does not count as answer content.
+            if (delta.reasoning_content) { reasoning += delta.reasoning_content; onReasoning(delta.reasoning_content); }
+            if (delta.content) onText(delta.content);
+            continue;
+          }
+          if (delta.reasoning_content) { markStreamed(); reasoning += delta.reasoning_content; onReasoning(delta.reasoning_content); }
+          if (delta.content) { markStreamed(); out += delta.content; onText(delta.content); }
         }
-        if (delta.reasoning_content) { markStreamed(); reasoning += delta.reasoning_content; onReasoning(delta.reasoning_content); }
-        if (delta.content) { markStreamed(); out += delta.content; onText(delta.content); }
       }
+      return { text: out, reasoning };
+    } catch (err) {
+      if (timeoutKind) {
+        const timedOut = new Error(`bridge stream timed out (${timeoutKind})`);
+        timedOut.code = timeoutKind === 'first-byte' ? 'ERR_FIRST_BYTE_TIMEOUT' : 'ERR_STREAM_STALL';
+        timedOut.name = 'TimeoutError';
+        throw timedOut;
+      }
+      throw err;
+    } finally {
+      if (streamTimer) clearTimeout(streamTimer);
     }
-    return { text: out, reasoning };
   }
 
   /**

@@ -34,6 +34,9 @@ English; the Thai README is at [`../README.th.md`](../README.th.md).
 | [`UPDATE_DESIGN.md`](./UPDATE_DESIGN.md) | the update feed and the two versioned halves |
 | [`REFRESH_DESIGN.md`](./REFRESH_DESIGN.md) | the refresh path |
 | [`FEATURE_GAPS.md`](./FEATURE_GAPS.md) | the gap list a batch of work closes |
+| [`FEATURE_GAPS_WAVE3.md`](./FEATURE_GAPS_WAVE3.md) | the boundary, the clock and the review — wave 3 of the gap list |
+| [`MIGRATION.md`](./MIGRATION.md) | migrating from the upstream bridge |
+| [`RAG_DESIGN.md`](./RAG_DESIGN.md) | the project retrieval design (RETRIEVE) |
 | [`WORKLOG.md`](./WORKLOG.md) | the work log, kept for provenance |
 
 ## Contributing to the docs

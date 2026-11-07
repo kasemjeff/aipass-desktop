@@ -19,6 +19,10 @@ import {
   signingState,
   bundlerCommand,
   targetDir,
+  RESOURCE_DIRS,
+  NOT_SHIPPED_LOOSE,
+  resourceEntries,
+  generatedConfig,
 } from '../../scripts/build-desktop.mjs';
 import { planFor as ladderPlan, versionFromName, ladderSteps } from '../../scripts/install-ladder.mjs';
 import { downloadUrl } from '../../scripts/build-universal-sidecar.mjs';
@@ -109,6 +113,48 @@ test('the shell test lane puts the sidecar in place before cargo test', () => {
   const cargo = rustJob.indexOf('run: cargo test');
   assert.notEqual(sidecar, -1, 'the rust job fetches the sidecar');
   assert.ok(sidecar < cargo, 'before cargo test runs');
+});
+
+test('the packaged resources are generated from the tree, not remembered', () => {
+  // The checked-in config and the generator must agree: a loose file added
+  // to aipass-bridge/ without a --gen-config run fails here, before it can
+  // ship missing from a raw `tauri build`.
+  const conf = JSON.parse(fs.readFileSync(path.join(REPO, 'desktop', 'src-tauri', 'tauri.conf.json'), 'utf8'));
+  assert.deepEqual(conf.bundle.resources, resourceEntries(REPO));
+
+  // And the generator itself picks a new loose file up on its own, while
+  // the named non-runtime files and the non-shipped trees stay out.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aipass-resources-'));
+  try {
+    const bridge = path.join(dir, 'aipass-bridge');
+    fs.mkdirSync(bridge);
+    for (const d of RESOURCE_DIRS) fs.mkdirSync(path.join(bridge, d));
+    fs.mkdirSync(path.join(bridge, 'test'));
+    fs.mkdirSync(path.join(bridge, 'docs'));
+    for (const f of ['new-cli.mjs', 'AGENTS.md', '.env.example', 'README.md']) {
+      fs.writeFileSync(path.join(bridge, f), '');
+    }
+    const entries = resourceEntries(dir);
+    assert.equal(entries['../../aipass-bridge/new-cli.mjs'], 'aipass-bridge/new-cli.mjs');
+    assert.equal(entries['../../aipass-bridge/harness'], 'aipass-bridge/harness/');
+    for (const name of NOT_SHIPPED_LOOSE) {
+      assert.ok(!Object.values(entries).some((v) => String(v).endsWith(`/${name}`)), `${name} is not shipped`);
+    }
+    assert.ok(!Object.keys(entries).some((k) => k.includes('/test') || k.includes('/docs')), 'test/ and docs/ are not shipped');
+    assert.equal(entries['../main.mjs'], 'main.mjs');
+    assert.equal(entries['../ui'], 'ui/');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('the generated config is the checked-in one with generated resources', () => {
+  const conf = generatedConfig(REPO);
+  const checkedIn = JSON.parse(fs.readFileSync(path.join(REPO, 'desktop', 'src-tauri', 'tauri.conf.json'), 'utf8'));
+  assert.equal(conf.version, checkedIn.version);
+  assert.equal(conf.productName, checkedIn.productName);
+  assert.deepEqual(conf.app.security.csp, checkedIn.app.security.csp);
+  assert.deepEqual(conf.bundle.resources, resourceEntries(REPO));
 });
 
 test('the three version numbers must agree', () => {

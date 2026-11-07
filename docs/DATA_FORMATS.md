@@ -91,10 +91,10 @@ parsing the rest:
 ```json
 {"type":"header","id":"a1b2c3d4","parentId":null,"title":"…","root":"…",
  "model":…,"created":…,"updated":…,"entryCount":…,"forkedFrom":…,"app":…,"schema":1,
- "conversation":"…","conversationTemporary":true}
+ "conversation":"…","conversationTemporary":true,"helper":true}
 ```
 
-`schema: 1` is the format version of the file itself; `app` names the build
+`helper: true` marks a session created by a helper (SUBAGENT) run — those are hidden from the sidebar by default; `schema: 1` is the format version of the file itself; `app` names the build
 that created it — additive, absent in older files, carried through forks and
 header rewrites by anything that does not know it. `conversation` (+
 `conversationTemporary`) is the model-side conversation the session works in:

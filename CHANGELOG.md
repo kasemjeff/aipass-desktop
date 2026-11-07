@@ -25,6 +25,60 @@ procedure, acceptance criteria and rollback live in [`docs/RELEASE.md`](docs/REL
 
 ### Added
 
+- **Shipped Thai developer delivery playbooks.** The repo now carries a `skills/` library (`thai-prd`, `thai-quotation`, `thai-client-status`, `thai-release-notes`, `thai-handover`, `thai-incident`, `thai-sop`, `thai-readme`, `thai-invoice-checklist`, `thai-privacy-checklist`, `thai-setup-doctor`, `thai-credit-guard`, `thai-waf-403`, `thai-email`, `thai-line-reply`, `thai-deploy-checklist`, `thai-kb-article`, `thai-github-issue`, `thai-meeting-notes`) plus a Thai/English curated `index.md`, and the shipped-skills path now resolves to that folder instead of a directory one level above the repo. The model can load them through the existing SKILL library on every surface, so a Thai developer can ask for a PRD, quotation, handover, release notes, SOP, incident report, PDPA checklist, setup diagnosis, credit plan, WAF refusal diagnosis, client email, LINE reply, deploy checklist, KB article, issue triage, or meeting notes without pasting a template.
+
+- **The window now sees subagent work.** A helper run (and a background SUBAGENT / background command) gets a live row in a new "Helpers & Jobs" section of the rail — role, task, status, elapsed time, steps, ~tokens, prepared files — instead of two loose notes. Helper frames are tagged with their id and no longer collapse the parent's turn mid-run (no second task bubble, no working bar dropping, no attachments cleared while the run is still going). Helper sessions are hidden from the sidebar by default (toggle `h`). `helper_start`/`helper_end`/`subagent_start`/`subagent_end` carry the id; `job_start`/`job_end` are now rendered too.
+- **Token hygiene for helpers.** A helper's report is clipped at `maxResult` bytes with a spill locator (like any other tool result); a helper with a read-only role skips re-pasting the project's AGENTS.md (one-line pointer instead, up to 8 KB saved per helper); the settings sheet gains an Elision-tier toggle (`compaction.elideStaleResults`, default off, per the experiment queue).
+- **Session header gains `helper: true`** for helper-created sessions (`docs/DATA_FORMATS.md`).
+
+- **A DONE that arrives with calls is gated like any other DONE.** The
+  stage-and-DONE path now runs the same finish pipeline as a plain DONE —
+  checker, strict, jobs, review, goal, plan checkpoint, language — in that
+  order, so a `RUN background … END` followed by `DONE` can no longer slip
+  past the jobs gate (and the review check). `background-run.test.mjs` pins
+  both paths.
+- **The `jobs-running` gate tells the truth about the job.** A DONE over a
+  live background command ends the run with `jobs-running` and the run stops
+  the command on the way out; the gate's nudge and summary now say so instead
+  of "leaving the job to the person", and the end-of-run sweeper's wording
+  agrees. The job's fate (stopped with the run) is pinned by the test.
+- **Pending edits are never discarded implicitly.** Starting a new desktop run
+  with staged changes now stops with instructions to Apply or Discard them;
+  automatic clearing remains limited to explicit checker retries within the
+  same run.
+- **The desktop window works faster and its machine stays busy less.**
+  Cold start still verifies backend identity after the TCP port opens, including
+  when the shell spawned the child, so a failed child cannot race with a
+  stranger's server. The port wait polls at 100 ms (was 250 + a fixed 150 ms sleep),
+  so a quick backend is picked up sooner. The settings sheet paints at once
+  and its live pages (git, schedule, media, memory, goal, providers, health,
+  MCP, plugins) render in parallel instead of awaiting each other in turn,
+  and `plugins.list`/`mcp.list` ride together; the UI's own boot fires its
+  independent calls in parallel too, and one failing refresh no longer
+  aborts the rest of the boot. Reloading a long session replays only the
+  newest ~300 rows instead of markdown-parsing the whole history first
+  (the session file still holds everything). The session panel's archive
+  scan is cached for a minute (archive/unarchive/prune bypass it), the
+  context panel spends no RPCs while folded and its `git.status` rides a
+  10 s TTL with one shared in-flight call, the composer's draft storage
+  writes coalesce (first keystroke after a quiet moment lands at once), the
+  sidebar's drag no longer reads layout per mousemove, and the transcript's
+  bounded-row trim no longer copies the row list on every append.
+- **The backend stopped freezing on the code-navigation path (rule 9).**
+  `SYMBOLS`/`DEF`/`REFS` walked the tree and read the index with sync calls
+  on the event loop, and every index lookup re-read and re-parsed the whole
+  JSON; `retrieval.status` parsed the retrieval index just to count bytes.
+  Now the symbol walk (readdir/stat/readFile) is threadpool work, the parsed
+  index is memoized on (mtime, size) and shared by single-flight builds,
+  `REFS` rides a bounded memo keyed on the index revision, the index is
+  written only when its content changed, and `retrieval.status` answers from
+  the stat when warm. The window's static files carry `content-length` and
+  an `etag` (size–mtime) and answer `304` to `if-none-match`, so a reload
+  transfers ~0 bytes after the first paint. The `/rpc` project header is
+  validated on a 2 s memo instead of a stat per call; the replay buffer
+  counts its bytes per frame instead of re-encoding overflowed frames; and
+  the per-project file-search cache drops stale entries and caps at eight
+  projects.
 - **Timeouts speak, reads batch wider, and a chanting run gets told.** Command
   ceilings are declared once per tool (`TOOL_TIMEOUTS` in `tools.mjs`: RUN
   120 s, GIT 15 s, FETCH 20 s) and a timeout now says its own fact — "the
@@ -385,6 +439,32 @@ procedure, acceptance criteria and rollback live in [`docs/RELEASE.md`](docs/REL
   `desktop/ui/app.js`).
 ### Fixed
 
+- **DIAGNOSE is dispatchable again.** The preamble taught `DIAGNOSE` and the
+  tool existed, but `BUILTIN_KINDS` did not list `diagnose`, so every call
+  answered `err: unknown marker "diagnose"` (7/7 in the session log). The
+  kind is in the set now, with its argument guard (`harness/validate.mjs`).
+- **A missing Node binary no longer crashes the backend.** `spawn`'s `error`
+  event is asynchronous, so the `try/catch` in `startBridgeOnce` could not
+  see an ENOENT from a deleted build path and the uncaught exception ended
+  the process for every window (`harness/rpc.mjs`); the shell now names a
+  missing absolute Node path before spawning
+  (`desktop/src-tauri/src/main.rs`).
+- **Walks skip all of `AppData`, not just temp.** `isNoisePath` covered only
+  `AppData/Local/Temp` and `AppData/Roaming/Temp`; now the whole `AppData`
+  tree is skipped by list/search/glob/tree, still readable by explicit path
+  (`harness/overlay.mjs`). Search and glob also stop after 20,000 visited
+  files with a note, so a home-rooted project cannot walk for eight minutes
+  (`harness/tools.mjs`).
+- **Runs record their total duration.** `run_stats` gains `durationMs`
+  (from `runStart` to the end of the run); `stepMs` still covers the model
+  turn alone. `npm run stats` aggregates it as `avg run`
+  (`harness/loop.mjs`, `stats.mjs`). Helpers and the checker now inherit at
+  most 50 tool calls and 10 minutes of wall clock, not the parent's 300 and
+  30 (`harness/harness.mjs`).
+- **Outside-root and git errors name the boundary.** `outside project root`
+  errors now include the project root, and a git failure with empty stderr
+  names the subcommand instead of a bare `err: exit 1`
+  (`harness/overlay.mjs`, `harness/tools.mjs`).
 - **The token bootstrap refuses same-site pages, and an Origin must be the
   exact host.** `isBrowserSameOrigin` accepted a page from any loopback port
   — another local dev server, say — because it only asked whether the Origin

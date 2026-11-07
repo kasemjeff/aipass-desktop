@@ -148,42 +148,67 @@ function projectHash(root) { return crypto.createHash('sha1').update(path.resolv
 // The index names every source file and every symbol in the project: it is
 // the user's code, spelled out. The folder and the file are owner-only where
 // the OS has modes, like the session store and the credentials file.
+const dirReadyFor = new Set();
 function indexDir() {
   const dir = path.join(aipassHome(), 'symbols');
+  // mkdir/chmod are one-time per home: callers used to pay two syscalls on
+  // every index lookup. Keyed on the path, so an AIPASS_HOME pointed
+  // elsewhere later still gets its folder.
+  if (dirReadyFor.has(dir)) return dir;
   try { fs.mkdirSync(dir, { recursive: true, mode: 0o700 }); } catch {}
   // The mode is set on creation and pinned again afterwards: a directory
   // that was already there keeps the permissions it had. Windows has no
   // POSIX modes, so the chmod is best effort there.
   try { fs.chmodSync(dir, 0o700); } catch { /* windows has no POSIX modes */ }
+  dirReadyFor.add(dir);
   return dir;
 }
 function indexPath(root) { return path.join(indexDir(), projectHash(root) + '.json'); }
 
-function loadIndex(root) {
+// The index is parsed at most once per (file, stat): a lookup on an
+// untouched project pays a stat, not a multi-MB parse. The working copy is
+// the memo — mutation lands on it first, and the file follows on save.
+let indexMemo = { key: '', mtimeMs: 0, size: 0, data: null };
+// Bumps on every write of the index file. While the tree is quiet it is a
+// stable fingerprint of the index content, so caches keyed on it hold.
+let indexRev = 0;
+
+async function loadIndex(root) {
+  const p = indexPath(root);
   try {
-    const raw = fs.readFileSync(indexPath(root), 'utf8');
-    const data = JSON.parse(raw);
-    if (data && data.root === path.resolve(root) && data.files) return data;
+    const st = await fs.promises.stat(p);
+    if (indexMemo.key === p && indexMemo.mtimeMs === st.mtimeMs && indexMemo.size === st.size && indexMemo.data) return indexMemo.data;
+    const data = JSON.parse(await fs.promises.readFile(p, 'utf8'));
+    if (data && data.root === path.resolve(root) && data.files) {
+      indexMemo = { key: p, mtimeMs: st.mtimeMs, size: st.size, data };
+      return data;
+    }
   } catch {}
+  indexMemo = { key: p, mtimeMs: 0, size: 0, data: null };
   return { root: path.resolve(root), files: {} };
 }
 
 // The swap is atomic, so a crash cannot leave a half-written index behind:
 // a broken index reads as "nothing indexed" and the project is re-read. The
 // mode is pinned on the new file, so the index is the owner's alone.
-function saveIndex(root, idx) {
+async function saveIndex(root, idx) {
   // No index, no write: `JSON.stringify(undefined)` is undefined, and
   // writeFileSync would throw on it - a throw swallowed by the catch below,
   // so the index silently never landed and every run re-read the project.
   if (!idx) return;
-  try { writeFileAtomic(indexPath(root), JSON.stringify(idx), { mode: 0o600 }); } catch {}
+  try {
+    writeFileAtomic(indexPath(root), JSON.stringify(idx), { mode: 0o600 });
+    indexRev += 1;
+    const st = await fs.promises.stat(indexPath(root));
+    indexMemo = { key: indexPath(root), mtimeMs: st.mtimeMs, size: st.size, data: idx };
+  } catch {}
 }
 
 const SKIP_DIRS = new Set(['node_modules', '.git', '.aipass', 'dist', 'build', 'coverage', '.next', 'target', 'vendor']);
 
-function walkFiles(root, dir = root, out = []) {
+async function walkFiles(root, dir = root, out = []) {
   let entries;
-  try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return out; }
+  try { entries = await fs.promises.readdir(dir, { withFileTypes: true }); } catch { return out; }
   for (const e of entries) {
     if (e.name.startsWith('.') && e.name !== '.') continue;
     const full = path.join(dir, e.name);
@@ -191,7 +216,7 @@ function walkFiles(root, dir = root, out = []) {
       if (SKIP_DIRS.has(e.name)) continue;
       const rel = path.relative(root, full).replace(/\\/g, '/');
       if (isNoisePath(rel)) continue;
-      walkFiles(root, full, out);
+      await walkFiles(root, full, out);
     } else if (e.isFile()) {
       const ext = path.extname(e.name).toLowerCase();
       if (EXT_LANG[ext]) out.push(path.relative(root, full).replace(/\\/g, '/'));
@@ -200,35 +225,56 @@ function walkFiles(root, dir = root, out = []) {
   return out;
 }
 
-export function indexProject(root) {
-  const idx = loadIndex(root);
-  const files = walkFiles(root);
+// A build two callers asked for is one build — SYMBOLS/DEF/REFS on a cold
+// project used to each walk the tree. The walk and the stats go through the
+// threadpool, so a rebuild no longer freezes every other window call.
+const buildFlights = new Map();
+export async function indexProject(root) {
+  const key = path.resolve(root);
+  const flying = buildFlights.get(key);
+  if (flying) return flying;
+  const build = (async () => {
+    try { return await buildIndex(key); } finally { buildFlights.delete(key); }
+  })();
+  buildFlights.set(key, build);
+  return build;
+}
+
+async function buildIndex(root) {
+  const idx = await loadIndex(root);
+  const files = await walkFiles(root);
   const fileSet = new Set(files);
-  for (const f of Object.keys(idx.files)) if (!fileSet.has(f)) delete idx.files[f];
+  let dirty = false;
+  for (const f of Object.keys(idx.files)) if (!fileSet.has(f)) { delete idx.files[f]; dirty = true; }
   for (const rel of files) {
     const full = path.join(root, rel);
     let st;
-    try { st = fs.statSync(full); } catch { continue; }
+    try { st = await fs.promises.stat(full); } catch { continue; }
     const prev = idx.files[rel];
     if (prev && prev.mtime === st.mtimeMs) continue;
     let text = '';
-    try { text = fs.readFileSync(full, 'utf8'); } catch { continue; }
+    try { text = await fs.promises.readFile(full, 'utf8'); } catch { continue; }
     idx.files[rel] = { mtime: st.mtimeMs, symbols: extractSymbols(text, rel) };
+    dirty = true;
   }
-  saveIndex(root, idx);
+  // An index nobody changed is not rewritten — the walk alone used to cost a
+  // sync multi-MB write on every lookup. The revision bumps whenever
+  // anything was re-read, even if the write fails: caches keyed on it must
+  // never serve content from before this rebuild.
+  if (dirty) { indexRev += 1; await saveIndex(root, idx); }
   return idx;
 }
 
-export function listSymbols(root, file) {
-  const idx = indexProject(root);
+export async function listSymbols(root, file) {
+  const idx = await indexProject(root);
   const rel = path.isAbsolute(file) ? path.relative(root, file).replace(/\\/g, '/') : file.replace(/\\/g, '/');
   const entry = idx.files[rel];
   if (!entry) return [];
   return entry.symbols;
 }
 
-export function findDefinition(root, name) {
-  const idx = indexProject(root);
+export async function findDefinition(root, name) {
+  const idx = await indexProject(root);
   const out = [];
   for (const [file, entry] of Object.entries(idx.files)) {
     for (const s of entry.symbols) {
@@ -238,20 +284,30 @@ export function findDefinition(root, name) {
   return out;
 }
 
-export function findReferences(root, name) {
-  const idx = indexProject(root);
+// REFS re-reads every indexed file; while the tree is quiet the answer is
+// the same bytes, so it is answered from a small bounded memo.
+const REFS_MEMO_MAX = 32;
+const refsMemo = new Map();
+
+export async function findReferences(root, name) {
+  const idx = await indexProject(root);
+  const memoKey = `${path.resolve(root)}:${indexRev}:${name}`;
+  const hit = refsMemo.get(memoKey);
+  if (hit) return hit;
   const re = new RegExp('\\b' + name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'g');
   const out = [];
   for (const rel of Object.keys(idx.files)) {
     const full = path.join(root, rel);
     let text;
-    try { text = fs.readFileSync(full, 'utf8'); } catch { continue; }
+    try { text = await fs.promises.readFile(full, 'utf8'); } catch { continue; }
     const lines = text.split('\n');
     for (let i = 0; i < lines.length; i++) {
       re.lastIndex = 0;
       if (re.test(lines[i])) out.push({ file: rel, line: i + 1, snippet: lines[i].trim().slice(0, 120) });
     }
   }
+  if (refsMemo.size >= REFS_MEMO_MAX) refsMemo.delete(refsMemo.keys().next().value);
+  refsMemo.set(memoKey, out);
   return out;
 }
 

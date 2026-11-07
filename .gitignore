@@ -5,6 +5,7 @@
 /target/
 /desktop/src-tauri/target/
 /desktop/src-tauri/gen/
+/desktop/src-tauri/tauri.generated.conf.json
 /dist/
 /desktop/sidecar/*.exe
 /desktop/sidecar/*.dll

@@ -64,7 +64,7 @@ default.
 | `RETRIEVE` (`harness/retrieval.mjs`) | BM25 over chunked project text, staged edits folded in, 5 s index TTL | lexical only: a paraphrase with no shared word is a miss (measured in the benchmark) |
 | `RECALL` (`harness/memory-store.mjs#recallEntries`) | BM25 over the shared tokenizer; session entries plus memory facts | 30 newest sessions, 128 KB tail each, 8 hits; its own scorer loop, not yet the `RETRIEVE` code |
 | memory carry (`memory-store.mjs#carryFacts`) | picks facts for the first message under 2,400 chars | only the first turn; word match; facts not reachable from `RECALL` |
-| `SYMBOLS`/`DEF`/`REFS` (`harness/symbols.mjs`) | regex symbol index cached under `~/.aipass/symbols` | finds names, not meaning; full synchronous walk and read on refresh (a rule 9 risk) |
+| `SYMBOLS`/`DEF`/`REFS` (`harness/symbols.mjs`) | regex symbol index cached under `~/.aipass/symbols` | finds names, not meaning; the walk and the index read are async and memoized now, so a cold rebuild no longer freezes the loop |
 | `ATTACH` (`harness/tools.mjs#attach`) | queues an image/PDF/office file for the next message | whole file, 20 MB cap, per-message only, no text extraction or citation |
 | window file search (`desktop/ui/panels/files.js`) | name or literal content search over the project | a UI convenience, not a model tool; same exact-text limit |
 | project file index (`harness/rpc.mjs#fileIndex`) | path list cached for 60 s for the picker | paths only; no content |
@@ -222,7 +222,8 @@ hash for the life of the run. This is the same rule `SEARCH` already follows
 `setImmediate` every 32 files, and honor the run's abort signal. If profiling
 shows the CPU tokenizer still makes the backend janky on a large tree, move the
 build to a `worker_threads` worker; the JSON format is already the seam. The
-symbol index's synchronous walk is the example not to copy.
+symbol index's walk used to be the synchronous example not to copy; it is now
+`fs.promises` end to end and its index is memoized on (mtime, size).
 
 **Corruption and moves.** A broken index reads as "nothing indexed" and is
 rebuilt; a save failure keeps the in-memory index for the run (reporting

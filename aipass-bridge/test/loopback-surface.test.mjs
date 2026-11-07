@@ -183,7 +183,14 @@ test('the desktop port is validated on both sides', () => {
   assert.match(node, /n < 1 \|\| n > 65535/,
     'the backend refuses port 0 and anything above the port range');
 
-  const rust = fs.readFileSync(path.join(repo, 'desktop', 'src-tauri', 'src', 'main.rs'), 'utf8');
+  // main.rs is now a shell over seven modules (backend.rs holds the
+  // port rule), so the test reads the whole src/ tree and insists that
+  // one of the files refuses a value that is not a port.
+  const rustDir = path.join(repo, 'desktop', 'src-tauri', 'src');
+  const rust = fs.readdirSync(rustDir)
+    .filter((f) => f.endsWith('.rs'))
+    .map((f) => fs.readFileSync(path.join(rustDir, f), 'utf8'))
+    .join('\n');
   assert.match(rust, /AIPASS_DESKTOP_PORT is not a port/,
     'the shell refuses a value that is not a port');
   assert.match(rust, /if port == 0/,

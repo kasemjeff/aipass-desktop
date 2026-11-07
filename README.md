@@ -1,5 +1,7 @@
 # AiPASS Desktop — open-source AI coding agent for Windows, macOS & Linux
 
+[English](./README.md) · [ไทย](./README.th.md)
+
 > **AiPASS Desktop** is an open-source, Thai-first AI coding agent for Windows, macOS and Linux —
 > review every diff, approve edits, resume and fork sessions. MIT licensed, zero dependencies.
 >
@@ -7,27 +9,43 @@
 > a file-editing agent you can watch, approve and resume — running on top of the
 > community bridge that reaches the site through your own logged-in browser tab.
 
+> **Status: pre-1.0, no installer published yet** — install from source for now
+> (see [Installing](#installing)). Native package is verified on **Windows**; macOS and Linux
+> builds are wired and compile per-branch, but treat them as **ready-to-try, not ready-to-ship**
+> until someone has run them end-to-end. See [ROADMAP.md](./ROADMAP.md).
+
 <p align="left">
-  <img src="https://img.shields.io/badge/node-%E2%89%A520-blue?logo=node.js&style=flat-square" alt="Node >= 20" />
+  <img src="https://img.shields.io/badge/node-%E2%89%A524-blue?logo=node.js&style=flat-square" alt="Node >= 24" />
+  <img src="https://img.shields.io/badge/version-0.2.0-blue?style=flat-square" alt="Version 0.2.0" />
   <img src="https://img.shields.io/badge/dependencies-zero-success?style=flat-square" alt="Zero Dependencies" />
   <img src="https://img.shields.io/badge/tests-npm%20test-blue?style=flat-square" alt="Tests: run npm test" />
-  <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgray?style=flat-square" alt="Platforms" />
 </p>
 
 <p align="left">
   🌐 <a href="https://kasemjeff.github.io/aipass-desktop/">Landing page</a> ·
-  ⬇ <a href="https://github.com/kasemjeff/aipass-desktop/releases/latest">Download (Releases)</a>
+  📦 <a href="https://github.com/kasemjeff/aipass-desktop/releases/latest">Releases (pre-1.0: source install until first installer is published)</a>
 </p>
 
-![AiPASS Desktop AI coding agent window showing sessions, project tree and a file diff](./public/image.png)
+![AiPASS Desktop window in light theme: sessions and project files on the left, conversation with tool rows in the center, composer with mode, provider, model and effort at the bottom](./public/screenshots/desktop-light.png)
 
 <p align="center">
-  <em>The window: sessions on the left, the project tree under them, the
-  conversation in the middle — every tool call a row you can open, every
-  pending edit a file you tick.</em>
+  <em>Light theme. Sessions on the left, the project tree under them, the conversation in the middle — every tool call a row you can open. Pending edits appear in a separate panel with per-file checkboxes and diff view (not in this capture — recapturing with a staged diff is TODO; dark capture planned).</em>
 </p>
 
 ---
+
+### Quick start (30 seconds)
+
+```bash
+git clone https://github.com/kasemjeff/aipass-desktop.git
+cd aipass-desktop
+npm run setup     # Node check, token, PATH, bridge, browser pages
+npm run desktop   # opens the window at http://127.0.0.1:8790
+```
+
+Then load the extension once (`chrome://extensions` → Developer mode → Load unpacked → `aipass-bridge/extension`) and paste the token into the popup. Full steps under [Installing](#installing).
+
+**Who this fits:** Thai-first users on Windows who want a file-editing agent they can watch, approve and resume. **Who it does not fit (yet):** anyone who needs a signed macOS/Linux installer today — those builds are ready-to-try, not ready-to-ship. Running the window in a browser works on all three OSs today.
 
 ## Contents
 
@@ -125,7 +143,7 @@ is demoted, not quietly kept.
 window, nothing to install to run it. The suite is plain `node --test` and it
 drives the real bridge as a subprocess with a scriptable stand-in for the
 extension, so a green run means the HTTP surface works, not that a mock was
-happy. CI runs Windows, macOS and Linux on Node 20, 22 and 24.
+happy. CI runs Windows, macOS and Linux on Node 24.
 
 **Thai-first, and it says so.** The reply-language policy, the Thai/English
 eval pairs and a window written in Thai first — not translated into it.
@@ -156,14 +174,15 @@ below.
 
 ## Installing
 
-Download the latest installer from [Releases](https://github.com/kasemjeff/aipass-desktop/releases/latest),
-or build from source below.
+No installer is published yet (v0.2.0 is pre-1.0). Install from source below; when
+[Releases](https://github.com/kasemjeff/aipass-desktop/releases/latest) ships installers, they will
+appear there. See [ROADMAP.md](./ROADMAP.md) for the release criteria.
 
 ### What you need
 
 | you need | why |
 |---|---|
-| **Node ≥ 20** | the only requirement to run it — the app imports `node:*` builtins and nothing else |
+| **Node ≥ 24** | the only requirement to run it — the app imports `node:*` builtins and nothing else |
 | **Chrome** (or Chromium) | the extension is the only thing that ever touches your session |
 | **A de.aipass.net account** | the site the window talks to; your logged-in browser tab *is* the credential |
 | **Nothing else** | no `npm install` to run it, no build step, no database, no API key |
@@ -227,7 +246,13 @@ the environment, never in `settings.json`.
 ### Uninstalling
 
 ```bash
+rm -f ~/.local/bin/aipass      # or: npm rm -g aipass, if you used npm link (macOS/Linux)
 rm -rf ~/.aipass               # only if you want the sessions and settings gone too
+```
+
+```powershell
+npm rm -g aipass                # if you used npm link (Windows)
+Remove-Item -Recurse -Force "$env:USERPROFILE\.aipass"   # optional — sessions and settings too
 ```
 
 Remove the extension from `chrome://extensions`, and the app from your
@@ -392,7 +417,9 @@ registry). The full list lives in
 
 ## Configuration
 
-`aipass-bridge/.env.example` has the full list. The usual ones:
+The single source of truth is [`docs/CONFIG.md`](./docs/CONFIG.md) (held equal to the code by a
+test) plus `aipass-bridge/.env.example`. The table below is the usual subset for quick reference —
+if it disagrees with `CONFIG.md`, `CONFIG.md` wins:
 
 | Variable | Default | Purpose |
 |---|---|---|
@@ -413,9 +440,21 @@ plugins, uploads, logs).
 
 ## Documentation
 
-The design and operations docs live in [`docs/`](./docs/):
+Start at [`docs/README.md`](./docs/README.md). The design and operations docs live in
+[`docs/`](./docs/):
 
-| Doc | What it holds |
+**Start here:** [`docs/INSTALL.md`](./docs/INSTALL.md) · [`docs/TROUBLESHOOTING.md`](./docs/TROUBLESHOOTING.md)
+· [`docs/FAQ.md`](./docs/FAQ.md) · [`docs/MATURITY.md`](./docs/MATURITY.md)
+
+**Deep dive:** [`docs/HARNESS_DESIGN.md`](./docs/HARNESS_DESIGN.md) · [`docs/LOOP_DESIGN.md`](./docs/LOOP_DESIGN.md)
+· [`docs/SPEC_CHECKER.md`](./docs/SPEC_CHECKER.md) · [`docs/SPEC_EVALS.md`](./docs/SPEC_EVALS.md)
+· [`docs/CONFIG.md`](./docs/CONFIG.md) · [`docs/EVENTS.md`](./docs/EVENTS.md)
+
+**Operations:** [`docs/RELIABILITY.md`](./docs/RELIABILITY.md) · [`docs/RELEASE.md`](./docs/RELEASE.md)
+· [`docs/TEST_PLAN.md`](./docs/TEST_PLAN.md) · [`docs/TECH_STACK.md`](./docs/TECH_STACK.md)
+· [`docs/DATA_FORMATS.md`](./docs/DATA_FORMATS.md)
+
+Full index (every design and operations doc, with one-line summary):
 |---|---|
 | [`docs/HARNESS_DESIGN.md`](./docs/HARNESS_DESIGN.md) | the harness end to end: loop, tools, protocol, permissions, WAF — and how it sits on the bridge and the window; the research rounds and the incident log behind that shape are its Appendix A |
 | [`docs/LOOP_DESIGN.md`](./docs/LOOP_DESIGN.md) | the agent loop itself: stage map, guards, stop reasons, the event stream |
@@ -453,7 +492,7 @@ vulnerability, [`SECURITY.md`](./SECURITY.md).
 ## Repo layout
 
 ```text
-aipass/
+aipass-desktop/
 ├─ desktop/                 the window — ours
 │  ├─ main.mjs              bridge (if needed) + backend on :8790 + window
 │  ├─ ui/                   plain HTML/CSS/JS — no build step
@@ -471,7 +510,7 @@ aipass/
 ├─ experiments/             the experiment queue: what was tried, what it cost
 ├─ ide-extension/           the VS Code panel — one more surface on the same backend
 ├─ scripts/                 test runner, QA loop, verify, evals, the build lanes
-├─ public/                  static pages and the README image
+├─ public/                  static pages and README screenshots (public/screenshots/)
 └─ package.json             npm run shortcuts — nothing to install
 ```
 
