@@ -43,6 +43,7 @@
     "desktop": "node desktop/main.mjs",
     "desktop:backend": "node desktop/main.mjs --detach --root .",
     "desktop:build": "node scripts/build-desktop.mjs",
+    "desktop:gen-config": "node scripts/build-desktop.mjs --gen-config",
     "desktop:content-pack": "node scripts/build-content-pack.mjs",
     "desktop:feed": "node scripts/build-update-feed.mjs",
     "desktop:install-ladder": "node scripts/install-ladder.mjs",
