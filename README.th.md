@@ -1,4 +1,4 @@
-# ✳ aipass
+# ✳ AiPASS Desktop — AI coding agent ภาษาไทย สำหรับ Windows, macOS, Linux
 
 [English](./README.md) · **ไทย**
 
@@ -8,6 +8,36 @@
 
 > **โปรเจกต์ชุมชนอิสระ** ไม่ได้เกี่ยวข้อง ไม่ได้รับการรับรอง และไม่ได้สนับสนุนโดยผู้ให้บริการ
 > de.aipass.net ดู [TRADEMARK.md](./TRADEMARK.md)
+
+![หน้าต่าง AiPASS Desktop โหมดสว่าง: sessions และไฟล์โปรเจกต์อยู่ซ้าย บทสนทนากับ tool rows อยู่กลาง composer มีโหมด/provider/model/effort ด้านล่าง](./public/screenshots/desktop-light.png)
+
+<p align="center">
+  <em>ธีมสว่าง (v0.2.0) — sessions อยู่ซ้าย ต้นไม้ไฟล์อยู่ใต้ แล้วบทสนทนาอยู่กลาง ทุก tool call เป็นแถวที่เปิดดูได้ แผง pending การเปลี่ยน (ติ๊กไฟล์ + diff) และภาพ dark อยู่ระหว่างถ่ายใหม่ — ไม่มีในภาพนี้</em>
+</p>
+
+> **สถานะ: pre-1.0 ยังไม่มี installer** — ตอนนี้ติดตั้งจาก source (ดูด้านล่าง) แอป native
+> ตรวจสอบบน **Windows** แล้ว — macOS/Linux build เรียบร้อยแต่ถือว่า “ลองใช้ได้” ไม่ใช่
+> พร้อมแจกจริงจนกว่าจะมีคนรัน end-to-end บนเครื่องเหล่านั้น ดู [ROADMAP.md](./ROADMAP.md)
+
+| แพลตฟอร์ม | หน้าต่างในเบราว์เซอร์ | แพ็กเกจ native (Tauri) |
+|---|---|---|
+| Windows | พร้อมใช้ | NSIS ตรวจสอบแล้ว (รัน+ปิด tray ได้จริง) |
+| macOS | พร้อมใช้ | `.app/.dmg` ยังเป็น ready-to-try |
+| Linux | พร้อมใช้ | `deb/AppImage` ยังเป็น ready-to-try |
+
+### เริ่มใน 30 วินาที
+
+```bash
+git clone https://github.com/kasemjeff/aipass-desktop.git
+cd aipass-desktop
+npm run setup     # ตรวจ Node, สร้าง token, ใส่ PATH, เริ่ม bridge, เปิดหน้าเว็บ
+npm run desktop   # เปิดหน้าต่างที่ http://127.0.0.1:8790
+```
+
+จากนั้นโหลด extension ครั้งเดียว (`chrome://extensions` → Developer mode → Load unpacked → `aipass-bridge/extension`) แล้ววาง token ใน popup
+
+**เหมาะกับใคร:** ผู้ใช้ Windows ภาษาไทย ที่อยากได้ agent แก้ไฟล์ที่ดูได้ อนุมัติได้ resume ได้
+**ยังไม่เหมาะกับใคร:** คนที่ต้องการ installer macOS/Linux ที่เซ็นแล้ววันนี้ — ใช้แบบเบราว์เซอร์ไปก่อน
 
 ## สถานะ
 
@@ -43,8 +73,8 @@
 | **บัญชี de.aipass.net** | แท็บที่ล็อกอินอยู่คือ credential |
 
 ```bash
-git clone https://github.com/kasemjeff/TH-aipassport-desktop.git
-cd TH-aipassport-desktop
+git clone https://github.com/kasemjeff/aipass-desktop.git
+cd aipass-desktop
 npm run setup
 ```
 
@@ -111,15 +141,25 @@ npm run doctor        # ตรวจเครื่องและ service
 ## ความปลอดภัย
 
 อย่าเปิด issue สาธารณะสำหรับช่องโหว่ ให้ใช้
-[private vulnerability reporting](https://github.com/kasemjeff/TH-aipassport-desktop/security/advisories/new)
+[private vulnerability reporting](https://github.com/kasemjeff/aipass-desktop/security/advisories/new)
 และอ่าน [SECURITY.md](./SECURITY.md)
 
 ## สนับสนุนและติดต่อ
 
-- [GitHub Discussions](https://github.com/kasemjeff/TH-aipassport-desktop/discussions)
+- [GitHub Discussions](https://github.com/kasemjeff/aipass-desktop/discussions)
 - [SUPPORT.md](./SUPPORT.md)
 - [PRIVACY.md](./PRIVACY.md) — ไม่มี telemetry
 - [GOVERNANCE.md](./GOVERNANCE.md) และ [MAINTAINERS.md](./MAINTAINERS.md)
+
+## Quick fixes (เจออาการก่อน)
+
+| อาการ | ลองทำเลย |
+|---|---|
+| ไม่มีแท็บ `de.aipass.net` / extension ×0 | เปิด Chrome ล็อกอินและเปิดแท็บ `de.aipass.net/chat` ไว้ |
+| 401 / token ผิด | ปิดแล้วเปิด `aipass` ใหม่ (backend กับ bridge ต้องอ่าน token เดียวกัน) — ดู `~/.aipass/.token` |
+| `port 8790 is busy` | ปิด backend ตัวเก่า หรือรัน `aipass stop` แล้วเปิดใหม่ |
+| เครดิต 0 / quota หมด | รอรอบถัดไป หรือสลับโมเดล free-credit (`gemini-3.1-flash-lite`) |
+| ต้องการรายละเอียดทั้งหมด | [TROUBLESHOOTING.md](./docs/TROUBLESHOOTING.md) · `aipass doctor` |
 
 ## สัญญาอนุญาต
 
