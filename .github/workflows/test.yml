@@ -55,6 +55,11 @@ jobs:
       - name: Type check
         run: npm run typecheck
 
+      # The desktop window's own checker (desktop/ui/jsconfig.json): every
+      # module in the UI now opts in, including app.js.
+      - name: Type check the window
+        run: npm run typecheck:ui
+
       # The bridge and its tests have no dependencies, so there is nothing to
       # install — the suite spawns the real server and a fake extension.
       - name: Run tests

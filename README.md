@@ -12,7 +12,8 @@
 > **Status: pre-1.0, no installer published yet** — install from source for now
 > (see [Installing](#installing)). Native package is verified on **Windows**; macOS and Linux
 > builds are wired and compile per-branch, but treat them as **ready-to-try, not ready-to-ship**
-> until someone has run them end-to-end. See [ROADMAP.md](./ROADMAP.md).
+> until someone has run them end-to-end (the real-hardware list is
+> [docs/PLATFORM_CHECKLIST.md](./docs/PLATFORM_CHECKLIST.md)). See [ROADMAP.md](./ROADMAP.md).
 
 <p align="left">
   <img src="https://img.shields.io/badge/node-%E2%89%A524-blue?logo=node.js&style=flat-square" alt="Node >= 24" />
@@ -468,6 +469,7 @@ Full index (every design and operations doc, with one-line summary):
 | [`docs/RELIABILITY.md`](./docs/RELIABILITY.md) | what healthy means: the SLIs and their targets, the error budget, degradation modes |
 | [`docs/RELEASE.md`](./docs/RELEASE.md) | versioning, the release checklist, upgrade and rollback, dependency review |
 | [`docs/INSTALL.md`](./docs/INSTALL.md) | the install system: what an install guarantees, what each platform ships, what macOS needs |
+| [`docs/PLATFORM_CHECKLIST.md`](./docs/PLATFORM_CHECKLIST.md) | what CI proves vs what needs a real machine, per platform |
 | [`docs/UPDATE_DESIGN.md`](./docs/UPDATE_DESIGN.md) | the update system: the shell and the content as two versioned halves, the signed feed, the phases |
 | [`docs/MATURITY.md`](./docs/MATURITY.md) | capability status — production vs experimental, owners, what changes a status |
 | [`docs/TEST_PLAN.md`](./docs/TEST_PLAN.md) | the test design: layers L1–L5, cases, pass criteria, what each layer cannot prove |

@@ -177,3 +177,34 @@ means a compromised npm package cannot execute inside the harness.
   the exception: Gatekeeper refuses an unnotarized bundle and Apple Silicon
   refuses to run an unsigned one, so it is signed and notarized before it is
   published — and the manifest records which of the two it is.
+
+## Signing decision (recorded)
+
+**Decision: ship unsigned, declared.** No installer certificate is bought for
+the current release. Installers carry the `unsigned` mark in the manifest,
+the README says so, and the OS warnings are documented rather than hidden.
+This is a posture, not an oversight: the signing path is already wired
+(`WINDOWS_CERT_THUMBPRINT` / `WINDOWS_SIGN_COMMAND` on Windows,
+`APPLE_SIGNING_IDENTITY` + notarization on macOS — see `docs/INSTALL.md`),
+so signing later is configuration, not code.
+
+What changes when a certificate is bought:
+
+- **Windows**: either a traditional code-signing certificate or Azure
+  Trusted Signing (no hardware token, monthly). Set the env var in the
+  release build; the manifest flips to `signed` and the update handover
+  gate (which refuses unsigned installers) opens with the same release —
+  the feed's own signature is what authorizes that, so no second trust
+  decision is needed.
+- **macOS**: a Developer ID Application certificate (Apple Developer
+  Program, USD 99/year) plus notarization (App Store Connect key or Apple
+  ID method). Gatekeeper and Apple Silicon have no unsigned path at all,
+  so the first published macOS build must be signed + notarized; until
+  then macOS stays "ready-to-try" in the README regardless of the
+  certificate question.
+
+**Update-feed signing is not part of this decision**: the feed has been
+signed with the release key (`AIPASS_RELEASE_KEY`) from the start, and the
+app refuses a feed signed by a key it does not know. That part of the trust
+chain is closed; the installer certificate only widens what the signed feed
+is allowed to hand over.
