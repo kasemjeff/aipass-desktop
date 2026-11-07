@@ -1,3 +1,4 @@
+// @ts-check
 /* A markdown renderer small enough to read in one sitting.
  *
  * Everything is escaped first, then the shapes are applied to the escaped
@@ -10,6 +11,9 @@
  */
 import { restoreText } from './waf-restore.js';
 
+/**
+ * @param {string} s
+ */
 const escapeHtml = (s) => s
   .replace(/&/g, '&amp;')
   .replace(/</g, '&lt;')
@@ -18,12 +22,19 @@ const escapeHtml = (s) => s
 
 // Media is only ever fetched from the open web, never from a scheme that can
 // run code (`javascript:`, `data:`). The same rule as links.
+/**
+ * @param {any} src
+ */
 const safeSrc = (src) => {
   const s = String(src ?? '').trim();
   return /^https?:\/\/[^\s]+$/i.test(s) ? s : null;
 };
 
 const VIDEO_SRC = /\.(?:mp4|m4v|webm|ogv|ogg|mov)(?:[?#][^\s]*)?$/i;
+/**
+ * @param {string} src
+ * @param {string} label
+ */
 const looksLikeVideo = (src, label = '') => VIDEO_SRC.test(src) || VIDEO_SRC.test(label.trim());
 
 /* A web media slot that waits for the reader's click.
@@ -44,6 +55,12 @@ const looksLikeVideo = (src, label = '') => VIDEO_SRC.test(src) || VIDEO_SRC.tes
  * the block path escapes them first, and inline() captures from text that
  * was escaped before the shapes ran.
  */
+/**
+ * @param {string} kind
+ * @param {string} escSrc
+ * @param {string} escAlt
+ * @param {string} extra
+ */
 const deferredMedia = (kind, escSrc, escAlt = '', extra = '') => {
   const cls = `md-media-deferred${extra ? ` ${extra}` : ''}`;
   const label = kind === 'video' ? 'Load video' : 'Load image';
@@ -61,12 +78,21 @@ const deferredMedia = (kind, escSrc, escAlt = '', extra = '') => {
  * test/ui-md.test.mjs: the allowlist may not grow past the origin the bridge
  * side already speaks for.) */
 const ACCOUNT_MEDIA_HOST = /(?:^|\.)aipass\.net$/i;
+/**
+ * @param {any} src
+ */
 const trustedMediaSrc = (src) => {
   try { return ACCOUNT_MEDIA_HOST.test(new URL(String(src)).hostname); } catch { return false; }
 };
 
 /* The account's own media, which needs no consent: the element carries its
  * src from the first paint. Same escaped-values deal as deferredMedia. */
+/**
+ * @param {string} kind
+ * @param {string} escSrc
+ * @param {string} escAlt
+ * @param {string} extra
+ */
 const trustedMediaTag = (kind, escSrc, escAlt = '', extra = '') => {
   const cls = extra ? ` ${extra}` : '';
   return kind === 'video'
@@ -75,6 +101,11 @@ const trustedMediaTag = (kind, escSrc, escAlt = '', extra = '') => {
 };
 
 /* Block media: the account's own loads at once, the open web waits. */
+/**
+ * @param {string} kind
+ * @param {string} escSrc
+ * @param {string} escAlt
+ */
 const mediaTag = (kind, escSrc, escAlt = '') => (
   trustedMediaSrc(escSrc) ? trustedMediaTag(kind, escSrc, escAlt) : deferredMedia(kind, escSrc, escAlt)
 );
@@ -83,6 +114,9 @@ const mediaTag = (kind, escSrc, escAlt = '') => (
  * re-validated here — the attribute is as readable by anything in the page
  * as it is by the reader's click — and a slot that already loaded (or never
  * carried a web address) loads nothing the second time. */
+/**
+ * @param {any} media
+ */
 export function loadDeferredMedia(media) {
   const src = safeSrc(media?.dataset?.mdSrc);
   if (!src) return null;
@@ -96,11 +130,16 @@ export function loadDeferredMedia(media) {
   return src;
 }
 
+/**
+ * @param {string} s
+ */
 const inline = (s) => {
   // Code spans and media are complete HTML once built. Stash them behind a
   // sentinel so the emphasis passes cannot rewrite an `*` inside a URL, and a
   // quoted image in backticks is never fetched.
+  /** @type {string[]} */
   const kept = [];
+  /** @param {string} html */
   const stash = (html) => `\u0000${kept.push(html) - 1}\u0000`;
   let out = escapeHtml(s)
     .replace(/`([^`\n]+)`/g, (_, c) => stash(`<code>${c}</code>`))
@@ -123,6 +162,9 @@ const inline = (s) => {
 /* A line that is nothing but an image or a video URL becomes a block of its
  * own. This is also what splitMarkdownStable looks for, so the two functions
  * must agree on the shape. */
+/**
+ * @param {string} line
+ */
 const mediaLine = (line) => {
   const image = line.match(/^\s*!\[([^\]\n]*)\]\((https?:\/\/[^)\s]+)\)\s*$/);
   if (image && safeSrc(image[2])) {
@@ -139,6 +181,9 @@ const mediaLine = (line) => {
   return null;
 };
 
+/**
+ * @param {any} media
+ */
 const mediaBlock = (media) => {
   const tag = mediaTag(media.kind, escapeHtml(media.src), escapeHtml(media.alt));
   const caption = media.alt ? `<figcaption>${escapeHtml(media.alt)}</figcaption>` : '';
@@ -146,6 +191,9 @@ const mediaBlock = (media) => {
 };
 
 /* A pipe row, with `\|` and pipes inside code spans kept in their cell. */
+/**
+ * @param {string} line
+ */
 const splitTableRow = (line) => {
   let s = line.trim();
   if (s.startsWith('|')) s = s.slice(1);
@@ -164,19 +212,35 @@ const splitTableRow = (line) => {
   return cells;
 };
 
+/**
+ * @param {string} line
+ */
 const isTableSeparator = (line) => {
   if (!line.includes('|')) return false;
   const cells = splitTableRow(line);
   return cells.length > 0 && cells.every((cell) => /^:?-+:?$/.test(cell));
 };
 
+/**
+ * @param {string} cell
+ */
 const cellAlign = (cell) => {
   const left = cell.startsWith(':');
   const right = cell.endsWith(':');
   return left && right ? 'center' : right ? 'right' : left ? 'left' : '';
 };
 
+/**
+ * @param {string[]} head
+ * @param {string[]} align
+ * @param {string[][]} rows
+ */
 const tableHtml = (head, align, rows) => {
+  /**
+   * @param {string} tag
+   * @param {string} text
+   * @param {number} i
+   */
   const cell = (tag, text, i) => {
     const a = align[i];
     const cls = a ? ` class="al-${a}"` : '';
@@ -201,6 +265,9 @@ const tableHtml = (head, align, rows) => {
  * source grows the stable piece only ever gains text (never rewrites), which is
  * what lets the window append instead of reset. Both properties are pinned in
  * test/ui-md.test.mjs.
+ */
+/**
+ * @param {any} src
  */
 export function splitMarkdownStable(src) {
   const text = String(src ?? '').replace(/\r\n/g, '\n');
@@ -249,6 +316,9 @@ export function splitMarkdownStable(src) {
   return { stable: text.slice(0, cut), tail: text.slice(cut) };
 }
 
+/**
+ * @param {any} src
+ */
 export function renderMarkdown(src) {
   // The wire spellings go back first: a URL the model quoted from a search
   // arrives as HTTPS-URL…, and a link the reader can click needs the real
@@ -257,10 +327,14 @@ export function renderMarkdown(src) {
   const text = restoreText(String(src ?? '').replace(/\r\n/g, '\n'));
   const lines = text.split('\n');
   const out = [];
+  /** @type {string[]} */
   let para = [];
+  /** @type {string | null} */
   let list = null;
+  /** @type {string | null} */
   let fence = null;
   let fenceLang = '';
+  /** @type {string[]} */
   let code = [];
 
   const flushPara = () => {
@@ -273,6 +347,7 @@ export function renderMarkdown(src) {
     list = null;
     listItems = [];
   };
+  /** @type {string[]} */
   let listItems = [];
 
   for (let i = 0; i < lines.length; i++) {

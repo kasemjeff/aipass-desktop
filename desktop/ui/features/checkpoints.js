@@ -1,5 +1,6 @@
+// @ts-check
 // Checkpoints feature module.
-export function createCheckpoints(ctx) {
+export function createCheckpoints(/** @type {any} */ ctx) {
   async function refreshCheckpoints() {
     const res = await ctx.rpc('checkpoints.list').catch(() => null);
     ctx.state.checkpoints = res?.checkpoints ?? [];
@@ -22,7 +23,7 @@ export function createCheckpoints(ctx) {
       // The files are the point of a checkpoint: it names what it can bring
       // back, so the row names them too.
       const files = (cp?.files ?? [])
-        .map((f) => (typeof f === 'string' ? f : f?.path))
+        .map((/** @type {any} */ f) => (typeof f === 'string' ? f : f?.path))
         .filter(Boolean);
       const shown = files.slice(0, 3).join(', ');
       li.append(ctx.el('span', 'counts', files.length ? `${shown}${files.length > 3 ? ` +${files.length - 3}` : ''}` : 'ไม่มีไฟล์'));
@@ -41,10 +42,10 @@ export function createCheckpoints(ctx) {
   }
 
   /** Put a checkpoint's files back as they were. */
-  async function restoreCheckpoint(cp, files = []) {
+  async function restoreCheckpoint(/** @type {any} */ cp, /** @type {any} */ files = []) {
     const what = files.length ? `${files.length} ไฟล์ (${files.slice(0, 3).join(', ')}${files.length > 3 ? '...' : ''})` : 'ทุกไฟล์';
     if (!(await ctx.askConfirm({ title: 'ย้อนกลับไฟล์', message: `ย้อนกลับ ${what}?`, note: 'การกระทำนี้ไม่สามารถเลิกได้', danger: true, confirmLabel: 'ย้อนกลับ' }))) return;
-    const done = await ctx.rpc('checkpoints.restore', { id: cp.id }).catch((err) => ({ error: err.message }));
+    const done = await ctx.rpc('checkpoints.restore', { id: cp.id }).catch((/** @type {any} */ err) => ({ error: err.message }));
     if (done.error) { ctx.addNote(`ย้อนกลับไม่ได้: ${ctx.friendly(done.error)}`); return; }
     const restored = done.restored ?? [];
     const removed = done.removed ?? [];
@@ -56,9 +57,9 @@ export function createCheckpoints(ctx) {
 
   /** Forget a checkpoint without restoring it. The ask is the point: the
    *  button says the forget cannot be undone, so it asks before doing it. */
-  async function removeCheckpoint(cp) {
+  async function removeCheckpoint(/** @type {any} */ cp) {
     if (!(await ctx.askConfirm({ title: 'ลบจุดย้อนกลับ', message: 'ลบจุดย้อนกลับนี้? — ย้อนกลับด้วยจุดนี้ไม่ได้อีก', danger: true, confirmLabel: 'ลบ' }))) return;
-    const done = await ctx.rpc('checkpoints.remove', { id: cp.id }).catch((err) => ({ error: err.message }));
+    const done = await ctx.rpc('checkpoints.remove', { id: cp.id }).catch((/** @type {any} */ err) => ({ error: err.message }));
     if (done.error) { ctx.addNote(`ลบไม่ได้: ${ctx.friendly(done.error)}`); return; }
     ctx.addNote('ลบจุดย้อนกลับแล้ว');
     await refreshCheckpoints();
@@ -75,7 +76,7 @@ export function createCheckpoints(ctx) {
       body.append(ctx.el('p', 'dim', 'ไม่มีจุดย้อนกลับ'));
     }
     for (const cp of rows) {
-      const files = (cp?.files ?? []).map((f) => (typeof f === 'string' ? f : f?.path)).filter(Boolean);
+      const files = (cp?.files ?? []).map((/** @type {any} */ f) => (typeof f === 'string' ? f : f?.path)).filter(Boolean);
       const when = Number.isFinite(cp?.createdAt) ? new Date(cp.createdAt) : null;
       const row = ctx.el('div', 'session-row');
       row.append(ctx.el('span', 'name', when ? when.toLocaleString() : String(cp?.id ?? '')));

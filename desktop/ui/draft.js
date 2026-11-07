@@ -1,3 +1,4 @@
+// @ts-check
 // The composer's draft: a typed paragraph that survives a reload, per project.
 //
 // Split out of app.js. The draft lives in the window's storage and comes back
@@ -38,6 +39,7 @@ export function createDraft(ctx) {
   // the first one after a quiet moment lands at once: a reload that comes
   // right behind it still finds the paragraph. A burst after it coalesces
   // into one trailing write every 150 ms, and pagehide flushes the rest.
+  /** @type {any} */
   let draftTimer = null;
   let draftStamp = 0;
   const saveDraft = () => {

@@ -12,6 +12,7 @@
     "test": "node scripts/test.mjs",
     "agents:lint": "node scripts/agents-lint.mjs",
     "typecheck": "tsc -p aipass-bridge/jsconfig.json",
+    "typecheck:ui": "tsc -p desktop/ui/jsconfig.json",
     "coverage": "node scripts/test.mjs --coverage",
     "coverage:gate": "node scripts/coverage-gate.mjs",
     "verify": "node scripts/verify.mjs",

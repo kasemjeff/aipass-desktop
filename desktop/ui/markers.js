@@ -1,3 +1,4 @@
+// @ts-check
 /* What the transcript shows: the model's prose, without the wire traffic.
  *
  * The harness protocol is markers-in-prose: the model says "EDIT file … END"
@@ -30,6 +31,7 @@ const FENCE_LINE = /^\s*(```|~~~)/;
 // The single-line calls, mirrored from protocol.parse() in its own order.
 // Every rule names the keyword it reads, so the exported list below is the
 // walk's own list and cannot drift away from what the walk understands.
+/** @type {Array<{marker: string, re: RegExp, pick: (m: RegExpMatchArray) => {kind: string, arg: string}}>} */
 const SINGLE = [
   // `dir`/`list`/`ls` all mean the listing; `file` means a read. Mirrors
   // parse()'s alias branch.
@@ -78,6 +80,7 @@ const SINGLE = [
  * rule for them either, so they make no call here either: the walk drops the
  * line and moves on.
  */
+/** @type {Array<{marker: string, re: RegExp}>} */
 const WIRE_ONLY = [
   { marker: 'FIND', re: /^\s*FIND\s*$/i },
   { marker: 'NEW', re: /^\s*NEW\s*$/i },
@@ -97,6 +100,7 @@ const JOBS_LINE = /^\s*JOBS\s*$/i;
 
 // The block markers: a keyword, a body, and the line that ends it. Named here
 // so the exported keyword list below is the walk's own list.
+/** @type {string[]} */
 const BLOCK_MARKERS = ['EDIT', 'CREATE', 'RUN', 'PLAN', 'TODO', 'SUBAGENT', 'JOBS'];
 // Mirrors parse()'s ASK tail: the keyword may carry a colon or a dash before
 // the question, and the question itself is required — a bare ASK is prose.
@@ -105,7 +109,11 @@ const ASK_LINE = /^\s*ASK\b[:\s—–-]*(.+)$/i;
 // still a DONE, because the model reaches for "## DONE" the moment it formats.
 const DONE_LINE = /^\s*(?:\*{1,3}|#{1,6}\s*)?DONE\b[:\s\u2014\u2013-]*(.*)$/i;
 
-/** Plugin reports come as marker strings or {marker, takesBody} records. */
+/**
+ * Plugin reports come as marker strings or {marker, takesBody} records.
+ * @param {any[]} [plugins]
+ * @returns {Array<{marker: string, takesBody?: boolean}>}
+ */
 const normalizePlugins = (plugins = []) => plugins
   .map((p) => (typeof p === 'string' ? { marker: p } : p))
   .filter((p) => p?.marker);
@@ -115,6 +123,7 @@ const normalizePlugins = (plugins = []) => plugins
 // the walk used to build a fresh RegExp per line per marker, which made every
 // repaint grow with the reply's length even for text that never changed.
 const STOP_RES = new Map();
+/** @param {string[]} stops */
 const stopRe = (stops) => {
   const key = stops.join('|');
   let re = STOP_RES.get(key);
@@ -122,6 +131,7 @@ const stopRe = (stops) => {
   return re;
 };
 const PLUGIN_RES = new Map();
+/** @param {string} marker */
 const pluginRe = (marker) => {
   let re = PLUGIN_RES.get(marker);
   if (!re) { re = new RegExp(`^\\s*${marker}\\b\\s*(.*)$`, 'i'); PLUGIN_RES.set(marker, re); }
@@ -134,9 +144,15 @@ const pluginRe = (marker) => {
  * protocol.parse() line for line; the parity test is what keeps the copy
  * honest.
  */
+/**
+ * @param {any} reply
+ * @param {any[]} [plugins]
+ */
 function walk(reply, plugins) {
   const lines = String(reply ?? '').split('\n');
+  /** @type {string[]} */
   const kept = [];
+  /** @type {Array<{kind: string, arg: string, name?: string}>} */
   const calls = [];
   let inFence = false;
   let i = 0;
@@ -145,6 +161,7 @@ function walk(reply, plugins) {
   // Skip to the next stop line — END, or one of the EDIT block's stops. The
   // marker regexes tolerate trailing whitespace (\r included) exactly as the
   // protocol does.
+  /** @param {string[]} stops */
   const skipUntil = (stops) => {
     const re = stopRe(stops);
     while (i < lines.length && !re.test(lines[i])) i += 1;
@@ -228,6 +245,10 @@ function walk(reply, plugins) {
 }
 
 /** The calls a reply would make — the same list protocol.parse() returns. */
+/**
+ * @param {any} reply
+ * @param {{plugins?: any[]}} [opts]
+ */
 export function scan(reply, { plugins = [] } = {}) {
   return walk(reply, plugins).calls;
 }
@@ -250,6 +271,11 @@ export const MARKER_KEYWORDS = [...new Set([
 ])].sort();
 
 /** The reply's prose, with every marker call (headers and bodies) dropped. */
+/**
+ * @param {any} reply
+ * @param {any[]} [plugins]
+ * @returns {string}
+ */
 export function transcript(reply, plugins = []) {
   return walk(reply, plugins).kept.join('\n').trim();
 }

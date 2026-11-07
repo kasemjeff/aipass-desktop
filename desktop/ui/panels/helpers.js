@@ -1,10 +1,11 @@
+// @ts-check
 // Live helpers and background jobs: one row each, with status, elapsed time and
 // (for helpers) the report that came back. The panel is event-driven — the
 // harness emits helper_start/helper_end (a helper run) and subagent_start/end
 // (the SUBAGENT marker, foreground or background), plus job_start/job_end for
 // background commands. Nothing here asks the backend; it only paints what the
 // run already told it.
-export function createHelpersPanel(ctx) {
+export function createHelpersPanel(/** @type {any} */ ctx) {
   const { el, $ } = ctx;
   const list = () => $('helpers');
   const section = () => $('helpers-section');
@@ -14,18 +15,18 @@ export function createHelpersPanel(ctx) {
   //         prepared, skipped, summary, timer }
   const items = new Map();
 
-  function fmtMs(ms) {
+  function fmtMs(/** @type {any} */ ms) {
     if (ms == null) return '';
     const s = Math.round(ms / 1000);
     return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m${s % 60}s`;
   }
 
-  function badge(kind, role) {
+  function badge(/** @type {any} */ kind, /** @type {any} */ role) {
     if (kind === 'job') return 'job';
     return role || 'helper';
   }
 
-  function renderRow(item) {
+  function renderRow(/** @type {any} */ item) {
     const li = el('li', 'helper-row' + (item.status === 'error' ? ' bad' : ''));
     const head = el('div', 'helper-head');
     head.append(el('span', 'helper-badge', badge(item.kind, item.role)));
@@ -68,6 +69,7 @@ export function createHelpersPanel(ctx) {
   }
 
   // tick elapsed time while anything is running
+  /** @type {any} */
   let ticker = null;
   function ensureTicker() {
     if (ticker) return;
@@ -76,7 +78,7 @@ export function createHelpersPanel(ctx) {
     }, 1000);
   }
 
-  function addHelper(data) {
+  function addHelper(/** @type {any} */ data) {
     const id = data?.id || `h${items.size + 1}`;
     items.set(id, {
       id, kind: 'helper', role: data?.role || null,
@@ -88,7 +90,7 @@ export function createHelpersPanel(ctx) {
     paint();
   }
 
-  function updateHelper(data) {
+  function updateHelper(/** @type {any} */ data) {
     const id = data?.id;
     if (!id || !items.has(id)) {
       // no matching start (e.g. missed frame) — create a finished row
@@ -112,7 +114,7 @@ export function createHelpersPanel(ctx) {
     paint();
   }
 
-  function addJob(data) {
+  function addJob(/** @type {any} */ data) {
     const id = data?.id || `job${items.size + 1}`;
     items.set(id, {
       id, kind: 'job', role: null, task: data?.command || data?.task || '',
@@ -123,7 +125,7 @@ export function createHelpersPanel(ctx) {
     paint();
   }
 
-  function updateJob(data) {
+  function updateJob(/** @type {any} */ data) {
     const id = data?.id;
     if (!id || !items.has(id)) return;
     const it = items.get(id);

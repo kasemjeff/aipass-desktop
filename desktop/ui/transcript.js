@@ -1,3 +1,4 @@
+// @ts-check
 // The transcript: what the reader sees in the conversation.
 //
 // The reply is painted as it streams: a settled stretch that only ever grows,
@@ -14,11 +15,15 @@ import { scan, transcript } from './markers.js';
 /**
  * The transcript painter: the conversation, the tool rows, the notes.
  *
- * @param {object} ctx the window it draws into
+ * @param {any} ctx the window it draws into
  */
 export function createTranscript(ctx) {
   const { el, log, state, scrollDown, atBottom, rpc } = ctx;
 
+  /**
+   * @param {string} text
+   * @param {() => void} done
+   */
   function fallbackCopy(text, done) {
     try {
       const ta = document.createElement('textarea');
@@ -33,7 +38,7 @@ export function createTranscript(ctx) {
     } catch { /* ignore */ }
   }
   // Copy button on fenced code blocks (delegated; markup comes from md.js).
-  log?.addEventListener?.('click', (e) => {
+  log?.addEventListener?.('click', (/** @type {any} */ e) => {
     const btn = e.target?.closest?.('.code-copy');
     if (!btn) return;
     const pre = btn.closest('pre');
@@ -59,6 +64,7 @@ export function createTranscript(ctx) {
  */
 const MAX_LOG_ROWS = 300;
 let trimmedRows = 0;
+/** @type {any} */
 let trimMarker = null;
 
 /**
@@ -108,6 +114,7 @@ function resetLog() {
   trimmedRows = 0;
 }
 
+/** @param {string} text */
 function addTask(text) {
   const msg = el('div', 'msg task');
   const body = el('div', 'body');
@@ -118,6 +125,7 @@ function addTask(text) {
   scrollDown();
 }
 
+/** @param {string} text */
 function addNote(text) {
   log.append(el('div', 'note', text));
   boundLog();
@@ -129,6 +137,7 @@ function addNote(text) {
  * output gets its own accent-barred line — otherwise "hard to see" is literally
  * true: a command that answers and cannot be found has not answered.
  */
+/** @param {string} text */
 function addCommandOut(text) {
   log.append(el('div', 'cmd-out', text));
   boundLog();
@@ -167,7 +176,7 @@ function ensureAssistant() {
  * reads, the stream that painted the bubble did not), so both sides are put
  * back before they are compared.
  *
- * @param {{text: string}|null} bubble
+ * @param {{text: string, pendingText?: string[]}|null} bubble
  * @param {string} text
  * @returns {boolean}
  */
@@ -202,6 +211,7 @@ function paintCacheStats() {
   return { ...paintCache, hitRate: warm ? paintCache.hits / warm : null };
 }
 
+/** @param {any} a */
 function paintAssistant(a) {
   if (a.pendingText?.length) {
     a.text += a.pendingText.join('');
@@ -267,7 +277,7 @@ let thinkingDirty = false;
 let paintQueued = false;
 const nextFrame = typeof requestAnimationFrame === 'function'
   ? requestAnimationFrame
-  : (fn) => setTimeout(fn, 0);
+  : (/** @type {any} */ fn) => setTimeout(fn, 0);
 function flushPaints() {
   paintQueued = false;
   const due = [...paintQueue];
@@ -301,6 +311,7 @@ function flushPaints() {
   }
   if (pinned) log.scrollTop = log.scrollHeight;
 }
+/** @param {any} bubble */
 function queuePaint(bubble = null) {
   if (bubble) paintQueue.add(bubble); else thinkingDirty = true;
   if (paintQueued) return;
@@ -308,6 +319,7 @@ function queuePaint(bubble = null) {
   nextFrame(flushPaints);
 }
 
+/** @param {string} delta */
 function assistantText(delta) {
   const a = ensureAssistant();
   // Deltas can arrive much faster than a browser frame. Keep them as one
@@ -323,6 +335,7 @@ function assistantText(delta) {
  * reply shows "DONE …" nowhere (it is a marker), and the streamed prose above
  * it may well be the same sentence.
  */
+/** @param {any} text */
 function assistantSummary(text) {
   const a = ensureAssistant();
   paintAssistant(a);
@@ -340,6 +353,7 @@ function assistantSummary(text) {
  * loop harvested, so a replay reconstructs the same picture instead of a
  * bubble that ends mid-thought.
  */
+/** @param {any} raw */
 function replayAssistant(raw) {
   const text = String(raw ?? '');
   assistantText(text);
@@ -348,6 +362,7 @@ function replayAssistant(raw) {
   assistantSummary(done.arg || transcript(text, state.pluginTools).trim() || 'done');
 }
 
+/** @param {string} delta */
 function thinkingText(delta) {
   if (!state.thinking) {
     const box = el('details', 'think');
@@ -390,6 +405,7 @@ function endTurn() {
  * run that ended with something to say (done or a question) folds; an error or
  * a stall keeps the whole trail visible — what went wrong is the result then.
  */
+/** @param {any} stopReason */
 function foldRun(stopReason) {
   const start = state.runCursor;
   state.runCursor = null;
@@ -440,6 +456,7 @@ const TOOL_LABEL = {
  * with the address in the text: a link that cannot be copied is a link that
  * cannot be used anywhere else.
  */
+/** @param {any[]} sources */
 function sourceLinks(sources) {
   const box = el('div', 'sources');
   let n = 0;
@@ -466,7 +483,7 @@ function sourceLinks(sources) {
  * So the click goes to the backend, which checks the address and opens it in
  * Chrome — where the reader's other tabs are, and where the extension lives.
  */
-log.addEventListener('click', (ev) => {
+log.addEventListener('click', (/** @type {any} */ ev) => {
   const a = ev.target?.closest?.('.md-link');
   if (!a) return;
   const href = String(a.href ?? '').trim();
@@ -485,10 +502,12 @@ log.addEventListener('click', (ev) => {
  * and the N moves between evaluations, which would make the coverage
  * gate's union count phantom functions.
  */
+/** @param {any} ev */
 const loadSlot = (ev) => {
   const media = ev.target?.closest?.('.md-media-deferred');
   if (media) loadDeferredMedia(media);
 };
+/** @param {any} ev */
 const loadSlotByKey = (ev) => {
   if (ev.key !== 'Enter' && ev.key !== ' ') return;
   const media = ev.target?.closest?.('.md-media-deferred');
@@ -497,13 +516,16 @@ const loadSlotByKey = (ev) => {
 log.addEventListener('click', loadSlot);
 log.addEventListener('keydown', loadSlotByKey);
 
+/**
+ * @param {{kind: string, arg?: string, ok?: boolean, head?: string, lines?: string[], sources?: any[]}} tool
+ */
 function addTool({ kind, arg, ok, head, lines = [], sources = [] }) {
   const row = document.createElement('details');
   row.className = ok ? 'tool' : 'tool bad';
   row.title = kind;
   const summary = el('summary');
   summary.append(el('span', 'mark', ok ? '⏺' : '✗'));
-  summary.append(el('span', 'kind', TOOL_LABEL[kind] ?? kind));
+  summary.append(el('span', 'kind', (/** @type {any} */ (TOOL_LABEL))[kind] ?? kind));
   if (arg) summary.append(el('span', 'arg', String(arg)));
   if (head) summary.append(el('span', 'head', restoreText(head)));
   row.append(summary);

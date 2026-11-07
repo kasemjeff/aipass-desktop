@@ -1,3 +1,4 @@
+// @ts-check
 // The banners: the notices the window pins over its conversation.
 //
 // A failure with a one-click fix gets a banner, not a log line (the no-chat-tab
@@ -13,7 +14,7 @@
 /**
  * The banners, the welcome card and the update notice.
  *
- * @param {object} ctx the window it draws into
+ * @param {any} ctx the window it draws into
  */
 export function createBanners(ctx) {
   const { $, el, log, state, rpc, client, scrollDown, setHint, setWorking, addNote, addCommandOut, refreshModels } = ctx;
@@ -32,6 +33,7 @@ export function createBanners(ctx) {
    * popup can do is a paste. The token is never read from disk here and never
    * minted here.
    */
+  /** @type {any} */
   let extensionTokenBar = null;
 
   /** The token this window already holds — the one the backend minted. */
@@ -113,6 +115,7 @@ export function createBanners(ctx) {
 
   /* The model catalog's banner --------------------------------------------- */
 
+  /** @type {any} */
   let catalogBar = null;
 
   /**
@@ -179,16 +182,20 @@ export function createBanners(ctx) {
    * runtime, and an element that is not in the document cannot be found by
    * getElementById.
    */
+  /** @type {any} */
   let welcomeCard = null;
   // The update bar and the version it named: the six-hour poll must not stack
   // the same notice, and a transcript reset drops it with the log.
+  /** @type {any} */
   let updateBar = null;
   let shownUpdateKey = '';
+  /** @param {any} n */
   const isBanner = (n) => /\b(needs-tab|update-bar)\b/.test(n.className ?? '');
   // The rows are copied out of the collection first: in the browser `children`
   // is an HTMLCollection, which has a length but no `some`.
   const hasConversation = () => [...log.children].some((n) => n !== welcomeCard && !isBanner(n));
 
+  /** @param {any} readiness */
   function showWelcome(readiness) {
     // The card belongs to an empty window. It used to be painted whatever was
     // on screen, so a reloaded window came back to the welcome card with the
@@ -346,6 +353,7 @@ export function createBanners(ctx) {
    * interrupts a run, and it never applies anything on its own — the click is
    * the consent, and the content version is on screen before and after.
    */
+  /** @param {any} res */
   function showUpdate(res) {
     const content = res?.available?.content;
     const shell = res?.available?.shell;
@@ -416,7 +424,7 @@ export function createBanners(ctx) {
    * reloads, so the window's own files are the new ones.
    */
   async function applyUpdate() {
-    const res = await rpc('update.apply').catch((err) => ({ ok: false, reason: err?.message ?? String(err) }));
+    const res = await rpc('update.apply').catch((/** @type {any} */ err) => ({ ok: false, reason: err?.message ?? String(err) }));
     if (!res?.ok) {
       addCommandOut(`อัปเดตไม่สำเร็จ — ${res?.reason ?? 'ไม่ทราบสาเหตุ'}`);
       return;
@@ -453,7 +461,7 @@ export function createBanners(ctx) {
    * rather than the button failing silently.
    */
   async function installShellUpdate() {
-    const res = await rpc('update.install').catch((err) => ({ ok: false, reason: err?.message ?? String(err) }));
+    const res = await rpc('update.install').catch((/** @type {any} */ err) => ({ ok: false, reason: err?.message ?? String(err) }));
     if (!res?.ok) {
       addCommandOut(`ติดตั้งไม่สำเร็จ — ${res?.reason ?? 'ไม่ทราบสาเหตุ'}`);
       return;

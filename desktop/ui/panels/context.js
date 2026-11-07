@@ -1,41 +1,44 @@
+// @ts-check
 // The right-hand "Session" panel: what the run is spending, where it is, and
 // what the project carries. Every row is real aipass data; rows with no
 // backing RPC are simply not rendered.
 
-export function createContextPanel(ctx) {
+export function createContextPanel(/** @type {any} */ ctx) {
   const { $, el, state, rpc, openSettings, addNote } = ctx;
 
-  const row = (label, value, opts = {}) => {
-    const r = el('div', 'cp-row' + (opts.clickable ? ' clickable' : ''));
+  const row = (/** @type {any} */ label, /** @type {any} */ value, opts = {}) => {
+    const r = el('div', 'cp-row' + ((/** @type {any} */ (opts)).clickable ? ' clickable' : ''));
     const l = el('div', 'cp-label', label);
     const v = el('div', 'cp-value', value == null ? '—' : String(value));
     r.append(l, v);
-    if (opts.bar != null) {
+    if ((/** @type {any} */ (opts)).bar != null) {
       const b = el('div', 'cp-bar');
       const s = el('span');
-      s.style.width = Math.max(0, Math.min(100, opts.bar)) + '%';
+      s.style.width = Math.max(0, Math.min(100, (/** @type {any} */ (opts)).bar)) + '%';
       b.append(s);
       r.append(b);
     }
-    if (opts.onClick) r.onclick = opts.onClick;
+    if ((/** @type {any} */ (opts)).onClick) r.onclick = (/** @type {any} */ (opts)).onClick;
     return r;
   };
 
-  const section = (title) => el('div', 'cp-section', title);
+  const section = (/** @type {any} */ title) => el('div', 'cp-section', title);
 
   // git.status spawns the binary; the panel refreshes on every run boundary,
   // so a burst of refreshes would spawn a burst of gits. A short TTL keeps
   // the branch row honest without paying for it per call, and a single
   // in-flight call is shared by concurrent refreshes.
+  /** @type {any} */
   let gitCache = null;
   let gitAt = 0;
+  /** @type {any} */
   let gitInflight = null;
   const GIT_TTL = 10_000;
   const gitStatus = () => {
     if (gitCache && Date.now() - gitAt < GIT_TTL) return Promise.resolve(gitCache);
     if (gitInflight) return gitInflight;
     gitInflight = rpc('git.status')
-      .then((out) => { gitCache = out; gitAt = Date.now(); return out; })
+      .then((/** @type {any} */ out) => { gitCache = out; gitAt = Date.now(); return out; })
       .catch(() => null)
       .finally(() => { gitInflight = null; });
     return gitInflight;
@@ -102,7 +105,7 @@ export function createContextPanel(ctx) {
         const verb = s.enabled ? 'disable' : 'enable';
         const method = 'mcp.' + verb;
         try { await rpc(method, { name: s.name ?? s.id, scope: s.scope }); await refresh(); }
-        catch (e) { addNote && addNote(String(e?.message ?? e)); }
+        catch (/** @type {any} */ e) { addNote && addNote(String(e?.message ?? e)); }
       };
       r.append(btn);
       panel.append(r);
@@ -119,7 +122,7 @@ export function createContextPanel(ctx) {
         panel.append(row('Age', age));
         panel.append(row('Clear', 'x', { clickable: true, onClick: async () => {
           try { await rpc('retrieval.clear'); await refresh(); }
-          catch (e) { addNote && addNote(String(e?.message ?? e)); }
+          catch (/** @type {any} */ e) { addNote && addNote(String(e?.message ?? e)); }
         } }));
       }
     } catch {}

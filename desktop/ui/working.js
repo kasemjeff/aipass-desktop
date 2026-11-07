@@ -1,3 +1,4 @@
+// @ts-check
 // The window's heartbeat: is the app still working?
 //
 // A run takes minutes — a model that reads twenty files does not answer in a
@@ -26,6 +27,7 @@ export function createWorking(ctx) {
   const log = ctx.log;
   let workingSince = 0;
   let workingLabel = 'กำลังทำงาน';
+  /** @type {any} */
   let workingClock = null;
 
   /** The bar as it stands: what the run is doing, and for how long. */

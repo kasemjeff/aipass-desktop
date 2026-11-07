@@ -1,6 +1,7 @@
+// @ts-check
 // Misc command handlers (memory, goal, mcp, symbols, index).
-export function createMiscCommands(ctx) {
-async function showMemory(arg) {
+export function createMiscCommands(/** @type {any} */ ctx) {
+async function showMemory(/** @type {any} */ arg) {
   if (arg && arg.trim().toLowerCase() === 'clear') {
     await ctx.rpc('memory.clear').catch(() => {});
     ctx.addCommandOut('ลืม facts ข้าม session ทั้งหมดแล้ว');
@@ -19,7 +20,7 @@ async function showMemory(arg) {
  * are the same ones `aipass goal` accepts, so the composer and the terminal
  * cannot disagree. The settings sheet has the form.
  */
-async function showGoal(arg) {
+async function showGoal(/** @type {any} */ arg) {
   const [verb = 'show', ...rest] = String(arg ?? '').trim().split(/\s+/).filter(Boolean);
   const text = rest.join(' ').trim();
   try {
@@ -44,7 +45,7 @@ async function showGoal(arg) {
     if (verb === 'block') { const { goal } = await ctx.rpc('goal.block', { reason: text }); ctx.addCommandOut(`บันทึกว่าเป้าหมายติด: ${goal.blocked}`); return; }
     if (verb === 'clear') { await ctx.rpc('goal.clear'); ctx.addCommandOut('ลบเป้าหมายของโปรเจกต์นี้แล้ว'); return; }
     ctx.addCommandOut('ใช้: /goal [set "<ข้อความ>"|pause|resume|done [ข้อความ]|block [เหตุผล]|clear]');
-  } catch (err) {
+  } catch (/** @type {any} */ err) {
     ctx.addCommandOut(`goal: ${ctx.friendly(err.message)}`);
   }
 }
@@ -70,13 +71,13 @@ async function showMcp() {
  * DEF and REFS markers use — the markers are for the model, this is for the
  * person reading the window.
  */
-async function showSymbols(arg) {
+async function showSymbols(/** @type {any} */ arg) {
   const what = (arg || '').trim();
   if (!what) {
     ctx.addCommandOut('usage: /symbols <file>  — declarations ของไฟล์ · /symbols <name> — ที่ที่มันถูกนิยามและใช้');
     return;
   }
-  const asFile = await ctx.rpc('symbols.list', { file: what }).catch((err) => ({ error: err.message }));
+  const asFile = await ctx.rpc('symbols.list', { file: what }).catch((/** @type {any} */ err) => ({ error: err.message }));
   if (asFile.error) { ctx.addCommandOut(`symbols: ${ctx.friendly(asFile.error)}`); return; }
   if (asFile.symbols?.length) {
     ctx.addCommandOut(`${asFile.file} — ${asFile.symbols.length} ตัว:`);
@@ -84,7 +85,7 @@ async function showSymbols(arg) {
     return;
   }
   // Not a file, or a file with no declarations in it: try it as a name.
-  const def = await ctx.rpc('symbols.def', { name: what }).catch((err) => ({ error: err.message }));
+  const def = await ctx.rpc('symbols.def', { name: what }).catch((/** @type {any} */ err) => ({ error: err.message }));
   if (def.error) { ctx.addCommandOut(`symbols: ${ctx.friendly(def.error)}`); return; }
   if (!def.definitions?.length) {
     ctx.addCommandOut(`ไม่พบ "${what}" — ไม่ใช่ไฟล์ที่มี declarations และไม่ใช่ชื่อที่ถูกนิยามในโปรเจกต์นี้`);
@@ -100,15 +101,15 @@ async function showSymbols(arg) {
   }
 }
 
-async function showIndex(arg) {
+async function showIndex(/** @type {any} */ arg) {
   const verb = String(arg || "").trim().toLowerCase();
   if (verb === "clear") {
-    const res = await ctx.rpc("retrieval.clear").catch(function(err){ return { error: err.message }; });
+    const res = await ctx.rpc("retrieval.clear").catch(function(/** @type {any} */ err){ return { error: err.message }; });
     if (res && res.error) { ctx.addCommandOut("index: " + ctx.friendly(res.error)); return; }
     ctx.addCommandOut("ลบ index แล้ว — จะสร้างใหม่ตอน RETRIEVE ครั้งถัดไป");
     return;
   }
-  const st = await ctx.rpc("retrieval.status").catch(function(err){ return { error: err.message }; });
+  const st = await ctx.rpc("retrieval.status").catch(function(/** @type {any} */ err){ return { error: err.message }; });
   if (st && st.error) { ctx.addCommandOut("index: " + ctx.friendly(st.error)); return; }
   ctx.addCommandOut("index: " + (st.files ?? 0) + " ไฟล์ · " + (st.chunks ?? 0) + " ช่วงข้อความ · " + Math.round((st.bytes || 0) / 1024) + " KB");
 }

@@ -1,3 +1,4 @@
+// @ts-check
 // The settings sheet — a category rail on the left, one page of settings on
 // the right, so a section you never touch is one click away instead of one
 // scroll away.
@@ -20,7 +21,7 @@ import { renderGitTab, renderMediaTab, renderScheduleTab } from './panels/tools.
 /**
  * The settings sheet: one page per tab, one save for all of them.
  *
- * @param {object} ctx the window it draws into
+ * @param {any} ctx the window it draws into
  */
 export function createSettings(ctx) {
   const { $, el, state, rpc, addNote, addCommandOut, friendly, applyTheme, refreshHeader, refreshSkills, renderSkillList, renderMemoryFacts, installSkillDialog, applySettingsToUi, stageLabel, fillProviders, paintPluginPanels, hideModal, openModal, askConfirm } = ctx;
@@ -45,7 +46,7 @@ const saveEmptyTab = () => ({ patch: {}, problems: [] });
 /**
  * The model tab: the model, the permissions and the budgets of one run.
  *
- * @param {object} sheet
+ * @param {any} sheet
  * @returns {TabSave}
  */
 const saveModelTab = (sheet) => {
@@ -128,7 +129,7 @@ const saveModelTab = (sheet) => {
 /**
  * The context tab: the budget of the conversation and the share that rotates it.
  *
- * @param {object} sheet
+ * @param {any} sheet
  * @returns {TabSave}
  */
 const saveContextTab = (sheet) => {
@@ -145,7 +146,7 @@ const saveContextTab = (sheet) => {
 /**
  * The window tab: the theme and the chat page the bridge talks to.
  *
- * @param {object} sheet
+ * @param {any} sheet
  * @returns {TabSave}
  */
 const saveWindowTab = (sheet) => {
@@ -158,7 +159,7 @@ const saveWindowTab = (sheet) => {
 /**
  * The playbook tab: the folders the manuals are searched in.
  *
- * @param {object} sheet
+ * @param {any} sheet
  * @returns {TabSave}
  */
 const saveSkillsTab = (sheet) => ({ patch: { skillsDirs: sheet.draft.skillsDirs }, problems: [] });
@@ -166,7 +167,7 @@ const saveSkillsTab = (sheet) => ({ patch: { skillsDirs: sheet.draft.skillsDirs 
 /**
  * The rules tab: the path rules that step aside from the mode.
  *
- * @param {object} sheet
+ * @param {any} sheet
  * @returns {TabSave}
  */
 const saveRulesTab = (sheet) => {
@@ -192,7 +193,7 @@ const saveRulesTab = (sheet) => {
 // The pages of the sheet. Each one renders its own page and saves its own
 // fields — the sheet only asks them.
 
-const renderContextTab = async (page, sheet) => {    // The context meter, live: what is used, what happens at the limit, and
+const renderContextTab = async (/** @type {any} */ page, /** @type {any} */ sheet) => {    // The context meter, live: what is used, what happens at the limit, and
     // the three numbers that decide when the rotation fires.
     const meter = el('div', 'ctx-meter');
     const st = await rpc('status').catch(() => null);
@@ -215,7 +216,7 @@ const renderContextTab = async (page, sheet) => {    // The context meter, live:
 group.append(sheet.row('Elision tier — ย่อผลลัพธ์เก่า (head…tail)', 'ผลลัพธ์เก่าที่ไม่ได้ใช้แล้วจะถูกย่อเป็นต้น…ท้าย เก็บลง spill — ประหยัด context (ค่าเริ่มต้น: ปิด)', sheet.control({ key: 'compaction.elideStaleResults', type: 'checkbox' })));
     page.append(group);
 };
-const renderProvidersTab = async (page, sheet) => {    // Who answers the run: the built-in AiPASS provider (the local bridge
+const renderProvidersTab = async (/** @type {any} */ page, /** @type {any} */ sheet) => {    // Who answers the run: the built-in AiPASS provider (the local bridge
     // and its tab) and every added API provider.
     //
     // The key is typed here once and filed by the backend — it never comes
@@ -250,7 +251,7 @@ const renderProvidersTab = async (page, sheet) => {    // Who answers the run: t
           use.onclick = async () => {
             use.disabled = true;
             await rpc('provider.set', { id: p.id })
-              .catch((e) => { out.className = 'install-out err'; out.textContent = `err: ${e.message}`; });
+              .catch((/** @type {any} */ e) => { out.className = 'install-out err'; out.textContent = `err: ${e.message}`; });
             await paint();
             await fillProviders(p.id);
           };
@@ -259,7 +260,7 @@ const renderProvidersTab = async (page, sheet) => {    // Who answers the run: t
             test.disabled = true;
             out.className = 'install-out dim';
             out.textContent = 'กำลังทดสอบ…';
-            const answer = await rpc('provider.test', { id: p.id }).catch((e) => ({ ok: false, detail: e.message }));
+            const answer = await rpc('provider.test', { id: p.id }).catch((/** @type {any} */ e) => ({ ok: false, detail: e.message }));
             out.className = answer.ok ? 'install-out' : 'install-out err';
             out.textContent = answer.ok ? `พร้อม — ${answer.detail}` : `ไม่ผ่าน — ${answer.detail}`;
             test.disabled = false;
@@ -268,7 +269,7 @@ const renderProvidersTab = async (page, sheet) => {    // Who answers the run: t
           del.onclick = async () => {
             if (!(await askConfirm({ title: 'ลบผู้ให้บริการ', message: `ลบ "${p.id}"?`, note: 'key ที่บันทึกไว้จะหายด้วย', danger: true, confirmLabel: 'ลบ' }))) return;
             await rpc('provider.remove', { id: p.id })
-              .catch((e) => { out.className = 'install-out err'; out.textContent = `err: ${e.message}`; });
+              .catch((/** @type {any} */ e) => { out.className = 'install-out err'; out.textContent = `err: ${e.message}`; });
             await paint();
             await fillProviders();
           };
@@ -283,7 +284,7 @@ const renderProvidersTab = async (page, sheet) => {    // Who answers the run: t
     // The form that adds one. Everything here is the spec; the key is the
     // only secret, and it is written once.
     const form = el('div', 'set-group');
-    const field = (label, note, node) => {
+    const field = (/** @type {any} */ label, /** @type {any} */ note, /** @type {any} */ node) => {
       const input = document.createElement('input');
       input.type = 'text';
       node.append(input);
@@ -328,10 +329,10 @@ const renderProvidersTab = async (page, sheet) => {    // Who answers the run: t
         kind: kindSel.value,
         baseUrl: urlBox.querySelector('input')?.value?.trim(),
         apiKeyEnv: envBox.querySelector('input')?.value?.trim(),
-        models: (modelsBox.querySelector('input')?.value ?? '').split(/[,\s]+/).map((s) => s.trim()).filter(Boolean),
+        models: (modelsBox.querySelector('input')?.value ?? '').split(/[,\s]+/).map((/** @type {any} */ s) => s.trim()).filter(Boolean),
         key: keyIn.value?.trim(),
       };
-      const answer = await rpc('provider.save', body).catch((e) => ({ error: e.message }));
+      const answer = await rpc('provider.save', body).catch((/** @type {any} */ e) => ({ error: e.message }));
       if (answer?.error) {
         out.className = 'install-out err';
         out.textContent = `err: ${answer.error}`;
@@ -355,7 +356,7 @@ const renderProvidersTab = async (page, sheet) => {    // Who answers the run: t
     form.append(actionsRow);
     page.append(form, out);
 };
-const renderMemoryTab = async (page, sheet) => {    // What the app remembers between sessions, and the one button that
+const renderMemoryTab = async (/** @type {any} */ page, /** @type {any} */ sheet) => {    // What the app remembers between sessions, and the one button that
     // makes it forget. It used to sit in the rail as a row folded away
     // under a heading nobody could place — a thing the app did that you
     // could only find by guessing. Here it is a page, next to the rules.
@@ -383,7 +384,7 @@ const renderMemoryTab = async (page, sheet) => {    // What the app remembers be
  * clear act at once, like the memory page, because they answer an ongoing run
  * and waiting for "บันทึก" would be a trap.
  */
-const renderGoalTab = async (page) => {
+const renderGoalTab = async (/** @type {any} */ page) => {
   const head = el('div', 'set-title');
   head.id = 'goal-head';
   const list = el('ul', 'list dim goal-list');
@@ -406,6 +407,7 @@ const renderGoalTab = async (page) => {
   clear.id = 'goal-clear';
   const out = el('p', 'install-out dim', '');
   out.id = 'goal-out';
+  /** @type {any} */
   let goal = null;
 
   async function paint() {
@@ -428,8 +430,8 @@ const renderGoalTab = async (page) => {
     out.textContent = goal ? 'บันทึกข้อความใหม่ = แทนที่เป้าหมายเดิมและเริ่มนับรอบใหม่' : '';
   }
 
-  const act = (fn) => async () => {
-    try { await fn(); } catch (err) { out.className = 'install-out err'; out.textContent = friendly(err.message); return; }
+  const act = (/** @type {any} */ fn) => async () => {
+    try { await fn(); } catch (/** @type {any} */ err) { out.className = 'install-out err'; out.textContent = friendly(err.message); return; }
     await paint();
   };
   save.onclick = act(async () => {
@@ -449,7 +451,7 @@ const renderGoalTab = async (page) => {
   page.append(head, list, objective, roundsLabel, actions, out);
   await paint();
 };
-const renderSkillsDirsTab = async (page, sheet) => {    const group = el('div', 'set-group');
+const renderSkillsDirsTab = async (/** @type {any} */ page, /** @type {any} */ sheet) => {    const group = el('div', 'set-group');
     group.append(sheet.row('โฟลเดอร์คู่มือ', 'ทีละ path ต่อบรรทัด · ลองโฟลเดอร์ในโปรเจกต์ก่อน แล้วค่อย ~/.aipass/skills · /skill <ชื่อ> = เรียก · /skills = ดูที่มี · รายการรีเฟรชเองเมื่อบันทึก', sheet.control({ key: 'skillsDirs', type: 'textarea' })));
     page.append(group);
     // The playbooks those folders hold, right under the folders: the list
@@ -466,7 +468,7 @@ const renderSkillsDirsTab = async (page, sheet) => {    const group = el('div', 
     page.append(head, list);
     renderSkillList(list, await refreshSkills());
 };
-const renderPluginsTab = async (page, sheet) => {    let live = sheet.details;
+const renderPluginsTab = async (/** @type {any} */ page, /** @type {any} */ sheet) => {    let live = sheet.details;
 
     // The install box: a source in, a report out — inspect runs nothing.
     // The click on "ติดตั้ง" is the consent moment: it is the first thing
@@ -497,11 +499,11 @@ const renderPluginsTab = async (page, sheet) => {    let live = sheet.details;
     state.panelHost = panels;
 
     const paint = () => {
-      const known = live.known ?? live.loaded.map((pl) => pl.name);
+      const known = live.known ?? live.loaded.map((/** @type {any} */ pl) => pl.name);
       empty.style.display = (!known.length && !live.failed.length) ? '' : 'none';
       cards.textContent = '';
       for (const name of known) {
-        const pl = live.loaded.find((x) => x.name === name) ?? null;
+        const pl = live.loaded.find((/** @type {any} */ x) => x.name === name) ?? null;
         const rec = live.registry?.[name] ?? pl?.installed ?? null;
         const on = Boolean(pl);
         const card = el('div', `plugin-card${on ? '' : ' off'}`);
@@ -522,7 +524,7 @@ const renderPluginsTab = async (page, sheet) => {    let live = sheet.details;
         const toggle = el('button', null, on ? 'ปิด' : 'เปิด');
         toggle.onclick = async () => {
           toggle.disabled = true;
-          const res = await rpc(on ? 'plugins.disable' : 'plugins.enable', { name }).catch((e) => {
+          const res = await rpc(on ? 'plugins.disable' : 'plugins.enable', { name }).catch((/** @type {any} */ e) => {
             out.className = 'install-out err';
             out.textContent = `err: ${e.message}${e.stage ? ` · ขั้นตอน: ${stageLabel(e.stage)}` : ''}`;
             return null;
@@ -538,7 +540,7 @@ const renderPluginsTab = async (page, sheet) => {    let live = sheet.details;
           if (!(await askConfirm({ title: 'ลบปลั๊กอิน', message: first, danger: true, confirmLabel: 'ย้ายไป .trash' }))) return;
           if (!rec && !(await askConfirm({ title: 'ยืนยันอีกครั้ง', message: 'ย้ายโฟลเดอร์นี้ไป .trash?', danger: true, confirmLabel: 'ยืนยัน' }))) return;
           del.disabled = true;
-          const res = await rpc('plugins.remove', { name, force: true }).catch((e) => {
+          const res = await rpc('plugins.remove', { name, force: true }).catch((/** @type {any} */ e) => {
             out.className = 'install-out err';
             out.textContent = `err: ${e.message}${e.stage ? ` · ขั้นตอน: ${stageLabel(e.stage)}` : ''}`;
             return null;
@@ -583,7 +585,7 @@ const renderPluginsTab = async (page, sheet) => {    let live = sheet.details;
       src.disabled = true;
       out.className = 'install-out dim';
       out.textContent = 'กำลังตรวจสอบแหล่งที่มา… (ยังไม่มีอะไรถูกรัน)';
-      const info = await rpc('plugins.inspect', { source }).catch((e) => {
+      const info = await rpc('plugins.inspect', { source }).catch((/** @type {any} */ e) => {
         out.className = 'install-out err';
         out.textContent = `err: ${e.message}${e.stage ? ` · ขั้นตอน: ${stageLabel(e.stage)}` : ''}`;
         return null;
@@ -604,7 +606,7 @@ const renderPluginsTab = async (page, sheet) => {    let live = sheet.details;
         src.disabled = true;
         out.className = 'install-out dim';
         out.textContent = 'กำลังติดตั้ง… (ดึงแหล่งที่มา → ตรวจโค้ด → สลับเข้าโฟลเดอร์ปลั๊กอิน)';
-        const res = await rpc('plugins.install', { source: info.ref, expectedSha256: info.sha256 }).catch((e) => {
+        const res = await rpc('plugins.install', { source: info.ref, expectedSha256: info.sha256 }).catch((/** @type {any} */ e) => {
           out.className = 'install-out err';
           out.textContent = `err: ${e.message}${e.stage ? ` · ขั้นตอน: ${stageLabel(e.stage)}` : ''}`;
           // A folder that is not the installer's is refused by default; this
@@ -615,7 +617,7 @@ const renderPluginsTab = async (page, sheet) => {    let live = sheet.details;
               force.disabled = true;
               out.className = 'install-out dim';
               out.textContent = 'กำลังติดตั้งทับ…';
-              const forced = await rpc('plugins.install', { source: info.ref, expectedSha256: info.sha256, force: true }).catch((e2) => {
+              const forced = await rpc('plugins.install', { source: info.ref, expectedSha256: info.sha256, force: true }).catch((/** @type {any} */ e2) => {
                 out.className = 'install-out err';
                 out.textContent = `err: ${e2.message}${e2.stage ? ` · ขั้นตอน: ${stageLabel(e2.stage)}` : ''}`;
                 return null;
@@ -652,7 +654,7 @@ const renderPluginsTab = async (page, sheet) => {    let live = sheet.details;
     state.pluginPanels = live.panels ?? [];
     await paintPluginPanels();
 };
-const renderMcpTab = async (page, sheet) => {    let live = sheet.mcpReady;
+const renderMcpTab = async (/** @type {any} */ page, /** @type {any} */ sheet) => {    let live = sheet.mcpReady;
     const wrap = el('div');
     page.append(wrap);
 
@@ -681,10 +683,10 @@ const renderMcpTab = async (page, sheet) => {    let live = sheet.mcpReady;
           test.disabled = true;
           note.className = 'plugin-source dim';
           note.textContent = 'กำลังเชื่อมต่อ…';
-          const r = await rpc('mcp.test', { name: s.name, scope: s.scope }).catch((e) => ({ ok: false, error: e.message }));
+          const r = await rpc('mcp.test', { name: s.name, scope: s.scope }).catch((/** @type {any} */ e) => ({ ok: false, error: e.message }));
           note.className = r.ok ? 'plugin-source ok-text' : 'plugin-source err-text';
           note.textContent = r.ok
-            ? `เชื่อมต่อได้ใน ${r.ms} ms — ${r.tools.length} tools${r.tools.length ? `: ${r.tools.map((t) => t.name).join(', ')}` : ''}`
+            ? `เชื่อมต่อได้ใน ${r.ms} ms — ${r.tools.length} tools${r.tools.length ? `: ${r.tools.map((/** @type {any} */ t) => t.name).join(', ')}` : ''}`
             : `err: ${r.error}`;
           test.disabled = false;
         };
@@ -743,12 +745,14 @@ const renderMcpTab = async (page, sheet) => {    let live = sheet.mcpReady;
       form.append(sheet.row('ความเสี่ยง', 'MCP tool คือโปรแกรมของคนอื่น — ค่าเริ่มต้นคือ "เขียน" ให้ผ่านการถาม', riskS));
 
       const readForm = () => {
+        /** @type {any} */
         const env = {};
         for (const l of envI.value.split(/\r?\n/).map((x) => x.trim()).filter(Boolean)) {
           const eq = l.indexOf('=');
           if (eq < 1) throw new Error(`env ต้องเป็น K=V: "${l}"`);
           env[l.slice(0, eq)] = l.slice(eq + 1);
         }
+        /** @type {any} */
         const params = {
           name: nameI.value.trim(),
           command: cmdI.value.trim(),
@@ -767,23 +771,23 @@ const renderMcpTab = async (page, sheet) => {    let live = sheet.mcpReady;
       const testBtn = el('button', null, 'ทดสอบ');
       testBtn.onclick = async () => {
         let params;
-        try { params = readForm(); } catch (e) { fout.className = 'plugin-source err-text'; fout.textContent = e.message; return; }
+        try { params = readForm(); } catch (/** @type {any} */ e) { fout.className = 'plugin-source err-text'; fout.textContent = e.message; return; }
         testBtn.disabled = true;
         fout.className = 'plugin-source dim';
         fout.textContent = 'กำลังเชื่อมต่อ…';
-        const r = await rpc('mcp.test', params).catch((e) => ({ ok: false, error: e.message }));
+        const r = await rpc('mcp.test', params).catch((/** @type {any} */ e) => ({ ok: false, error: e.message }));
         fout.className = r.ok ? 'plugin-source ok-text' : 'plugin-source err-text';
         fout.textContent = r.ok
-          ? `เชื่อมต่อได้ — ${r.tools.length} tools${r.tools.length ? `: ${r.tools.map((t) => t.name).join(', ')}` : ''}`
+          ? `เชื่อมต่อได้ — ${r.tools.length} tools${r.tools.length ? `: ${r.tools.map((/** @type {any} */ t) => t.name).join(', ')}` : ''}`
           : `err: ${r.error}`;
         testBtn.disabled = false;
       };
       const saveBtn = el('button', 'primary', 'บันทึก');
       saveBtn.onclick = async () => {
         let params;
-        try { params = readForm(); } catch (e) { fout.className = 'plugin-source err-text'; fout.textContent = e.message; return; }
+        try { params = readForm(); } catch (/** @type {any} */ e) { fout.className = 'plugin-source err-text'; fout.textContent = e.message; return; }
         saveBtn.disabled = true;
-        const res = await rpc('mcp.add', params).catch((e) => {
+        const res = await rpc('mcp.add', params).catch((/** @type {any} */ e) => {
           fout.className = 'plugin-source err-text';
           fout.textContent = `err: ${e.message}`;
           return null;
@@ -799,7 +803,7 @@ const renderMcpTab = async (page, sheet) => {    let live = sheet.mcpReady;
 
     paintMcp();
 };
-const renderRulesTab = async (page, sheet) => {    sheet.draft.rules = Array.isArray(sheet.draft.rules) ? sheet.draft.rules : [];
+const renderRulesTab = async (/** @type {any} */ page, /** @type {any} */ sheet) => {    sheet.draft.rules = Array.isArray(sheet.draft.rules) ? sheet.draft.rules : [];
     page.append(el('p', 'settings-empty',
       'กฎถูกเช็คก่อนโหมดเสมอ — กฎเองก่อน · `docs/** → อนุญาต` = เลิกถามเรื่องไฟล์ใน docs · '
       + '`.env* → ห้าม` = ล็อก secrets ไม่ให้เขียนแม้ในโหมด yolo · `**` ข้ามโฟลเดอร์ได้ `*` ไม่ได้ · '
@@ -808,7 +812,7 @@ const renderRulesTab = async (page, sheet) => {    sheet.draft.rules = Array.isA
 
     // The same glob the engine uses, copied on purpose: a tester that matched
     // differently from the gate would prove nothing at all.
-    const globMatch = (pattern, text) => new RegExp('^' + String(pattern)
+    const globMatch = (/** @type {any} */ pattern, /** @type {any} */ text) => new RegExp('^' + String(pattern)
       .replace(/[.+^${}()|[\]\\]/g, '\\$&')
       .replace(/\*\*/g, '\u0000')
       .replace(/\*/g, '[^/]*')
@@ -829,7 +833,7 @@ const renderRulesTab = async (page, sheet) => {    sheet.draft.rules = Array.isA
       const p = probe.value.trim().split(/\s+/)[0] ?? '';
       if (!p) { verdict.textContent = 'ยังไม่ทดสอบ'; verdict.className = 'rule-verdict dim'; return; }
       const kind = probeKind.value;
-      const idx = sheet.draft.rules.findIndex((r) => r.pattern
+      const idx = sheet.draft.rules.findIndex((/** @type {any} */ r) => r.pattern
         && globMatch(r.pattern, p)
         && (!(r.kinds ?? []).length || r.kinds.includes(kind)));
       if (idx === -1) {
@@ -838,7 +842,7 @@ const renderRulesTab = async (page, sheet) => {    sheet.draft.rules = Array.isA
         return;
       }
       const r = sheet.draft.rules[idx];
-      const label = { allow: 'อนุญาต (ไม่ถาม)', deny: 'ห้ามหยุดอยู่ ๆ', ask: 'ถามก่อน' }[r.decision ?? 'ask'];
+      const label = (/** @type {any} */ ({ allow: 'อนุญาต (ไม่ถาม)', deny: 'ห้ามหยุดอยู่ ๆ', ask: 'ถามก่อน' }))[r.decision ?? 'ask'];
       verdict.textContent = `กฎที่ ${idx + 1} (${r.pattern}) → ${label}`;
       verdict.className = `rule-verdict ${r.decision === 'allow' ? 'ok' : r.decision === 'deny' ? 'bad' : ''}`;
     };
@@ -855,7 +859,7 @@ const renderRulesTab = async (page, sheet) => {    sheet.draft.rules = Array.isA
       if (!sheet.draft.rules.length) {
         list.append(el('p', 'settings-empty', 'ยังไม่มีกฎ — ทุกอย่างไปใช้โหมดที่เลือกข้างบน · กด “เพิ่มกฎ” เอาอันแรก'));
       }
-      sheet.draft.rules.forEach((rule, i) => {
+      sheet.draft.rules.forEach((/** @type {any} */ rule, /** @type {any} */ i) => {
         const row = el('div', 'rule-row');
         row.append(el('span', 'rule-index', String(i + 1)));
         const pattern = document.createElement('input');
@@ -894,7 +898,7 @@ const renderRulesTab = async (page, sheet) => {    sheet.draft.rules = Array.isA
     group.append(add);
     page.append(group);
 };
-const renderHealthTab = async (page, sheet) => {    // One button, same answers as the terminal: bridge up, extension
+const renderHealthTab = async (/** @type {any} */ page, /** @type {any} */ sheet) => {    // One button, same answers as the terminal: bridge up, extension
     // attached, quota figures — plus the fix for whatever is red. `status`
     // is token-free by design; `credits` rides the bridge cache so an idle
     // check does not poke the tab upstream.
@@ -920,7 +924,7 @@ const renderHealthTab = async (page, sheet) => {    // One button, same answers 
           const line = el('div', null, `${k}: ${v}${fix ? ` — ${fix}` : ''}`);
           lines.append(line);
         }
-      } catch (err) {
+      } catch (/** @type {any} */ err) {
         lines.className = 'install-out err';
         lines.textContent = `ตรวจไม่ได้: ${friendly(err.message)}`;
       }
@@ -939,8 +943,8 @@ const renderHealthTab = async (page, sheet) => {    // One button, same answers 
  * a note), so "run the linter after every edit" is a setting rather than a
  * habit.
  *
- * @param {object} page
- * @param {object} sheet
+ * @param {any} page
+ * @param {any} sheet
  */
 const renderHooksTab = async (page, sheet) => {
   const group = el('div', 'set-group');
@@ -980,7 +984,7 @@ const renderHooksTab = async (page, sheet) => {
 /**
  * The hooks save: all nine moments, and nothing else.
  *
- * @param {object} sheet
+ * @param {any} sheet
  * @returns {TabSave}
  */
 const saveHooksTab = (sheet) => ({ patch: { hooks: sheet.draft.hooks ?? {} }, problems: [] });
@@ -1074,14 +1078,14 @@ async function openSettings(pageId = null) {
   const body = $('modal-body');
   body.textContent = '';
 
-  const read = (key) => key.split('.').reduce((o, k) => (o ?? {})[k], draft);
-  const write = (key, value) => {
+  const read = (/** @type {any} */ key) => key.split('.').reduce((/** @type {any} */ o, /** @type {any} */ k) => (o ?? {})[k], draft);
+  const write = (/** @type {any} */ key, /** @type {any} */ value) => {
     if (!key.includes('.')) { draft[key] = value; return; }
     const [head, tail] = key.split('.');
     draft[head] = { ...(draft[head] ?? {}), [tail]: value };
   };
 
-  const control = (field) => {
+  const control = (/** @type {any} */ field) => {
     const value = read(field.key);
     if (field.type === 'checkbox') {
       const lab = el('label', 'switch');
@@ -1127,7 +1131,7 @@ async function openSettings(pageId = null) {
   // One labelled row: title + note on the left, control on the right. `stack`
   // drops the control underneath — a textarea in a side-by-side row would be
   // 300px wide for four lines of paths.
-  const row = (label, note, node) => {
+  const row = (/** @type {any} */ label, /** @type {any} */ note, /** @type {any} */ node) => {
     const r = el('div', 'set-row');
     const info = el('div', 'set-info');
     info.append(el('div', 'set-title', label));
@@ -1162,7 +1166,7 @@ async function openSettings(pageId = null) {
 
   const nav = el('nav', 'settings-nav');
   const pages = el('div', 'settings-pages');
-  const show = (id) => {
+  const show = (/** @type {any} */ id) => {
     for (const b of nav.querySelectorAll('button')) b.classList.toggle('active', b.dataset.cat === id);
     for (const p of pages.querySelectorAll('.settings-page')) p.classList.toggle('active', p.dataset.page === id);
   };
@@ -1211,7 +1215,7 @@ async function openSettings(pageId = null) {
 
   const reset = el('button', null, 'คืนค่าเดิม');
   reset.onclick = async () => {
-    const done = await rpc('settings.reset').catch((err) => ({ error: err.message }));
+    const done = await rpc('settings.reset').catch((/** @type {any} */ err) => ({ error: err.message }));
     if (done.error) { error.textContent = friendly(done.error); error.classList.remove('hidden'); return; }
     hideModal();
     openSettings();
@@ -1231,7 +1235,7 @@ async function openSettings(pageId = null) {
     }
     if (problems.length) { error.textContent = problems.join(' · '); error.classList.remove('hidden'); return; }
     error.classList.add('hidden');
-    const next = await rpc('settings.set', patch).catch((err) => ({ error: err.message }));
+    const next = await rpc('settings.set', patch).catch((/** @type {any} */ err) => ({ error: err.message }));
     if (next.error) { error.textContent = next.error; error.classList.remove('hidden'); return; }
     state.settings = next;
     applyTheme(next.theme);
@@ -1247,7 +1251,7 @@ async function openSettings(pageId = null) {
     // knows), and the window says so rather than showing a switch that
     // quietly does nothing.
     const dropped = ['allowGitWrite', 'allowVerify']
-      .filter((key) => patch[key] !== undefined && next[key] !== patch[key]);
+      .filter((key) => (/** @type {any} */ (patch))[key] !== undefined && (/** @type {any} */ (next))[key] !== (/** @type {any} */ (patch))[key]);
     addCommandOut(dropped.length
       ? `บันทึกการตั้งค่าแล้ว · ค่า ${dropped.join(', ')} ยังไม่มีผล — backend รุ่นนี้ยังไม่รองรับตัวเลือกนี้`
       : 'บันทึกการตั้งค่าแล้ว');

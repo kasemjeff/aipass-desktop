@@ -1,5 +1,6 @@
+// @ts-check
 // The git + schedule feature module (extracted from app.js).
-export function createGitSchedule(ctx) {
+export function createGitSchedule(/** @type {any} */ ctx) {
   async function showGitStatus() {
     const st = await ctx.rpc('git.status').catch(() => null);
     if (!st) { ctx.addNote('git ไม่พร้อม — ตรวจ git status ไม่ได้'); return; }
@@ -11,10 +12,10 @@ export function createGitSchedule(ctx) {
     }
   }
 
-  const folderName = (root) => String(root ?? '').replace(/[\\/]+$/, '').split(/[\\/]/).pop() || String(root ?? '');
+  const folderName = (/** @type {any} */ root) => String(root ?? '').replace(/[\\/]+$/, '').split(/[\\/]/).pop() || String(root ?? '');
 
   async function showSchedule() {
-    const res = await ctx.rpc('schedule.list').catch((err) => ({ error: err.message }));
+    const res = await ctx.rpc('schedule.list').catch((/** @type {any} */ err) => ({ error: err.message }));
     if (res?.error) { ctx.addNote(`อ่านตารางเวลาไม่ได้: ${ctx.friendly(res.error)}`); return; }
     const entries = res?.entries ?? [];
     ctx.state.schedule = entries;
