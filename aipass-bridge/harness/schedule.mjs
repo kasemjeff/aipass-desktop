@@ -480,16 +480,30 @@ export class ScheduleStore {
  * @returns {number|null} the child's pid
  */
 const startDetached = (entry, { spawnFn, runner, env }) => {
+  // A project that no longer exists has no job to run: spawning with a
+  // missing cwd fails with ENOENT, and an unhandled 'error' event on the
+  // ChildProcess is an uncaught exception — one stale entry killed the
+  // whole desktop backend in a restart loop. Skip it quietly instead.
+  try {
+    if (!fs.existsSync(entry.root)) return null;
+  } catch { return null; }
   // The runner resolves its bridge the way the old terminal front did: from
   // the environment the backend already runs with, never a hardcoded 8787.
   const bridge = `http://${env.AIPASS_HOST || '127.0.0.1'}:${env.AIPASS_PORT || '8787'}`;
-  const child = spawnFn(process.execPath, [runner, entry.task, '--root', entry.root, '--bridge', bridge], {
-    cwd: entry.root,
-    env: { ...env },
-    detached: true,
-    windowsHide: true,
-    stdio: 'ignore',
-  });
+  let child = null;
+  try {
+    child = spawnFn(process.execPath, [runner, entry.task, '--root', entry.root, '--bridge', bridge], {
+      cwd: entry.root,
+      env: { ...env },
+      detached: true,
+      windowsHide: true,
+      stdio: 'ignore',
+    });
+  } catch { return null; }
+  if (!child) return null;
+  // The child errors asynchronously (ENOENT for any spawn reason): without
+  // a handler that error is an uncaught exception in the backend.
+  try { child.on('error', () => {}); } catch { /* a fake spawner may not emit */ }
   // The child is not ours to wait for. An unreferenced handle is what lets the
   // desktop backend exit while the scheduled work is still running, and the
   // detached child ends itself when its work is done.

@@ -15,7 +15,11 @@
 //      .app + .dmg on macOS, deb + AppImage on Linux;
 //   4. the artifacts land in `dist/` under a name that says what they are,
 //      with a SHA256SUMS file and a manifest that says what was built from
-//      which commit.
+//      which commit;
+//   5. the packaged resources are generated from `aipass-bridge/` on disk
+//      (resourceEntries) into tauri.generated.conf.json, so a loose file
+//      nobody remembered to list still ships — `--gen-config` writes the
+//      same list back into the checked-in tauri.conf.json for raw builds.
 //
 // No dependencies: node built-ins only, like the rest of the repository.
 //
@@ -110,6 +114,74 @@ export function readVersions(repo = REPO) {
 export function versionsAgree(versions) {
   const values = Object.values(versions);
   return values.every((v) => typeof v === 'string' && v === values[0]);
+}
+
+/**
+ * What the packaged app ships, read from the tree instead of remembered.
+ *
+ * `tauri.conf.json` used to enumerate every loose `aipass-bridge/` file by
+ * hand: a new CLI that nobody added there shipped a window whose command
+ * was missing — and it worked in dev, because dev reads the checkout.
+ * So the list is generated from the directory: the runtime subtrees ride
+ * as whole trees, every loose file in the bridge root rides with them, and
+ * the only loose files left out are named here on purpose — `.env.example`
+ * is a template the bridge never reads (it reads process.env) and
+ * `AGENTS.md` is agent instructions, not code the packaged app loads.
+ * `docs/` and `test/` are not shipped either: they were never in the list.
+ */
+export const RESOURCE_DIRS = ['bin', 'bridge', 'deploy', 'extension', 'harness'];
+export const NOT_SHIPPED_LOOSE = new Set(['.env.example', 'AGENTS.md']);
+
+/** The `bundle.resources` map, computed from `aipass-bridge/` on disk. */
+export function resourceEntries(repo = REPO) {
+  const bridge = path.join(repo, 'aipass-bridge');
+  const entries = {};
+  for (const dir of RESOURCE_DIRS) {
+    entries[`../../aipass-bridge/${dir}`] = `aipass-bridge/${dir}/`;
+  }
+  const loose = fs.readdirSync(bridge, { withFileTypes: true })
+    .filter((d) => d.isFile() && !NOT_SHIPPED_LOOSE.has(d.name))
+    .map((d) => d.name)
+    .sort();
+  for (const name of loose) {
+    entries[`../../aipass-bridge/${name}`] = `aipass-bridge/${name}`;
+  }
+  entries['../main.mjs'] = 'main.mjs';
+  entries['../ui'] = 'ui/';
+  return entries;
+}
+
+/**
+ * The Tauri config the bundler should read: the checked-in one, with its
+ * resources replaced by the generated list. Everything else — version,
+ * product name, CSP, bundle settings — is the checked-in file's, so the
+ * generated config cannot drift from it in any way but the one list this
+ * function exists to keep current.
+ */
+export function generatedConfig(repo = REPO) {
+  const conf = JSON.parse(fs.readFileSync(path.join(repo, 'desktop', 'src-tauri', 'tauri.conf.json'), 'utf8'));
+  return { ...conf, bundle: { ...conf.bundle, resources: resourceEntries(repo) } };
+}
+
+/**
+ * Write the generated config beside the checked-in one, so its relative
+ * resource paths resolve exactly as the checked-in one's do. The file is
+ * gitignored: it is a build artifact, recreated on every build.
+ */
+export function writeGeneratedConfig(repo = REPO, out = path.join(repo, 'desktop', 'src-tauri', 'tauri.generated.conf.json')) {
+  fs.writeFileSync(out, JSON.stringify(generatedConfig(repo), null, 2) + '\n');
+  return out;
+}
+
+/**
+ * Rewrite the checked-in config's resources in place (`--gen-config`):
+ * the one command that keeps a raw `tauri build` — which reads the
+ * checked-in file, not the generated one — honest too.
+ */
+export function syncCheckedInConfig(repo = REPO) {
+  const file = path.join(repo, 'desktop', 'src-tauri', 'tauri.conf.json');
+  fs.writeFileSync(file, JSON.stringify(generatedConfig(repo), null, 2) + '\n');
+  return file;
 }
 
 /** The git commit the artifact was built from, and whether the tree was dirty. */
@@ -281,6 +353,13 @@ export function signingState(env = process.env) {
 
 export function main() {
   const repo = REPO;
+  // `--gen-config` only syncs the checked-in config's resources from the
+  // tree and stops: no sidecar, no bundler, no dist/.
+  if (process.argv.includes('--gen-config')) {
+    const file = syncCheckedInConfig(repo);
+    console.log(`resources synced from aipass-bridge/ into ${path.relative(repo, file)}`);
+    return;
+  }
   const target = process.env.AIPASS_DESKTOP_TARGET?.trim() || null;
   const plan = planFor(process.platform, process.arch, target);
 
@@ -311,9 +390,14 @@ export function main() {
     }
   }
 
+  // The bundler reads the generated config, not the checked-in one: its
+  // resources are computed from aipass-bridge/ right now, so a loose file
+  // added since the last `--gen-config` still ships. The checked-in file
+  // stays the source of everything else (version, CSP, bundle settings).
+  writeGeneratedConfig(repo);
   const args = [
     'build',
-    '--config', 'desktop/src-tauri/tauri.conf.json',
+    '--config', 'desktop/src-tauri/tauri.generated.conf.json',
     '--config', plan.config,
     '--bundles', plan.bundles.join(','),
   ];

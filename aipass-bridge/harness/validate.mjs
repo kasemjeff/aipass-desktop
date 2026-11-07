@@ -19,7 +19,7 @@
 export const BUILTIN_KINDS = new Set([
   'skill', 'list', 'read', 'write', 'replace', 'search', 'tree', 'stat', 'run', 'glob',
   'git', 'fetch', 'delete', 'move', 'attach', 'web', 'symbols', 'def', 'refs', 'recall', 'retrieve',
-  'plan', 'todo', 'subagent', 'goal', 'jobs', 'done', 'ask', 'verify',
+  'plan', 'todo', 'subagent', 'goal', 'jobs', 'done', 'ask', 'verify', 'diagnose',
 ]);
 
 /**
@@ -42,6 +42,7 @@ const ARG_GUARDS = {
   refs: 'err: REFS needs a name — REFS foo',
   recall: 'err: RECALL needs something to look for - RECALL <what you want to remember>',
   retrieve: 'err: RETRIEVE needs something to look for - RETRIEVE <what you want to know>',
+  diagnose: 'err: DIAGNOSE needs a path — DIAGNOSE src/foo.ts',
   goal: 'err: GOAL takes DONE or BLOCKED <reason> — e.g. GOAL DONE the parser ships.',
 };
 

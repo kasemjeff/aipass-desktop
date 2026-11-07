@@ -302,7 +302,10 @@ export function createSessionMethods(ctx) {
       try {
         for (let i = 1; i <= attempts; i++) {
           used = i;
-          result = await h.run(params.task, { runPluginTool: (marker, args) => plugins.runTool(marker, args) });
+          result = await h.run(params.task, {
+            runPluginTool: (marker, args) => plugins.runTool(marker, args),
+            retry: i > 1,
+          });
           const verdict = result.check?.verdict ?? null;
           if (used === attempts || verdict !== 'fail') break;
           // A stop that landed between the attempts has no controller to

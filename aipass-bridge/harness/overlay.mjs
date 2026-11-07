@@ -37,8 +37,7 @@ export const SKIP = new Set([
 // deliberately not filtered, so an explicit NEED file / NEED dir still works.
 export function isNoisePath(rel) {
   const norm = '/' + String(rel ?? '').replace(/\\/g, '/').toLowerCase().replace(/^\/+|\/+$/g, '') + '/';
-  return norm.includes('/appdata/local/temp/')
-    || norm.includes('/appdata/roaming/temp/')
+  return norm.includes('/appdata/')
     || /\/aipass-update-[a-z0-9]+(\/|$)/.test(norm);
 }
 
@@ -180,7 +179,7 @@ export class Overlay {
     const rel = path.relative(this.root, abs);
     const outside = rel === '..' || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel);
     if (outside) {
-      throw new Error(`outside project root: ${p} — this run can only read and write inside the project; if the human named this path, tell them instead of moving it.`);
+      throw new Error(`outside project root: ${p} — this run can only read and write inside the project (${this.root}); if the human named this path, tell them instead of moving it.`);
     }
     // The real path of the target — or of the nearest ancestor that exists,
     // for a file this run has not written yet. Compared against the real root.
@@ -190,7 +189,7 @@ export class Overlay {
       const realRel = path.relative(realRoot, real);
       const out = realRel === '..' || realRel.startsWith(`..${path.sep}`) || path.isAbsolute(realRel);
       if (out) {
-        throw new Error(`outside project root: ${p} — this path leaves the project through a link; this run can only read and write inside the project.`);
+        throw new Error(`outside project root: ${p} — this path leaves the project through a link; this run can only read and write inside the project (${this.root}).`);
       }
     }
     return abs;

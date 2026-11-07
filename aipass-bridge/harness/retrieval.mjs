@@ -31,19 +31,27 @@ function envInt(name, fallback) {
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
 }
 
+const indexDirsReady = new Set();
 function indexDir() {
   const dir = path.join(aipassHome(), 'retrieval');
+  // One mkdir+chmod per home, not per lookup; keyed on the path so a
+  // re-pointed AIPASS_HOME still gets its folder.
+  if (indexDirsReady.has(dir)) return dir;
   try { fs.mkdirSync(dir, { recursive: true, mode: 0o700 }); } catch {}
   try { fs.chmodSync(dir, 0o700); } catch {}
+  indexDirsReady.add(dir);
   return dir;
 }
 function indexPath(root) { return path.join(indexDir(), projectKey(root) + '.json'); }
 async function realpathSafe(p) { try { return await fs.promises.realpath(p); } catch { return path.resolve(p); } }
 
-export function loadIndex(root) {
+// The file read is threadpool work, and the memo is keyed on (mtime, size):
+// a lookup on an untouched project pays a stat, not a multi-MB parse. The
+// parse itself is one in-process cost per changed index.
+export async function loadIndex(root) {
   const file = indexPath(root);
   let st;
-  try { st = fs.statSync(file); } catch { return null; }
+  try { st = await fs.promises.stat(file); } catch { return null; }
   const hit = INDEX_CACHE.get(file);
   if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size) {
     // LRU touch
@@ -53,7 +61,7 @@ export function loadIndex(root) {
   }
   let data = null;
   try {
-    const raw = fs.readFileSync(file, 'utf8');
+    const raw = await fs.promises.readFile(file, 'utf8');
     const parsed = JSON.parse(raw);
     if (parsed && parsed.version === RETRIEVAL_VERSION && Array.isArray(parsed.chunks) && parsed.postings && typeof parsed.root === 'string') {
       const real = realPath(root) ?? path.resolve(root);
@@ -103,12 +111,18 @@ export function clearIndex(root) {
   INDEX_CACHE.delete(file);
   try { fs.rmSync(file, { force: true }); } catch {}
 }
-export function status(root) {
-  const idx = loadIndex(root);
-  if (!idx) return { files: 0, chunks: 0, bytes: 0, builtAt: 0, truncated: false, root: realPath(root) ?? path.resolve(root) };
-  let bytes = 0;
-  try { bytes = fs.statSync(indexPath(root)).size; } catch {}
-  return { files: Object.keys(idx.files || {}).length, chunks: (idx.chunks || []).length, bytes, builtAt: idx.builtAt, truncated: !!idx.truncated, root: idx.root };
+// A status answer from the memo costs no parse — the context panel asks on
+// every refresh, and the index can be tens of MB.
+export async function status(root) {
+  const real = realPath(root) ?? path.resolve(root);
+  const file = indexPath(root);
+  let st;
+  try { st = await fs.promises.stat(file); } catch { return { files: 0, chunks: 0, bytes: 0, builtAt: 0, truncated: false, root: real }; }
+  const hit = INDEX_CACHE.get(file);
+  const warm = hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size ? hit.data : null;
+  const idx = warm ?? await loadIndex(root);
+  if (!idx) return { files: 0, chunks: 0, bytes: st.size, builtAt: 0, truncated: false, root: real };
+  return { files: Object.keys(idx.files || {}).length, chunks: (idx.chunks || []).length, bytes: st.size, builtAt: idx.builtAt, truncated: !!idx.truncated, root: idx.root };
 }
 
 const INDEX_CACHE_MAX = 4;
@@ -252,7 +266,7 @@ export async function buildIndex(root, opts = {}) {
   const files = collected.length > maxFiles ? collected.slice(0, maxFiles) : collected;
   if (collected.length > maxFiles) fileCapHit = true;
 
-  const old = loadIndex(root);
+  const old = await loadIndex(root);
   const canReuse = !!(old && old.version === RETRIEVAL_VERSION && old.root === realRoot);
 
   const idx = { version: RETRIEVAL_VERSION, root: realRoot, builtAt: 0, files: {}, chunks: [], postings: {}, lengths: [], avgLen: 0, truncated: false };
@@ -374,19 +388,38 @@ export async function buildIndex(root, opts = {}) {
   return { index: idx, stats: { files: Object.keys(idx.files).length, chunks: n, truncated: idx.truncated, read: readCount, reused: reusedCount, saved } };
 }
 
+// The TTL fast path, asked synchronously: a fresh enough index is returned
+// without claiming the build slot at all. Any doubt about the cached file's
+// identity falls through to the build.
+function peekIndex(root, maxAgeMs, force) {
+  if (force) return null;
+  const file = indexPath(root);
+  const hit = INDEX_CACHE.get(file);
+  if (!hit) return null;
+  // The stat is the same one call the old synchronous loadIndex made — one
+  // syscall against tens of MB of parse it is not making.
+  try { const st = fs.statSync(file); if (st.mtimeMs !== hit.mtimeMs || st.size !== hit.size) return null; } catch { return null; }
+  if (Date.now() - (hit.data.builtAt || 0) >= maxAgeMs) return null;
+  INDEX_CACHE.delete(file);
+  INDEX_CACHE.set(file, hit);
+  return hit.data;
+}
+
 const BUILDING = new Map();
 export async function ensureIndex(root, opts = {}) {
   const signal = opts.signal ?? null;
   if (signal?.aborted) throw new Error('index build aborted');
   const realRoot = realPath(root) ?? path.resolve(root);
-  const idx = loadIndex(root);
-  const now = Date.now();
   // Short enough that a disk edit is visible without a restart, long enough
   // that a burst of questions does not walk the tree for each one. Staged
   // edits bypass this: buildView folds them in on every query.
   const maxAgeMs = Number.isFinite(opts.maxAgeMs) ? Math.max(0, opts.maxAgeMs) : DEFAULT_INDEX_TTL_MS;
-  if (idx && !opts.force && now - (idx.builtAt || 0) < maxAgeMs) return idx;
+  const cached = peekIndex(root, maxAgeMs, !!opts.force);
+  if (cached) return cached;
 
+  // The job slot is claimed before the first await: a clear that lands while
+  // the index is being read still finds it and still aborts the build — an
+  // abort that arrives later must not be lost to a race.
   let job = BUILDING.get(realRoot);
   if (!job) {
     const controller = new AbortController();
@@ -539,11 +572,11 @@ export async function retrieve(query, opts = {}) {
   const budgetChars = opts.budgetChars ?? envInt('AIPASS_RETRIEVAL_BUDGET', DEFAULT_BUDGET_CHARS);
   const signal = opts.signal ?? null;
   const qTokensAll = [...new Set(tokenize(query))];
-  if (!qTokensAll.length) return { hits: [], stats: status(root), words: [] };
+  if (!qTokensAll.length) return { hits: [], stats: await status(root), words: [] };
   if (signal?.aborted) throw new Error('retrieve aborted');
   let idx;
   try { idx = await ensureIndex(root, { signal, force: opts.force, maxAgeMs: opts.maxAgeMs }); } catch (err) { throw err; }
-  if (!idx) return { hits: [], stats: status(root), words: qTokensAll };
+  if (!idx) return { hits: [], stats: await status(root), words: qTokensAll };
   if (signal?.aborted) throw new Error('retrieve aborted');
 
   const view = buildView(idx, root, overlay);

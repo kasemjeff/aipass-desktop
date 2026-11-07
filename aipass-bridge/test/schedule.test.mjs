@@ -47,6 +47,47 @@ function fakeSpawner() {
   return { calls, spawnFn };
 }
 
+test('a due entry whose project no longer exists is skipped, never spawned, never fatal', async () => {
+  // A deleted project left in the schedule: spawning with a missing cwd
+  // fails with ENOENT, and an unhandled child 'error' event is an uncaught
+  // exception — one stale entry put the whole desktop backend in a restart
+  // loop. The entry is spent (no retry storm) and nothing was spawned.
+  const dir = tmp();
+  const store = new ScheduleStore(path.join(dir, 'schedule.json'));
+  const gone = path.join(dir, 'gone-project');
+  await store.add({ task: 'stale work', root: gone, at: '09:00' });
+  const { calls, spawnFn } = fakeSpawner();
+  const ran = await store.runDue({ now: NOW, spawnFn, cli: path.join(dir, 'aipass.mjs') });
+  assert.equal(ran.count, 1, 'the pass completes');
+  assert.equal(ran.ran[0].pid, null, 'nothing started');
+  assert.equal(calls.length, 0, 'spawn was never asked for a missing root');
+  assert.deepEqual(await store.readPids(), [], 'no pids were recorded');
+});
+
+test('a spawn failure cannot take down the host process', async () => {
+  // The child errors asynchronously (ENOENT for any reason) on an 'error'
+  // event: without a handler that is an uncaught exception in whatever
+  // process ran the ticker. Firing the handler must be a no-op.
+  const dir = tmp();
+  const store = new ScheduleStore(path.join(dir, 'schedule.json'));
+  const root = path.join(dir, 'proj');
+  fs.mkdirSync(root, { recursive: true });
+  await store.add({ task: 'spawn fails', root, at: '09:00' });
+  const handlers = {};
+  const spawnFn = () => {
+    const child = {
+      pid: 4242,
+      unref() {},
+      on(event, fn) { handlers[event] = fn; },
+    };
+    return child;
+  };
+  const ran = await store.runDue({ now: NOW, spawnFn, cli: path.join(dir, 'aipass.mjs') });
+  assert.equal(ran.count, 1);
+  assert.equal(typeof handlers.error, 'function', 'the child carries an error handler');
+  assert.doesNotThrow(() => handlers.error(new Error('spawn ENOENT')));
+});
+
 test('a due schedule entry is due once and then spent', async () => {
   const dir = tmp();
   const store = new ScheduleStore(path.join(dir, 'schedule.json'));

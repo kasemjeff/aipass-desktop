@@ -5,11 +5,11 @@
 //
 //   node --test "aipass-bridge/test/*.test.mjs"
 //     Windows shells do not expand globs, and Node only learned to expand them
-//     itself in v21 — so on Node 20 + Windows the literal string reaches Node
+//     itself in v21 — so on older Node + Windows the literal string reaches Node
 //     and it reports "Could not find '...\*.test.mjs'".
 //
 //   node --test aipass-bridge/test
-//     Node 20 searches the directory (and also executes helpers such as
+//     Older Node searches the directory (and also executes helpers such as
 //     harness.mjs, counting them as test files), while Node 24+ instead tries
 //     to load the directory as a module and fails outright.
 //

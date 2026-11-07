@@ -34,8 +34,7 @@ the window.
 
 ## Do I need Node?
 
-For the source install, yes: Node 22 or 24 is recommended. Node 20 is still in
-the CI matrix for compatibility, but it is end-of-life upstream. The packaged
+For the source install, yes: Node 24 or newer is required (the floor matches `.nvmrc` and the sidecar pin). The packaged
 desktop app carries its own Node sidecar.
 
 ## Do I need Rust?

@@ -854,7 +854,7 @@ export function createTools(ctx) {
       if (depth < 1 || depth > 6) return `err: TREE -L takes 1..6 levels (got ${depth}).`;
       const rel = words.join(' ') || '.';
       const abs = trySafe(rel);
-      if (!abs) return `err: ${rel} leaves the project — TREE stays inside it.`;
+      if (!abs) return `err: ${rel} leaves the project (*project root: ${root}) — TREE stays inside it.`;
       if (!existsAt(abs)) return `err: no such path: ${rel}`;
       let isDir = false;
       try { isDir = fs.statSync(abs).isDirectory(); } catch { isDir = false; }
@@ -923,7 +923,7 @@ export function createTools(ctx) {
       };
       render(treeRoot, rel === '.' ? '' : '  ');
       if (!lines.length || (lines.length === 1 && rel !== '.')) return `${rel}/ is empty.`;
-      const noiseNote = noiseSkipped ? `\n… skipped ${noiseSkipped} system temp folder(s) (AppData/Local/Temp); read one directly with NEED file <path> if you need it.` : '';
+      const noiseNote = noiseSkipped ? `\n… skipped ${noiseSkipped} system temp folder(s) (AppData); read one directly with NEED file <path> if you need it.` : '';
       const more = count >= MAX ? `\n… stopped at ${MAX} entries — narrow the path or lower -L.` : '';
       return await clip(lines.join('\n') + more + noiseNote);
     },
@@ -936,7 +936,7 @@ export function createTools(ctx) {
       const rel = String(arg ?? '').trim();
       if (!rel) return 'err: STAT needs a file or directory path — STAT src/app.ts';
       const abs = trySafe(rel);
-      if (!abs) return `err: ${rel} leaves the project — STAT stays inside it.`;
+      if (!abs) return `err: ${rel} leaves the project (project root: ${root}) — STAT stays inside it.`;
       if (overlay.isDeleted(abs)) {
         return `${rel}: deleted (staged this run; the disk copy is untouched until apply)`;
       }
@@ -1193,10 +1193,13 @@ export function createTools(ctx) {
       const hits = [];
       let matches = 0; // only match lines count toward MAX; context rides along
       const MAX = 50;
+      const MAX_VISITED = 20_000;
+      let visited = 0;
+      let capped = false;
       const ign = loadGitignore(root);
       let noiseSkipped = 0;
       const walk = async (dir) => {
-        if (matches >= MAX) return;
+        if (matches >= MAX || visited >= MAX_VISITED) { if (visited >= MAX_VISITED) capped = true; return; }
         let entries;
         try { entries = await fs.promises.readdir(dir, { withFileTypes: true }); } catch { return; }
         for (const e of entries) {
@@ -1208,7 +1211,8 @@ export function createTools(ctx) {
             if (!ign.ignored(rel, true)) await walk(full);
             continue;
           }
-          if (matches >= MAX) return;
+          if (matches >= MAX || visited >= MAX_VISITED) return;
+          visited++;
           if (ign.ignored(rel, false)) continue;
           if (secretHit(rel)) continue; // a secret file is not a search result
           // A link is not a file of this project: it can point anywhere, and
@@ -1257,10 +1261,12 @@ export function createTools(ctx) {
         }
       };
       await walk(root);
-      const noiseNote = noiseSkipped ? `\n… skipped ${noiseSkipped} system temp folder(s) (AppData/Local/Temp).` : '';
-      if (!hits.length) return `no matches for "${query}".${noiseNote}`;
+      if (visited >= MAX_VISITED) capped = true;
+      const noiseNote = noiseSkipped ? `\n… skipped ${noiseSkipped} system temp folder(s) (AppData).` : '';
+      const capNote = capped ? `\n… stopped after ${MAX_VISITED} files (tree too large) — narrow the search or search a subfolder.` : '';
+      if (!hits.length) return `no matches for "${query}".${noiseNote}${capNote}`;
       const more = matches >= MAX ? `\n… stopped at ${MAX} matches; make the search more specific for the rest.` : '';
-      return clip(hits.join('\n') + more + noiseNote);
+      return clip(hits.join('\n') + more + noiseNote + capNote);
     },
     async run(_arg, body) {
       if (sandboxRefuse) return `err: ${sandboxRefuse}`;
@@ -1370,7 +1376,7 @@ export function createTools(ctx) {
       // must not become the one read that is not (its didOpen ships the file
       // whole to the server process).
       const abs = trySafe(wanted);
-      if (!abs) return `err: ${wanted} leaves the project — DIAGNOSE stays inside it.`;
+      if (!abs) return `err: ${wanted} leaves the project (project root: ${root}) — DIAGNOSE stays inside it.`;
       if (!lsp) {
         return 'err: no language server is available for this run — install one (rust-analyzer, typescript-language-server, pyright, gopls) or add it to ~/.aipass/lsp.json with approved: true.';
       }
@@ -1431,6 +1437,9 @@ export function createTools(ctx) {
       };
       const hits = [];
       const MAX = 200;
+      const MAX_VISITED = 20_000;
+      let visited = 0;
+      let capped = false;
       const ign = loadGitignore(root);
       // Async, like the search walk: this runs in the backend process, and a
       // readdirSync over a big tree freezes every window call for the length
@@ -1438,7 +1447,7 @@ export function createTools(ctx) {
       // MAX cutoff returns for a huge tree stays the same as before.
       let noiseSkipped = 0;
       const walk = async (dir) => {
-        if (hits.length >= MAX) return;
+        if (hits.length >= MAX || visited >= MAX_VISITED) { if (visited >= MAX_VISITED) capped = true; return; }
         let entries;
         try { entries = await fs.promises.readdir(dir, { withFileTypes: true }); } catch { return; }
         for (const e of entries) {
@@ -1456,6 +1465,8 @@ export function createTools(ctx) {
             if (!trySafe(full)) continue;
             if (secretHit(linkTarget(full))) continue;
           }
+          visited++;
+          if (visited > MAX_VISITED) { capped = true; return; }
           if (!e.isDirectory() && patPartsList.some((parts) => matchFrom(rel.split('/'), parts))) {
             hits.push(rel);
             if (hits.length >= MAX) return;
@@ -1464,13 +1475,14 @@ export function createTools(ctx) {
         }
       };
       await walk(root);
-      const noiseNote = noiseSkipped ? `\n… skipped ${noiseSkipped} system temp folder(s) (AppData/Local/Temp).` : '';
-      if (!hits.length) return `no files matched "${pattern}".${noiseNote}`;
+      const noiseNote = noiseSkipped ? `\n… skipped ${noiseSkipped} system temp folder(s) (AppData).` : '';
+      const capNote = capped ? `\n… stopped after ${MAX_VISITED} files (tree too large) — narrow the pattern.` : '';
+      if (!hits.length) return `no files matched "${pattern}".${noiseNote}${capNote}`;
       const more = hits.length >= MAX ? `\n… stopped at ${MAX} results.` : '';
       // A glob answer goes through the same cap as every other result: a
       // deep tree can name thousands of files, and the raw list used to ride
       // the message whole.
-      return clip(hits.join('\n') + more + noiseNote);
+      return clip(hits.join('\n') + more + noiseNote + capNote);
     },
     async git(arg) {
       const sub = arg.trim();
@@ -1520,14 +1532,16 @@ export function createTools(ctx) {
         const { stdout } = await runShell(`git ${sub}`, { cwd: root, timeoutMs: 15_000 });
         return clip(scrubSecretDiff(scrubOutput(stdout)));
       } catch (err) {
-        const detail = String(err.stderr ?? err.stdout ?? '');
+        const detail = String(err.stderr ?? err.stdout ?? '').trim();
         // `git diff` outside a repository answers with a page of option help
         // and exit 129 (live finding, 2026-10-15). The one fact worth having
         // fits in a line — say the fact, not the wall. The no-repository
         // phrasing varies by git build (sandbox projections: "gitfile does
         // not point to a valid repository" on the CI runners), so match both.
         if (/not a git repository|gitfile does not point to a valid repository/i.test(detail)) return 'err: not a git repository — GIT only works inside one. Run git init first, or skip git here.';
-        return clip(scrubSecretDiff(scrubOutput(`err: exit ${err.code ?? err.status ?? 1}\n${detail}`)));
+        const code = err.code ?? err.status ?? 1;
+        const body = detail || `git ${sub} produced no output (exit ${code}). Check that this directory is a git repository and the subcommand is valid.`;
+        return clip(scrubSecretDiff(scrubOutput(`err: exit ${code}\n${body}`)));
       }
     },
     async fetch(url) {
@@ -1747,10 +1761,10 @@ export function createTools(ctx) {
     // file (or the whole project) declares; DEF finds where a name is defined;
     // REFS finds every use. The index is cached under ~/.aipass/symbols and
     // refreshed when a file's mtime changes.
-    symbols(arg) {
+    async symbols(arg) {
       const target = String(arg ?? '').trim();
       if (!target) {
-        const idx = indexProject(root);
+        const idx = await indexProject(root);
         const all = [];
         for (const [file, entry] of Object.entries(idx.files)) {
           for (const s of entry.symbols) all.push({ file, ...s });
@@ -1764,17 +1778,17 @@ export function createTools(ctx) {
       if (abs.startsWith('err:')) return abs;
       if (!existsAt(abs)) return `err: no such file: ${target}`;
       const rel = path.relative(root, abs).replace(/\\/g, '/');
-      return formatSymbols(listSymbols(root, rel));
+      return formatSymbols(await listSymbols(root, rel));
     },
-    def(arg) {
+    async def(arg) {
       const name = String(arg ?? '').trim();
       if (!name) return 'err: DEF needs a name — DEF foo';
-      return formatDefs(findDefinition(root, name));
+      return formatDefs(await findDefinition(root, name));
     },
-    refs(arg) {
+    async refs(arg) {
       const name = String(arg ?? '').trim();
       if (!name) return 'err: REFS needs a name — REFS foo';
-      return formatRefs(findReferences(root, name));
+      return formatRefs(await findReferences(root, name));
     },
     // RECALL — what this project said before. A read of the person's own
     // past: the sessions of this project, scored against the query, each hit

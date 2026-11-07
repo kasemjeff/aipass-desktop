@@ -20,6 +20,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { startBridge, FakeExtension, waitFor } from './harness.mjs';
+import { BridgeClient } from '../harness/bridge.mjs';
 
 /** The frames of one streamed answer, as the CLI sees them. */
 async function readStream(res) {
@@ -36,6 +37,30 @@ async function readStream(res) {
 
 const ask = (base, body) => fetch(`${base}/v1/chat/completions`, {
   method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+});
+
+test('the client aborts a stream that never produces its first byte', async () => {
+  const previous = globalThis.fetch;
+  let aborted = false;
+  globalThis.fetch = async (_url, init) => {
+    init.signal?.addEventListener('abort', () => { aborted = true; }, { once: true });
+    const body = new ReadableStream({ start() {} });
+    return new Response(body, { status: 200 });
+  };
+  try {
+    const client = new BridgeClient('http://127.0.0.1:1', {
+      rateBucket: false,
+      firstByteTimeoutMs: 20,
+      stallTimeoutMs: 20,
+    });
+    await assert.rejects(
+      client.chat({ message: 'wait', model: 'stub' }),
+      (err) => err?.code === 'ERR_FIRST_BYTE_TIMEOUT' && err.name === 'TimeoutError',
+    );
+    assert.equal(aborted, true, 'the hanging body receives cancellation');
+  } finally {
+    globalThis.fetch = previous;
+  }
 });
 
 /* ------------------------------------------------------- the per-run token */

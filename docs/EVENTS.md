@@ -60,8 +60,8 @@ the table says so, the same way a renamed test fails the `Verify:` anchors.
 |---|---|---|---|
 | `subagent_start` | loop | a SUBAGENT began (foreground or background) | window, plugins |
 | `subagent_end` | loop | a SUBAGENT finished, with its summary | window, plugins |
-| `helper_start` | harness | a helper run starts (the fan-out's own session) | window, plugins |
-| `helper_end` | harness | a helper run ended: summary, prepared, skipped | window, plugins |
+| `helper_start` | harness | a helper run starts (the fan-out's own session): id, task, role, session | window, plugins |
+| `helper_end` | harness | a helper run ended: id, summary, prepared, skipped, steps, ms, estTokens | window, plugins |
 
 ## Guards
 

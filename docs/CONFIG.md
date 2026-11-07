@@ -58,6 +58,8 @@ drift this file exists to catch.
 | `AIPASS_FETCH_ALLOW_PRIVATE` | off | `1` lifts the private-host deny for fetch and media (a check against a local server) | `tools.mjs`, `media.mjs` |
 | `AIPASS_MEDIA_TIMEOUT_MS` | computed | the media generation's wait | `media.mjs` |
 | `AIPASS_SEND_RETRY_MS` | `1000` | the send retry cadence the bridge client retries on | `bridge.mjs` |
+| `AIPASS_FIRST_BYTE_TIMEOUT_MS` | `120000` | how long a chat stream may wait for its first byte before cancellation | `bridge.mjs` |
+| `AIPASS_STREAM_STALL_TIMEOUT_MS` | `180000` | how long a chat stream may remain silent between transport bytes; SSE keepalives reset it | `bridge.mjs` |
 | `AIPASS_EDGE_WAITS_MS` | `60000,180000` | the 403 content ladder's waits, comma-separated | `bridge.mjs` |
 | `AIPASS_RATE_WAITS_MS` | `60000,180000` | the 429/503 ladder's waits, comma-separated | `bridge.mjs` |
 | `AIPASS_RECOVER_WAITS_MS` | built-in ladder | the loop's own send-recovery waits, comma-separated | `bridge.mjs` |

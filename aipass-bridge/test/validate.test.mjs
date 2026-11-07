@@ -37,6 +37,7 @@ test('every built-in marker the protocol can produce passes its shape check', ()
     { kind: 'done', arg: 'finished' },
     { kind: 'ask', arg: 'which one?' },
     { kind: 'verify', arg: '' },
+    { kind: 'diagnose', arg: 'src/foo.ts' },
   ];
   for (const call of valid) {
     assert.equal(validateCall(call), null, `${call.kind} should pass its shape check`);
@@ -57,6 +58,7 @@ test('a missing argument is refused with the tool\u2019s own sentence', () => {
     ['web', /give me a query to search for/],
     ['def', /DEF needs a name/],
     ['refs', /REFS needs a name/],
+    ['diagnose', /DIAGNOSE needs a path/],
   ];
   for (const [kind, re] of wanted) {
     const msg = validateCall({ kind, arg: '   ' });

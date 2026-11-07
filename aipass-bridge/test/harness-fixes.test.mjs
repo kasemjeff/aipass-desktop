@@ -91,12 +91,14 @@ test('AppData/Local/Temp is skipped by glob/search/tree but still readable', asy
   const dir = tempDir({
     'src/a.ts': 'needle\n',
     'AppData/Local/Temp/junk/x.txt': 'needle in temp\n'.repeat(5),
+    'AppData/Roaming/Cache/y.txt': 'needle in roaming\n'.repeat(5),
   });
   const tools = toolsIn(dir);
 
   const search = await tools.search('needle');
   assert.ok(search.includes('src/a.ts'), 'the real file is still found');
   assert.ok(!search.includes('junk/x.txt'), 'temp noise is not searched');
+  assert.ok(!search.includes('y.txt'), 'AppData as a whole is not searched');
 
   const globbed = await tools.glob('**/*.ts');
   assert.ok(globbed.includes('src/a.ts'), 'the real file is still globbed');
@@ -107,6 +109,9 @@ test('AppData/Local/Temp is skipped by glob/search/tree but still readable', asy
 
   const back = await tools.read('AppData/Local/Temp/junk/x.txt');
   assert.ok(back.includes('needle in temp'), 'NEED file still reads a temp path');
+
+  const roaming = await tools.read('AppData/Roaming/Cache/y.txt');
+  assert.ok(roaming.includes('needle in roaming'), 'NEED file still reads an AppData path');
 });
 
 /* H2 â€” glob honours the prefix before ** ---------------------------------- */

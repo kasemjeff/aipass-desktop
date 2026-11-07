@@ -1,9 +1,17 @@
-# aipass desktop
+# AiPASS Desktop
 
 The same AiPASS bridge and the same file agent, in a window instead of two
 terminals — with the harness the terminal never had: sessions you can resume
 and fork, diffs you approve per file, plan/todo tracking, helpers, and
 compaction.
+
+For daily use. If you are contributing, start with [`CONTRIBUTING.md`](../CONTRIBUTING.md) and
+[`../AGENTS.md`](../AGENTS.md); if you are only trying it, this file plus [`../README.md`](../README.md)
+is enough.
+
+![AiPASS Desktop window in light theme: sessions and project files on the left, conversation with tool rows in the center, composer at the bottom](../public/screenshots/desktop-light.png)
+
+*Light capture from the current window shell. Pending-change checkboxes and diff view live in the pending panel when edits are staged (not in this capture — recapturing with a staged diff is TODO; dark capture planned). See also [`../README.md`](../README.md).*
 
 ```
 aipass desktop          # or: npm run desktop
@@ -87,9 +95,9 @@ stall) keeps the whole trail open, and a row with a button on it — carry on,
 open the chat tab — is never folded away. The moon in the header flips
 the theme, and the choice is written through.
 
-The thin top row carries the project and the connection state; the controls
-that govern the next message live where the message is written — the composer's
-chip row holds the **mode** (โหมดการทำงาน: ask / auto / yolo / plan), the
+The thin top row carries the connection state and context budget; the project selector lives in the
+sidebar (`select#project` under the brand). The controls that govern the next message live where the
+message is written — the composer's chip row holds the **mode** (โหมดการทำงาน: ask / auto / yolo / plan), the
 provider, the model and the effort level, in that order. Temperature is not
 there on purpose: it is a rarely-touched model parameter, and it lives in the
 settings sheet (คุยกับโมเดล → temperature). One surface per control — the sheet
@@ -122,7 +130,7 @@ Typing `/` in the composer opens the palette: arrows move, `Enter`/`Tab` picks,
 | `/models` | list the models that can hold a conversation, with the current one marked |
 | `/mode` `/mode ask\|auto\|yolo\|plan` | the work mode, with what each one means |
 | `/status` | bridge, extensions, model, credits, pending count |
-| `/paint` | the paint cache's hit/miss counters — how often a frame re-rendered instead of appending |
+| `/paint` | *(internal debug)* the paint cache's hit/miss counters — how often a frame re-rendered instead of appending |
 | `/conversations` | switch which bridge conversation the model is remembering |
 | `/fresh` | start a fresh conversation on the bridge (its memory is reset) |
 | `/compact` | rotate now: summarise what has been done and seed a fresh conversation with it |
@@ -309,7 +317,7 @@ stopped. (The wiring is under "Reloads and reconnects" in the API section.)
 ## Checking it still works
 
 ```bash
-npm test          # the suite: 200+ tests, no browser needed
+npm test          # the suite, no browser needed (count grows with tests — `npm test` is the number)
 npm run qa        # one QA pass: static wiring, suite, window logic, live backend
 ```
 
@@ -366,24 +374,16 @@ fake), plus a same-origin `Sec-Fetch-Site` / `Origin` when the request comes
 from a browser. Plain tools send neither and pass untouched.
 `AIPASS_ALLOW_REMOTE=1` opts out for someone deliberately proxying the port.
 
-Methods: `status`, `models`, `credits`, `conversations`, `config.set`,
-`conversations.list`, `conversation.new`, `conversation.pin`,
-`session.list|new|open|entries|fork|rename|delete|archive`, `session.export`,
-`session.tree`, `run`, `cancel`,
-`permission.answer`, `plan.answer`, `pending`, `diff`, `apply`, `discard`,
-`compact`, `skills.list|index|load`, `fs.list`, `fs.read`,
-`symbols.list|def|refs`,
-`attachment.stage|list|remove`,
-`checkpoints.list|restore|remove`,
-`git.status|stage|commit|branch`,
-`media.models|options|styles|generate`,
-`schedule.list|add|remove|runDue`,
-`plugins.list|reload|inspect|install|remove|enable|disable`,
-`mcp.list|reload|add|remove|enable|disable|test`, `panel.render`,
-`projects.list|add|remove|switch`, `providers.list`, `provider.set|save|remove|test`,
-`memory.list|clear`, `goal.get|set|pause|resume|done|block|clear`,
-`settings.get|set|reset`, `rules.get|set`,
-`browser.open`, `waf.table`, `snapshot`.
+Methods: the single source of truth is `../aipass-bridge/harness/rpc/contract.mjs`
+(`METHODS` — the contract test fails the build if a factory defines a method the contract
+does not name, and vice versa). Read the contract, not a hand-copied list here — a copied
+list drifts. The main domains are: `status|models|credits`, `conversations*`,
+`conversation.*`, `session.*`, `run|cancel`, `permission.answer`, `plan.answer`,
+`pending|diff|apply|discard`, `compact`, `skills.*`, `fs.*`, `symbols.*`,
+`attachment.*`, `checkpoints.*`, `git.*`, `media.*`, `schedule.*`, `plugins.*`,
+`mcp.*`, `panel.render`, `projects.*`, `providers.*`, `provider.*`, `memory.*`,
+`goal.*`, `settings.*`, `rules.*`, `browser.open`, `waf.table`, `snapshot`.
+Every method the window calls exists on the backend (`npm run qa` checks this).
 
 **The window says which project it is on.** Every call carries an
 `x-aipass-project` header, and the backend answers for *that* project — its
@@ -541,9 +541,8 @@ The Node-side suite now takes a macOS lane in `.github/workflows/test.yml`, so
 a darwin branch bug shows up on push; the packaged window and tray are still
 the hand-run part.
 
-Toolchain on this machine: Rust 1.99 (`D:\rust`), MSVC Build Tools (`D:\VS`),
-cargo target `D:\aipass-build`. The Node sidecar is a copy of the local
-`node` binary in `desktop/sidecar/` — refresh it with
+Toolchain: Rust 1.99 + MSVC Build Tools on Windows (or the equivalent on macOS/Linux). The Node
+sidecar is a copy of the local `node` binary in `desktop/sidecar/` — refresh it with
 `npm run desktop:sidecar` after a Node upgrade; it is gitignored on purpose.
 
 ```powershell
@@ -631,9 +630,9 @@ reads the same file — so there is no sync step and no second source of truth.
 
 ## Projects
 
-The project selector in the header switches the root the agent works on. Each
+The project selector in the sidebar (under the brand, `select#project`) switches the root the agent works on. Each
 project has its own file panel, its own sessions (sessions are stored per
-directory) and its own `.aipass/skills` playbooks. `+ folder` opens another one.
+directory) and its own `.aipass/skills` playbooks. `+` opens another one.
 
 `projects.switch` re-points everything in one call; the current root is
 remembered in settings.json, so the packaged app opens where the last session
@@ -759,31 +758,17 @@ removed. `[ทดสอบ]` in the add form runs the command once and lists the
 offers before saving. A server that fails to connect stays listed with its
 error and never blocks a run.
 
+## Quick fixes
 
-1. ~~Tauri shell~~ **done** — `desktop/src-tauri` wraps the same `ui/` folder
-   in a WebView2 window with a tray icon. The Rust side owns three things and
-   nothing else: the window, the tray, and the Node sidecar that runs the
-   backend. Toolchain on this machine: Rust 1.99 (`D:\rust`), MSVC Build Tools
-   (`D:\VS`), cargo target on `D:\aipass-build`. Build with:
-   ```powershell
-   cd desktop/src-tauri
-   tauri build            # release; --debug for the fast loop
-   ```
-   The installer lands at `D:\aipass-build\target\{debug,release}\bundle\nsis\`.
-2. Session tree view (`/tree`) and export to markdown/HTML. Renaming from the
-   window is shipped (`/resume` → rename, and `session.rename` on the RPC).
-   **Shipped** — `session.export` (markdown, or one self-contained HTML page
-   with everything escaped) and `session.tree` (the sessions of the project
-   grouped by the day they belong to) are on the RPC and in the suite
-   (`test/export.test.mjs`), and the window has both: `/tree` opens the
-   sessions by day, and `/export` writes the open session as markdown or
-   HTML — the dialog asks for the format and the path, and a relative path
-   lands in the project.
-3. ~~Permission path rules from the window instead of code~~ **done** — the
-   rules page in the settings sheet, `rules.get|set` on the RPC, and the same
-   list honoured by `aipass agent` from the same settings file.
-4. ~~Multiple roots / a project picker~~ **done** — the picker in the header,
-   `projects.list|add|remove|switch` on the RPC, and the current root in
-   `settings.json` so the app opens where the last session left off. Two
-   windows can be on two projects at once now, too: the window names its
-   project on every call (see *API* above).
+| symptom | try this |
+|---|---|
+| No `de.aipass.net` tab / extension ×0 | Open Chrome, sign in, leave a `de.aipass.net/chat` tab open |
+| 401 / token mismatch | Restart `aipass` (backend and bridge must read the same `~/.aipass/.token`) |
+| `port 8790 is busy` | Stop the stale backend (`aipass stop`) or pick another port with `AIPASS_DESKTOP_PORT` |
+| Credits 0 / quota | Wait for the next cycle or switch to a free-credit model (`gemini-3.1-flash-lite`) |
+| Full playbook | [`../docs/TROUBLESHOOTING.md`](../docs/TROUBLESHOOTING.md) · `aipass doctor` |
+
+Shipped since then (history, not a todo list): Tauri shell in `desktop/src-tauri`
+(window + tray + Node sidecar), `/tree` + `/export` (`session.tree` / `session.export`),
+permission path rules in the settings sheet (`rules.get|set`), and multi-project picker
+with `x-aipass-project` scoping (two windows on two projects at once).
