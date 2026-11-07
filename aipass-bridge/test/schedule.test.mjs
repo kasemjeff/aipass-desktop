@@ -34,8 +34,9 @@ const NOW = new Date(2026, 9, 21, 12, 0, 0).getTime();
 /**
  * A spawn that starts nothing.
  *
- * The scheduled work is the CLI, and the CLI would start a bridge — so the
- * test hands in its own spawn and watches what it was asked to do.
+ * The scheduled work is the one-shot runner, and the runner would talk to a
+ * bridge — so the test hands in its own spawn and watches what it was asked
+ * to do.
  */
 function fakeSpawner() {
   const calls = [];
@@ -102,21 +103,21 @@ test('a due schedule entry is due once and then spent', async () => {
   assert.ok(due.every((e) => e.at === '09:00'), 'the one whose time has not come is not');
 
   const { calls, spawnFn } = fakeSpawner();
-  const ran = await store.runDue({ now: NOW, spawnFn, cli: path.join(dir, 'aipass.mjs') });
+  const ran = await store.runDue({ now: NOW, spawnFn, runner: path.join(dir, 'agent.mjs') });
 
   assert.equal(ran.count, 2, 'both ran');
   assert.equal(calls.length, 2, 'and both started a job');
   for (const call of calls) {
-    // The CLI is the front the house uses: `aipass agent "<task>" --root <root>`.
-    assert.equal(call.args[0], path.join(dir, 'aipass.mjs'), 'the job runs the CLI');
-    assert.equal(call.args[1], 'agent', 'the CLI\'s agent command');
-    assert.equal(call.args[3], '--root', 'and the project is named');
-    assert.equal(call.args[4], root, 'the project the entry names');
+    // The runner is the front the house uses: `agent.mjs "<task>" --root <root> --bridge <url>`.
+    assert.equal(call.args[0], path.join(dir, 'agent.mjs'), 'the job runs the runner');
+    assert.equal(call.args[2], '--root', 'and the project is named');
+    assert.equal(call.args[3], root, 'the project the entry names');
+    assert.equal(call.args[4], '--bridge', 'and the bridge is named for the runner');
     assert.equal(call.opts.detached, true, 'the job is detached: it outlives the caller');
     assert.equal(call.opts.windowsHide, true, 'and it shows no console window');
     assert.equal(call.opts.stdio, 'ignore', 'and it holds no pipe open');
   }
-  assert.deepEqual(calls.map((c) => c.args[2]).sort(), ['summarise the week', 'write the report'], 'each job carries its own task');
+  assert.deepEqual(calls.map((c) => c.args[1]).sort(), ['summarise the week', 'write the report'], 'each job carries its own task');
 
   // Due once: the day it ran, it does not run again.
   assert.equal((await store.due(NOW)).length, 0, 'nothing is due after the run');
@@ -153,7 +154,7 @@ test('a disabled schedule entry never runs', async () => {
   assert.equal((await store.due(NOW)).length, 0, 'neither is due');
 
   const { calls, spawnFn } = fakeSpawner();
-  const ran = await store.runDue({ now: NOW, spawnFn, cli: path.join(dir, 'aipass.mjs') });
+  const ran = await store.runDue({ now: NOW, spawnFn, runner: path.join(dir, 'agent.mjs') });
 
   assert.equal(ran.count, 0, 'nothing ran');
   assert.equal(calls.length, 0, 'and no job was started');

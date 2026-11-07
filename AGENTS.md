@@ -16,9 +16,10 @@
 
 - **`desktop/` + `aipass-bridge/harness/`** — the product, and this repository's own
   work: the window (a zero-build plain-JS chat UI in a Tauri shell) and the agent core.
-- **`aipass-bridge/` (bridge, extension, CLI)** — upstream (niawjunior/aipass-bridge),
+- **`aipass-bridge/` (bridge + extension)** — upstream (niawjunior/aipass-bridge),
   continued under niawjunior's copyright (`LICENSE`): the zero-dependency bridge
-  and the Chrome MV3 extension that reach `de.aipass.net`; `bin/aipass.mjs` is the CLI.
+  and the Chrome MV3 extension that reach `de.aipass.net`. There is no `aipass`
+  terminal command anymore; `agent.mjs` is the one-shot runner the scheduler spawns.
 - Not to be confused with `aipass.alkinum.io` — a different product. Runtime
   truth lives in `~/.aipass` (sessions, logs, `bridge.pid`, `.token`).
 - Runtime code imports `node:*` builtins only; `npm install` fetches just the
@@ -35,7 +36,6 @@
 | `npm run qa` | heavier pass: static wiring + suite + window logic + live backend. |
 | `npm run coverage:gate` | the floor under the window's and the backend's coverage: a file that stops being watched fails. |
 | `npm run desktop` / `npm run dev` | bridge + harness backend + the window in a browser; `dev` is the bridge on `:8787` alone (leave running). |
-| `npm run chat` / `agent -- "task" --root .` / `models` / `conversations` | terminal clients. `agent` is a dry run; add `--apply` to write, `--allow-run` for RUN. |
 
 Upstream work needs the unpacked extension (`aipass-bridge/extension/`) loaded in
 Chrome **and** an open `de.aipass.net/chat` tab (`/status` shows `extensions: 0`).

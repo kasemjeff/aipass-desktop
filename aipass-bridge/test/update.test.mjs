@@ -134,13 +134,6 @@ function contentFiles() {
     }
   };
   walk(path.join(REPO, 'aipass-bridge', 'harness'), '');
-  // The CLI, which the shim names — it is part of the content too.
-  const binDir = path.join(REPO, 'aipass-bridge', 'bin');
-  for (const entry of fs.readdirSync(binDir, { withFileTypes: true })) {
-    if (entry.isFile() && entry.name.endsWith('.mjs')) {
-      add(`aipass-bridge/bin/${entry.name}`, fs.readFileSync(path.join(binDir, entry.name), 'utf8'));
-    }
-  }
   add('package.json', fs.readFileSync(path.join(REPO, 'package.json'), 'utf8'));
   add('aipass-bridge/bridge/server.mjs', '// the marker the root resolver looks for.\n');
   add('ui/index.html', '<!doctype html><title>aipass</title>\n');
@@ -373,18 +366,17 @@ test('the content rollback puts the previous content back', async () => {
   assert.equal(activeRoot(home), firstPromoted.root, 'and the root resolves to it');
 });
 
-test('the window and the CLI run the same content', async () => {
+test('the window runs the content the stable link names', async () => {
   const home = scratch();
   const pack = writePack(home, '0.3.0');
   const promoted = await promote(pack.file, { home });
   assert.equal(promoted.ok, true);
-  // The CLI shim names the stable link, not a versioned directory, so it
-  // follows the content and does not go stale at the next update. The link
-  // resolves through the filesystem, so macOS's /var is /private/var here;
-  // compare the resolved roots, not the spelling the temp directory used.
+  // The window's backend names the live tree through the stable link, not a
+  // versioned directory, so a content update never leaves it running
+  // yesterday's code. The link resolves through the filesystem, so macOS's
+  // /var is /private/var here; compare the resolved roots, not the spelling
+  // the temp directory used.
   assert.equal(currentRoot(home), fs.realpathSync(promoted.root), 'the link points at the live content');
-  const link = path.join(home, 'app', 'current', 'aipass-bridge', 'bin', 'aipass.mjs');
-  assert.ok(fs.existsSync(link), 'and the CLI is reachable through it');
 });
 
 test('the shell resolves the same root as the Node side', async () => {
@@ -477,7 +469,7 @@ test('the content pack holds what the bundler ships', async () => {
   // something the bundle did not would be a pack nobody could test.
   const { collectFiles } = await import('../../scripts/build-content-pack.mjs');
   const paths = collectFiles(REPO).map((file) => file.path);
-  for (const expected of ['ui/index.html', 'aipass-bridge/harness/rpc.mjs', 'aipass-bridge/bin/aipass.mjs', 'main.mjs']) {
+  for (const expected of ['ui/index.html', 'aipass-bridge/harness/rpc.mjs', 'aipass-bridge/agent.mjs', 'main.mjs']) {
     assert.ok(paths.includes(expected), `${expected} is in the pack`);
   }
   // The version file is not in the bundle's resource list, and the content

@@ -3,11 +3,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { startBridge, FakeExtension, run, waitFor } from './harness.mjs';
+import { startBridge, FakeExtension } from './harness.mjs';
 import { ASSISTANT_CHARACTER } from '../assistant-prompt.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const SETUP = path.join(here, '..', 'setup-assistant.mjs');
 
 let bridge;
 before(async () => { bridge = await startBridge(); });
@@ -87,30 +86,6 @@ test('a valid spec reaches the extension with the fields the form posts', async 
   assert.deepEqual(job.tags, ['coding']);
 });
 
-test('setup-assistant reports an existing one instead of making a second', async (t) => {
-  const ext = await new FakeExtension(bridge.base, {
-    assistants: [{ id: 'asst_existing', name: 'Local File Coder', model: 'claude-sonnet-5@default' }],
-  }).connect();
-  t.after(() => ext.disconnect());
-
-  const { out, code } = await run(SETUP, ['--bridge', bridge.base]);
-  assert.equal(code, 0);
-  assert.match(out, /already there/);
-  assert.match(out, /asst_existing/);
-  assert.equal(ext.assistants.length, 0, 'nothing was created');
-});
-
-test('setup-assistant creates one and prints how to use it', async (t) => {
-  const ext = await new FakeExtension(bridge.base).connect();
-  t.after(() => ext.disconnect());
-
-  const { out, code } = await run(SETUP, ['--bridge', bridge.base]);
-  assert.equal(code, 0);
-  assert.match(out, /created  asst_fake_1/);
-  assert.match(out, /AIPASS_ASSISTANT_ID=asst_fake_1/);
-  assert.equal(ext.assistants.at(-1).character, ASSISTANT_CHARACTER);
-});
-
 test('starting a bound chat adopts the conversation it creates', async (t) => {
   const ext = await new FakeExtension(bridge.base).connect();
   t.after(() => ext.disconnect());
@@ -124,26 +99,4 @@ test('starting a bound chat adopts the conversation it creates', async (t) => {
   const status = await (await fetch(`${bridge.base}/status`)).json();
   assert.equal(status.conversation, 'bound1234bound12');
   assert.equal(status.temporary, false, 'a bound conversation is not a throwaway');
-});
-
-test('an assistant can be deleted from the CLI that made it', async (t) => {
-  const ext = await new FakeExtension(bridge.base).connect();
-  t.after(() => ext.disconnect());
-
-  const { out, code } = await run(SETUP, ['--delete', 'asst_oops', '--bridge', bridge.base]);
-  assert.equal(code, 0);
-  assert.match(out, /deleted  asst_oops/);
-  assert.equal(ext.assistants.at(-1).op, 'delete');
-});
-
-test('--start-chat binds without creating a second assistant', async (t) => {
-  const ext = await new FakeExtension(bridge.base, {
-    assistants: [{ id: 'asst_existing', name: 'Local File Coder', model: 'claude-sonnet-5@default' }],
-  }).connect();
-  t.after(() => ext.disconnect());
-
-  const { out } = await run(SETUP, ['--start-chat', '--bridge', bridge.base]);
-  assert.match(out, /already there/);
-  assert.match(out, /bound conversation  bound1234bound12/);
-  assert.deepEqual(ext.assistants.map((j) => j.op), ['start-chat'], 'nothing was created');
 });

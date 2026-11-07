@@ -62,15 +62,15 @@ export const SCHEDULE_TICK_MS = 60_000;
 const HARNESS_DIR = path.dirname(fileURLToPath(import.meta.url));
 
 /**
- * The CLI the scheduled work runs through.
+ * The one-shot runner the scheduled work goes through.
  *
- * The sibling `bin/aipass.mjs` is the same file the terminal runs and the
- * one the packaged app ships (tauri.conf.json resources), so there is one
- * front and not two.
+ * `agent.mjs` is the same run the desktop window drives over RPC, spawned
+ * here headlessly: a due job and a window run share the loop, the tools and
+ * the session log. It ships in the bundle (tauri.conf.json resources).
  *
  * @returns {string}
  */
-export const cliPath = () => path.resolve(HARNESS_DIR, '..', 'bin', 'aipass.mjs');
+export const runnerPath = () => path.resolve(HARNESS_DIR, '..', 'agent.mjs');
 
 /**
  * The minutes since midnight, in the machine's own time.
@@ -426,7 +426,7 @@ export class ScheduleStore {
   /**
    * Run the work that is due, and start it DETACHED.
    *
-   * The child is the CLI, so a scheduled run is a run like any other: the
+   * The child is the runner, so a scheduled run is a run like any other: the
    * same harness, the same permissions, the same session log. It is started
    * detached and unreferenced, so it outlives this process on purpose — and
    * the desktop backend can still exit while the scheduled work is going.
@@ -438,11 +438,11 @@ export class ScheduleStore {
    * @param {object} [opts]
    * @param {number|Date} [opts.now] the moment to judge the entries by
    * @param {Function} [opts.spawnFn] the spawn to use (a test's fake)
-   * @param {string} [opts.cli] the CLI to run
+   * @param {string} [opts.runner] the one-shot runner to spawn
    * @param {NodeJS.ProcessEnv} [opts.env]
    * @returns {Promise<{ran: Array<Record<string, any>>, count: number, at: number, locked?: boolean}>}
    */
-  async runDue({ now = Date.now(), spawnFn = spawn, cli = cliPath(), env = process.env } = {}) {
+  async runDue({ now = Date.now(), spawnFn = spawn, runner = runnerPath(), env = process.env } = {}) {
     const at = now instanceof Date ? now.getTime() : Number(now);
     // One reader at a time. The lock covers the read/spawn/write, not the
     // scheduled work: the child is detached. A caller that finds it held
@@ -454,7 +454,7 @@ export class ScheduleStore {
       const due = entries.filter((e) => isDue(e, at));
       const ran = [];
       for (const entry of due) {
-        const pid = startDetached(entry, { spawnFn, cli, env });
+        const pid = startDetached(entry, { spawnFn, runner, env });
         ran.push({ id: entry.id, task: entry.task, root: entry.root, pid });
       }
       if (due.length) {
@@ -476,10 +476,10 @@ export class ScheduleStore {
  * with a quote or an ampersand in it is the task the person wrote.
  *
  * @param {Record<string, any>} entry
- * @param {{spawnFn: Function, cli: string, env: NodeJS.ProcessEnv}} opts
+ * @param {{spawnFn: Function, runner: string, env: NodeJS.ProcessEnv}} opts
  * @returns {number|null} the child's pid
  */
-const startDetached = (entry, { spawnFn, cli, env }) => {
+const startDetached = (entry, { spawnFn, runner, env }) => {
   // A project that no longer exists has no job to run: spawning with a
   // missing cwd fails with ENOENT, and an unhandled 'error' event on the
   // ChildProcess is an uncaught exception — one stale entry killed the
@@ -487,9 +487,12 @@ const startDetached = (entry, { spawnFn, cli, env }) => {
   try {
     if (!fs.existsSync(entry.root)) return null;
   } catch { return null; }
+  // The runner resolves its bridge the way the old terminal front did: from
+  // the environment the backend already runs with, never a hardcoded 8787.
+  const bridge = `http://${env.AIPASS_HOST || '127.0.0.1'}:${env.AIPASS_PORT || '8787'}`;
   let child = null;
   try {
-    child = spawnFn(process.execPath, [cli, 'agent', entry.task, '--root', entry.root], {
+    child = spawnFn(process.execPath, [runner, entry.task, '--root', entry.root, '--bridge', bridge], {
       cwd: entry.root,
       env: { ...env },
       detached: true,

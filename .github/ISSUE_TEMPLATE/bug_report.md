@@ -6,10 +6,11 @@ labels: ''
 assignees: ''
 ---
 
-## What `npm run doctor` says
+## What the bridge's `/status` says
 
-<!-- Run it and paste the whole output. It checks every link in the chain and is
-     usually enough to identify the problem on its own. -->
+<!-- With the bridge up: curl -s http://127.0.0.1:8787/status — paste the whole
+     output. It reports the chain's health and is usually enough to identify
+     the problem on its own. -->
 
 ```
 ```

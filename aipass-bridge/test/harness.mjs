@@ -37,14 +37,14 @@ if (!process.env.AIPASS_HOME?.trim()) {
 if (!process.env.AIPASS_REQUIRE_AUTH?.trim()) {
   process.env.AIPASS_REQUIRE_AUTH = '0';
 }
-// The suite must not touch the developer's real bridge port. A CLI the suite
-// runs auto-starts a bridge (bin/aipass.mjs) and that bridge binds AIPASS_PORT
+// The suite must not touch the developer's real bridge port. A runner the
+// suite spawns (the one-shot agent, an acp server) binds AIPASS_PORT
 // — the real 8787 — with the no-token escape hatch this file turns on. It is
 // spawned DETACHED, so it outlives the suite, and its pid lands in the scratch
-// home below, where `aipass stop` (which reads the real one) can never reach
-// it. The result was an unauthenticated bridge squatting the developer's
-// port long after the run: any web page could blind-POST to it and spend the
-// account's credits. A scratch port of the suite's own takes that away.
+// home below. The result was an unauthenticated bridge squatting the
+// developer's port long after the run: any web page could blind-POST to it and
+// spend the account's credits. A scratch port of the suite's own takes that
+// away.
 // The residual race is the one freePort() already documents: the port is
 // handed over rather than held. Losing it costs a CLI test, never the
 // developer's bridge.

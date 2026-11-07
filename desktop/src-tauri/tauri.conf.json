@@ -30,20 +30,10 @@
   },
   "bundle": {
     "active": true,
-    "targets": [
-      "nsis"
-    ],
-    "icon": [
-      "icons/32x32.png",
-      "icons/128x128.png",
-      "icons/128x128@2x.png",
-      "icons/icon.ico"
-    ],
-    "externalBin": [
-      "../sidecar/node"
-    ],
+    "targets": ["nsis"],
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.ico"],
+    "externalBin": ["../sidecar/node"],
     "resources": {
-      "../../aipass-bridge/bin": "aipass-bridge/bin/",
       "../../aipass-bridge/bridge": "aipass-bridge/bridge/",
       "../../aipass-bridge/deploy": "aipass-bridge/deploy/",
       "../../aipass-bridge/extension": "aipass-bridge/extension/",
@@ -54,32 +44,23 @@
       "../../aipass-bridge/agent.mjs": "aipass-bridge/agent.mjs",
       "../../aipass-bridge/argv.mjs": "aipass-bridge/argv.mjs",
       "../../aipass-bridge/assistant-prompt.mjs": "aipass-bridge/assistant-prompt.mjs",
-      "../../aipass-bridge/chat.mjs": "aipass-bridge/chat.mjs",
       "../../aipass-bridge/difflib.mjs": "aipass-bridge/difflib.mjs",
-      "../../aipass-bridge/doctor.mjs": "aipass-bridge/doctor.mjs",
       "../../aipass-bridge/goal.mjs": "aipass-bridge/goal.mjs",
       "../../aipass-bridge/handoff.html": "aipass-bridge/handoff.html",
-      "../../aipass-bridge/install.ps1": "aipass-bridge/install.ps1",
-      "../../aipass-bridge/install.sh": "aipass-bridge/install.sh",
       "../../aipass-bridge/jsconfig.json": "aipass-bridge/jsconfig.json",
-      "../../aipass-bridge/list.mjs": "aipass-bridge/list.mjs",
       "../../aipass-bridge/mcp.mjs": "aipass-bridge/mcp.mjs",
       "../../aipass-bridge/memory.mjs": "aipass-bridge/memory.mjs",
       "../../aipass-bridge/plugin.mjs": "aipass-bridge/plugin.mjs",
       "../../aipass-bridge/providers.mjs": "aipass-bridge/providers.mjs",
       "../../aipass-bridge/relocate.mjs": "aipass-bridge/relocate.mjs",
       "../../aipass-bridge/scale.mjs": "aipass-bridge/scale.mjs",
-      "../../aipass-bridge/sessions.mjs": "aipass-bridge/sessions.mjs",
-      "../../aipass-bridge/setup-assistant.mjs": "aipass-bridge/setup-assistant.mjs",
       "../../aipass-bridge/setup.mjs": "aipass-bridge/setup.mjs",
-      "../../aipass-bridge/stats.mjs": "aipass-bridge/stats.mjs",
+      "../../aipass-bridge/sessions.mjs": "aipass-bridge/sessions.mjs",
       "../main.mjs": "main.mjs",
       "../ui": "ui/"
     },
     "windows": {
-      "webviewInstallMode": {
-        "type": "offlineInstaller"
-      }
+      "webviewInstallMode": { "type": "offlineInstaller" }
     },
     "publisher": "aipass",
     "copyright": "Copyright (c) 2026 niawjunior",

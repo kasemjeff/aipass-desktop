@@ -1,10 +1,11 @@
 #!/usr/bin/env node
-// Local file tools driven by aipass.
+// The one-shot file agent run — the engine a scheduled job spawns headlessly
+// and a person in a terminal drives by hand.
 //
 // The protocol, the tools, the retry path and the run loop all live in
-// ./harness/ now — this file is the terminal: it parses flags, prints what the
-// harness emits, and owns the one question that has always belonged to a
-// person at a prompt ("apply these changes?").
+// ./harness/ now — this file is the front of one run: it parses flags, prints
+// what the harness emits, and owns the one question that has always belonged
+// to a person at a prompt ("apply these changes?").
 //
 // Two constraints shape all of it, both learned the hard way upstream:
 //
@@ -159,7 +160,7 @@ const HELP = has('help') || argv.includes('-h');
 if (!task || HELP) {
   // Asking for help is not an error, so it leaves with 0; a missing task is.
   const out = HELP ? console.log : console.error;
-  out(`usage: npm run agent -- "<task>" [options]
+  out(`usage: node aipass-bridge/agent.mjs "<task>" [options]
 
   --root DIR      project root the agent may touch   (default: cwd)
   --skills DIR    playbook library for SKILL         (default: one level above the repo)
@@ -387,7 +388,7 @@ const providerClient = providerSpec && providerSpec.kind !== 'aipass'
     })
   : null;
 if (providerId !== AIPASS_PROVIDER && !providerSpec) {
-  console.log(dim(`no provider "${providerId}" — this run uses the bridge instead (aipass providers list)`));
+  console.log(dim(`no provider "${providerId}" — this run uses the bridge instead (node aipass-bridge/providers.mjs list)`));
 }
 
 // The CLI keeps the original end-of-run gate: writes collect in the overlay and

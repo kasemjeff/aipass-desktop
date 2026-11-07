@@ -1251,7 +1251,7 @@ export async function runTask(taskText, ctx = {}) {
   const changes = overlay.changes();
   for (const c of changes) session?.append('diff', { file: c.file, added: c.added, removed: c.removed, deleted: c.deleted, decision: 'pending' });
 
-  // One line per run that `npm run stats` aggregates — refusals, nudges,
+  // One line per run — refusals, nudges,
   // stagnation corrections, verification nudges and firewall notes are how
   // protocol drift shows up before it is guessed at.
   const runStats = {
