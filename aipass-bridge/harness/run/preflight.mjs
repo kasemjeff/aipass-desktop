@@ -6,12 +6,16 @@
 // check lives here so both `Harness.run` (which runs it before compaction and
 // MCP load) and `runTask` (which runs it for direct callers: CLI, agent, tests)
 // share one implementation — and so the ordering can be fixed in one spot.
+/**
+ * @param {{ model?: unknown, providerId?: unknown, models?: () => Promise<any> }} bridge
+ * @param {unknown} model
+ */
 export async function checkModel(bridge, model) {
   const chosenModel = String(model ?? bridge?.model ?? '').trim();
   if (!chosenModel || chosenModel === 'auto') return { gone: false, chosenModel, summary: null };
   if (typeof bridge?.models !== 'function') return { gone: false, chosenModel, summary: null };
-  const catalog = await bridge.models().catch(() => null);
-  const ids = Array.isArray(catalog?.data) ? catalog.data.map((m) => m?.id).filter(Boolean) : [];
+  const catalog = /** @type {any} */ (await bridge.models().catch(() => null));
+  const ids = Array.isArray(catalog?.data) ? catalog.data.map((/** @type {any} */ m) => m?.id).filter(Boolean) : [];
   if (catalog?.source !== 'live' || !ids.length) return { gone: false, chosenModel, summary: null };
   const normalized = chosenModel.replace(/^aipass\//, '');
   if (ids.includes(normalized)) return { gone: false, chosenModel, summary: null };
