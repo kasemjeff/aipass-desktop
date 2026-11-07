@@ -20,19 +20,16 @@ An install touches three things, and keeping them apart is most of the design:
 | Surface | What it is | Where it lands | Who owns it |
 |---|---|---|---|
 | **The window** | the Tauri app — chat, file agent, tray | the platform bundle (`%LOCALAPPDATA%\Programs\…`, `/Applications/…`, `/usr/bin/…`) | the installer |
-| **The CLI** | `aipass` on `PATH` — the same bridge, in a terminal | a per-user shim, or a source checkout | the installer (today: `aipass-bridge/install.ps1` / `install.sh`) |
 | **The data** | settings, sessions, the loopback token, logs, plugins | `~/.aipass` | **the user** — never the installer |
 
 The rule that follows: **an installer writes to its own install directory and
-to nothing else.** `~/.aipass` is read and written by the app and the CLI,
-never by the installer, so an install, an upgrade, a rollback and an uninstall
-all leave the user's work exactly where it was.
+to nothing else.** `~/.aipass` is read and written by the app — the window and
+its backend — never by the installer, so an install, an upgrade, a rollback and
+an uninstall all leave the user's work exactly where it was.
 
-The window and the CLI are the *same* program in two shapes: both run the
-`.mjs` files under `aipass-bridge/`, both read the same settings file, and
-both talk to the same loopback backend. That is why the packaged app ships
-the whole `aipass-bridge/` tree as resources — the CLI is already in the
-bundle, one shim away.
+The bundle ships the whole `aipass-bridge/` tree as resources — the backend,
+the harness and the one-shot runner share one tree, so a content update moves
+them together.
 
 ---
 
@@ -56,10 +53,9 @@ somewhere:
    `aipass-desktop-<version>-<platform>-<arch>.<ext>`, with a
    `SHA256SUMS` file and a `manifest.json` beside it. The manifest says what
    was built (commit, dirty flag, timestamp) and whether it was signed.
-5. **The install is verified by one command.** `npm run doctor` — the same
-   check the source checkout runs, and the same one the installed CLI would
-   run (`aipass doctor`) — proves the chain end to end: Node, the bridge, the
-   extension, the model list.
+5. **The install is verified by one command.** `npm test` on the checkout —
+   and on an installed machine, the window's own status (`GET /status`) —
+   proves the chain end to end: Node, the bridge, the extension, the model list.
 6. **No shell self-update.** The app never replaces its own binary in the
    background. The *content* — the harness, the bridge and the window's own
    files — is replaced only when a person asks for it, only from a pack whose
@@ -81,10 +77,10 @@ source ──▶ build (scripts/build-desktop.mjs) ──▶ artifact + checksum
                                                 install (per platform)
                                                       │
                                                       ▼
-                                          window + CLI  ──  data in ~/.aipass
+                                          window        ──  data in ~/.aipass
                                                       │
                                                       ▼
-                                        verify (aipass doctor) ──▶ upgrade ──▶ rollback
+                                        verify (/status) ──▶ upgrade ──▶ rollback
 ```
 
 Each layer has one owner and one way in, so a failure names itself.
@@ -272,9 +268,6 @@ pipeline is the same script with a different table row.
    A merged binary carries no signature, so the script signs it when an
    `APPLE_SIGNING_IDENTITY` is configured, and the bundler signs it with the
    app's identity otherwise.
-3. **The CLI shim lands in a directory that may not be on PATH.** The tray
-   item writes it and the window says where it went; adding the directory to
-   PATH is the person's call.
 
 ---
 
@@ -287,26 +280,7 @@ needs a human who says yes.
 
 So the install is not the end of the story, and the app does not pretend
 otherwise — the window says what is missing and offers the fix it has (open
-the tab, load the extension) instead of failing quietly. `npm run doctor`
-answers the same question from a terminal.
-
----
-
-## The CLI from the installed app
-
-The bundle already carries the whole CLI (`aipass-bridge/bin/aipass.mjs`), so
-the window can put it on `PATH` — one click, one file:
-
-- **the tray menu → "ติดตั้ง CLI (aipass)"** writes a shim into a per-user
-  bin directory (`~/.local/bin/aipass` on unix,
-  `%LOCALAPPDATA%\aipass\bin\aipass.cmd` on Windows);
-- the shim runs **the app's own Node** against **the app's own CLI**, so a
-  machine without Node still gets a working `aipass`;
-- nothing is written until somebody clicks — installing is the consent
-  moment, and the window says where the shim went.
-
-The directory may not be on `PATH` yet; adding it is the person's call, and
-the window says which directory that is.
+the tab, load the extension) instead of failing quietly.
 
 ---
 

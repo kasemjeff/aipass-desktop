@@ -7,7 +7,7 @@ possible.
 ## Start here
 
 - **Install and setup** — [docs/INSTALL.md](./docs/INSTALL.md)
-- **Something is broken** — run `npm run doctor` (or `aipass doctor`) and read
+- **Something is broken** — check the bridge's `GET /status`, then read
   [docs/TROUBLESHOOTING.md](./docs/TROUBLESHOOTING.md)
 - **Configuration** — [docs/CONFIG.md](./docs/CONFIG.md)
 - **The window and the harness** — [README.md](./README.md) and

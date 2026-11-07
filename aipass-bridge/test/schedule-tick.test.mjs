@@ -38,8 +38,8 @@ test('a due task runs once with the window closed, and two backends do not both 
   // Two readers arrive together: the window's manual call and the ticker, or
   // two backends. One read/spawn/write wins the lock; the other says so.
   const [a, b] = await Promise.all([
-    store.runDue({ now: NOW, spawnFn, cli: 'aipass.mjs' }),
-    store.runDue({ now: NOW, spawnFn, cli: 'aipass.mjs' }),
+    store.runDue({ now: NOW, spawnFn, runner: 'agent.mjs' }),
+    store.runDue({ now: NOW, spawnFn, runner: 'agent.mjs' }),
   ]);
 
   assert.equal(calls.length, 1, 'one entry started one child');
@@ -49,7 +49,7 @@ test('a due task runs once with the window closed, and two backends do not both 
 
   const entries = await store.list();
   assert.ok(entries[0].lastRunAt, 'the entry is marked as run');
-  const again = await store.runDue({ now: NOW, spawnFn, cli: 'aipass.mjs' });
+  const again = await store.runDue({ now: NOW, spawnFn, runner: 'agent.mjs' });
   assert.equal(again.count, 0, 'a second call the same day is not due');
   assert.equal(calls.length, 1);
 });
@@ -62,7 +62,7 @@ test('a lock left by a dead backend does not block the next one', async () => {
   fs.writeFileSync(path.join(dir, SCHEDULE_LOCK_FILE), JSON.stringify({ pid: 2147483646, at: Date.now() - 10 * 60_000 }));
 
   const calls = [];
-  const out = await store.runDue({ now: NOW, spawnFn: fakeSpawn(calls), cli: 'aipass.mjs' });
+  const out = await store.runDue({ now: NOW, spawnFn: fakeSpawn(calls), runner: 'agent.mjs' });
   assert.equal(out.count, 1, 'the stale lock was taken over');
   assert.equal(calls.length, 1);
   assert.equal(fs.existsSync(path.join(dir, SCHEDULE_LOCK_FILE)), false);
@@ -76,7 +76,7 @@ test('the ticker runs a due entry on its own, and stop ends it', async () => {
   const ticker = startScheduleTicker({
     store,
     intervalMs: 25,
-    runDue: { now: NOW, spawnFn: fakeSpawn(calls), cli: 'aipass.mjs' },
+    runDue: { now: NOW, spawnFn: fakeSpawn(calls), runner: 'agent.mjs' },
   });
 
   await waitFor(() => calls.length === 1);

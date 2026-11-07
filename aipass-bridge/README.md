@@ -1,10 +1,11 @@
 # aipass bridge
 
-Use [de.aipass.net](https://de.aipass.net/chat) from your terminal, with
-streaming.
+The local bridge that puts [de.aipass.net](https://de.aipass.net/chat) behind
+an OpenAI-compatible API — the layer the desktop window and the agent harness
+speak to.
 
 ```
-terminal ──HTTP──▶ bridge (node, no deps)
+window / harness ──HTTP──▶ bridge (node, no deps)
                       │  SSE: jobs out, POST: deltas back
                       ▼
                    extension service worker
@@ -21,43 +22,27 @@ For the full structure and how every piece works, see [`DOCS.md`](./DOCS.md).
 
 ## Setup
 
-The fastest path on a fresh machine is one command:
+The fastest path on a fresh machine is one command, from the repo root:
 
 ```bash
-aipass setup            # or: npm run setup
+npm run setup
 ```
 
-It checks Node, puts `aipass` on your PATH, mints the loopback token (and copies
-it to your clipboard), starts the bridge, and opens the extension and site pages
-so you can finish the one-time browser steps. Re-run it any time — it is
-idempotent. The manual steps below are what it automates.
+It checks Node, mints the loopback token (and copies it to your clipboard),
+starts the bridge, and opens the extension and site pages so you can finish the
+one-time browser steps. Re-run it any time — it is idempotent. The manual steps
+below are what it automates.
 
 There is nothing to build and nothing to `npm install` to run it. Everything
 under `aipass-bridge/` is `node:*` builtins, so on **any machine with Node ≥ 20**
 the same three steps apply — copy the repo over and run them again.
 
-### 1. Get the `aipass` command on your PATH
-
-```bash
-sh aipass-bridge/install.sh                                    # macOS / Linux
-powershell -ExecutionPolicy Bypass -File aipass-bridge\install.ps1   # Windows
-```
-
-`install.sh` symlinks `aipass` into the first of `~/.local/bin` / `~/bin` that is
-already on your `PATH`; failing that it tries `npm link`; failing that it prints
-the manual options. `install.ps1` runs `npm link` (npm's global bin is on PATH by
-default on Windows). Both are idempotent — re-run any time, e.g. after moving the
-repo, which breaks the old link.
-
-Prefer not to install? Skip this step and use `node aipass-bridge/bin/aipass.mjs …`
-or the `npm run …` scripts from the repo directory.
-
-### 2. Load the extension (one time, per browser)
+### 1. Load the extension (one time, per browser)
 
 `chrome://extensions` → **Developer mode** → **Load unpacked** → select
 `aipass-bridge/extension`.
 
-### 3. Open a de.aipass.net tab
+### 2. Open a de.aipass.net tab
 
 Log in at `https://de.aipass.net/chat` and leave the tab open. The extension
 popup should read **connected**.
@@ -75,37 +60,14 @@ for everything except the health probes; `AIPASS_REQUIRE_AUTH=0` disables it.
 ### Check it
 
 ```bash
-aipass status     # node ≥ 20? bridge up? extension connected?
+curl -s http://127.0.0.1:8787/status    # is the bridge up? extension connected?
 ```
 
-Then:
+Then start the bridge in a terminal if it is not already up (Ctrl+C stops it):
 
 ```bash
-# Terminal 1: Run the bridge in foreground (with live logs)
-aipass dev        # or: npm run dev
-
-# Terminal 2: Start chatting
-aipass            # interactive TUI chat
-aipass "question" # one-shot answer from CLI
+npm run dev
 ```
-
-| command | |
-|---|---|
-| `aipass` / `aipass "question"` | chat (interactive / one-shot) |
-| `aipass dev` | run the bridge in the foreground (Ctrl+C to stop) |
-| `aipass desktop` | the desktop app: bridge (if needed) + agent window, one command |
-| `aipass agent "task"` | file agent against **the current directory** |
-| `aipass models` · `aipass conversations` | the list printers |
-| `aipass styles` | list video & image style presets |
-| `aipass credits` | check credit quota |
-| `aipass doctor` | node / bridge / extension / model diagnostics |
-| `aipass memory` | list/clear the facts carried across sessions for this project |
-| `aipass goal` | set/show the one durable goal this project is working toward |
-| `aipass relocate` | re-key a project's stored data after its folder moved |
-| `aipass setup-assistant` | configure custom coding assistant |
-| `aipass status` | node / bridge / extension check |
-
-Uninstall with `rm -f ~/.local/bin/aipass` (or `npm rm -g aipass` if you used `npm link`).
 
 Every machine talks to the **same de.aipass.net account** — chat history is
 shared, and only `gemini-3.1-flash-lite` is free-credit.
@@ -156,57 +118,17 @@ wire the bridge to create bound conversations automatically — also below.
 
 ## Use it
 
-```bash
-aipass                               # interactive   (or: npm run chat)
-aipass "ช่วยสรุปข่าว AI วันนี้"          # one-shot      (or: npm run chat -- "…")
-```
-
-The interactive client streams the reply, renders it as markdown, shows
-`web_search` progress as dim gutter lines with sources listed at the end, and
-frames the input in a prompt box. A braille spinner runs while you wait.
-
-Type `/` to open the command menu — **↑/↓** to choose, **Tab** to fill it in,
-**Enter** to run, **Esc** to dismiss:
-
-| command | |
-|---|---|
-| `/model` | pick a model — an **↑/↓** picker (`●` marks the one in use); or `/model <id>` |
-| `/models` | print the model list |
-| `/conversations` | switch conversation — an **↑/↓** picker; **Enter** switches, **Esc** cancels |
-| `/new` | the *next* message starts a fresh conversation, titled by that message |
-| `/tone` | set response tone (`concise`, `friendly`, `formal`, etc.) — **↑/↓** picker or `/tone <name>` |
-| `/format` | set response format (`bullet_points`, `table`, `json`, etc.) — **↑/↓** picker or `/format <name>` |
-| `/styles` | print active style settings and all available presets |
-| `/image-style` | pick image style preset (`Anime`, `Cinematic`, etc.) — **↑/↓** picker or `/image-style <name>` |
-| `/video-style` | pick video style preprompt — **↑/↓** picker or `/video-style <name>` |
-| `/credits` | check credit quota & usage meter card (or `/quota`) |
-| `/doctor` | run diagnostic health checks inline |
-| `/assistant` | select custom assistant — **↑/↓** picker, or `/assistant off` |
-| `/agent` | switch to agent mode — `/agent` or `/agent <task>` |
-| `/agent-root` | set directory the agent may touch |
-| `/file` | attach a document or text file — `/file <path> [prompt]` |
-| `/image` | attach local image file — `/image <path> [prompt]` |
-| `/clip` | paste image directly from clipboard — `/clip [prompt]` |
-| `/clear` | clear the screen |
-| `/help` | list the commands |
-
-`Ctrl+C` quits. Piped or non-tty output stays plain — no cursor tricks, no box.
+The window (`npm run desktop`) is the front: it drives the bridge and the
+harness — chat, sessions, the file agent, providers, styles — from one place.
+The bridge itself answers plain HTTP: `POST /v1/chat/completions` streams a
+reply, `GET /v1/models` lists the models, `GET /status` reports health. Piped or
+non-tty output stays plain — no cursor tricks, no box.
 
 | script | |
 |---|---|
 | `npm run dev` | start the bridge on :8787 |
-| `npm run chat` | terminal client |
-| `npm run desktop` | the desktop app on :8790 (see `desktop/README.md`) |
-| `npm run agent -- "task" --root .` | local file tools, in a fresh conversation |
-| `npm run agent -- "task" --root . --watch` | stay open for follow-up tasks on the same conversation |
-| `npm run models` | list models, marking free-credit ones |
-| `npm run styles` | list video & image style presets |
-| `npm run conversations` | list conversations and which is in use |
-| `npm run credits` | check credit pool remaining |
-| `npm run doctor` | run comprehensive diagnostic checks |
-| `npm run setup-assistant` | set up or bind custom coding assistant |
-| `npm test` | run the test suite |
 | `npm run desktop` | bridge + harness backend + the window, in a browser |
+| `npm test` | run the test suite |
 | `npm run qa` | one QA pass: static wiring, suite, window logic, live backend |
 
 The desktop app is the same bridge and the same agent with a window on top —
@@ -282,7 +204,7 @@ same way the web UI does.
 ## Local file tools
 
 ```bash
-npm run agent -- "add a health route that returns ok" --root .
+node aipass-bridge/agent.mjs "add a health route that returns ok" --root .
 ```
 
 Dry run by default: edits go to an in-memory overlay so the model can read back
@@ -394,7 +316,7 @@ mkdir -p ~/Desktop/agent-test
 **1. Read-only — proves the whole chain, writes nothing.**
 
 ```bash
-npm run agent -- "What does this project do and what's the tech stack?" --root .
+node aipass-bridge/agent.mjs "What does this project do and what's the tech stack?" --root .
 ```
 
 It reads the README and `package.json`, then answers. If this works, the
@@ -403,7 +325,7 @@ extension, bridge, and conversation flow are all healthy.
 **2. One self-contained file — the classic first build (dry run).**
 
 ```bash
-npm run agent -- "Create index.html: a self-contained todo app with inline CSS and JS. Add, complete, delete todos, persist to localStorage. Clean, modern look." --root ~/Desktop/agent-test
+node aipass-bridge/agent.mjs "Create index.html: a self-contained todo app with inline CSS and JS. Add, complete, delete todos, persist to localStorage. Clean, modern look." --root ~/Desktop/agent-test
 ```
 
 You see the whole file as a `+` diff; nothing is written. Add `--apply` to write
@@ -412,7 +334,7 @@ it, then `open ~/Desktop/agent-test/index.html`.
 **3. Edit an existing file — exercises `EDIT` / `FIND` / `NEW`.**
 
 ```bash
-npm run agent -- "In index.html, add a button that clears all completed todos at once." --root ~/Desktop/agent-test --apply
+node aipass-bridge/agent.mjs "In index.html, add a button that clears all completed todos at once." --root ~/Desktop/agent-test --apply
 ```
 
 It reads the file first, then makes a surgical edit — a real before/after diff,
@@ -421,13 +343,13 @@ not a rewrite.
 **4. A small multi-file project.**
 
 ```bash
-npm run agent -- "Create a tiny expense tracker: index.html, style.css, and app.js as separate files. Add expenses with amount and category, show a running total." --root ~/Desktop/agent-test --apply
+node aipass-bridge/agent.mjs "Create a tiny expense tracker: index.html, style.css, and app.js as separate files. Add expenses with amount and category, show a running total." --root ~/Desktop/agent-test --apply
 ```
 
 **5. Watch mode — iterate live, the real workflow.**
 
 ```bash
-npm run agent -- "Create a Pomodoro timer as a single index.html: 25-minute countdown, start/pause/reset." --root ~/Desktop/agent-test --apply --watch
+node aipass-bridge/agent.mjs "Create a Pomodoro timer as a single index.html: 25-minute countdown, start/pause/reset." --root ~/Desktop/agent-test --apply --watch
 ```
 
 Then keep typing follow-ups at the `task>` prompt — each builds on what it
@@ -443,7 +365,7 @@ task> make it dark by default
 has to *find* something first is where `SEARCH` earns its place:
 
 ```bash
-npm run agent -- "Find everywhere the bridge reads a process.env variable and list each one with what it configures." --root .
+node aipass-bridge/agent.mjs "Find everywhere the bridge reads a process.env variable and list each one with what it configures." --root .
 ```
 
 Watch it `SEARCH process.env`, get back `file:line` hits across the tree, read
@@ -464,20 +386,15 @@ which is why ids look the way they do.
 
 ```bash
 curl -s localhost:8787/conversations/new -H 'content-type: application/json' -d '{"message":"hello"}'
-npm run conversations     # list them, marking the one in use
 ```
 
-**`npm run agent` starts a fresh conversation for every run.** A conversation
+**The one-shot agent starts a fresh conversation for every run.** A conversation
 carries its own history, so reusing one drags in whatever was said before —
 including a refusal, which the model then sees itself having made and repeats.
 `--reuse` continues the most recent instead, `--conversation ID` continues a
-specific one.
-
-`npm run chat` continues the most recent by default, since that is what makes a
-chat a chat. `--new` (or `/new` mid-session) **defers**: the next message you
-send becomes the first message of a fresh conversation, so the account's chat
-list shows it titled by real text instead of a placeholder. `/conversations`
-switches between the ones you already have.
+specific one. The window shows the account's conversations and switches between
+them; `--new` (in a hand run) defers: the next message becomes the first
+message of a fresh conversation.
 
 Posting to an invented id returns `404 Conversation not found`, and a
 conversation that stops accepting messages (`404` when deleted, `409` when the
@@ -509,12 +426,12 @@ The bridge is for AiPASS. The **harness** — the agent, and the desktop window
 that drives it — can also talk to a provider that is a plain API:
 
 ```bash
-aipass providers                                        # list
-aipass providers add openai \
+node aipass-bridge/providers.mjs                                        # list
+node aipass-bridge/providers.mjs add openai \
     --base-url https://api.openai.com/v1 \
     --api-key-env OPENAI_API_KEY --model gpt-4o
-aipass providers use openai                             # a run now answers with it
-aipass providers test openai                            # ask it whether it answers
+node aipass-bridge/providers.mjs use openai                             # a run now answers with it
+node aipass-bridge/providers.mjs test openai                            # ask it whether it answers
 ```
 
 `--kind anthropic` speaks Anthropic's Messages API instead of the
@@ -523,7 +440,7 @@ keys live in `~/.aipass/credentials.json` (owner-only) — and a named
 environment variable wins over the stored key, so the key never has to be
 written down. `settings.json` holds no secret.
 
-One run on another provider: `npm run agent -- "…" --provider openai`.
+One run on another provider: `node aipass-bridge/agent.mjs "…" --provider openai`.
 
 ## Tests
 
@@ -533,7 +450,7 @@ npm test
 
 147 tests, no dependencies, a few seconds. `test/harness.mjs` runs the real
 bridge as a subprocess and a scriptable stand-in for the extension, so tests
-drive the actual HTTP surface and the real CLIs rather than mocks of them.
+drive the actual HTTP surface and the real runner rather than mocks of them.
 
 They cover the failures this thing actually hit: that only the newest user
 message is forwarded and never an assistant turn; conversation rotation past a
@@ -547,8 +464,8 @@ leaving the disk untouched.
 To add a case, script the model's replies with `scripted([...])` and, where a
 filter is being modelled, pass `reject` to refuse payloads matching a pattern.
 
-`chat.mjs` carries `// @ts-check` with JSDoc types. It still runs as plain
-`node` with no build and no runtime dependency; to type-check it,
+The harness files carry `// @ts-check` with JSDoc types. They still run as
+plain `node` with no build and no runtime dependency; to type-check them,
 `npm i -D typescript` once, then `npx tsc -p aipass-bridge/jsconfig.json`.
 
 ## Known limits
@@ -558,8 +475,7 @@ filter is being modelled, pass `reject` to refuse payloads matching a pattern.
   ~30s. If a tab predates the extension, or Chrome discarded it, the worker
   re-injects the scripts.
 - Every message appears in the account's chat history — this uses the real product.
-- Long sessions burn credits. Only `gemini-3.1-flash-lite` is free-credit;
-  `npm run models` marks it.
-- Windows works (bridge, `aipass`, chat, agent — the diff and `RUN` use no Unix
-  tools). Use a VT-capable terminal: Windows Terminal, or `cmd`/PowerShell on
-  Windows 10 1809+.
+- Long sessions burn credits. Only `gemini-3.1-flash-lite` is free-credit; the
+  window's model picker marks it.
+- Windows works (bridge, window, agent — the diff and `RUN` use no Unix
+  tools).

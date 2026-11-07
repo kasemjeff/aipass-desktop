@@ -7,14 +7,10 @@
   "repository": { "type": "git", "url": "https://github.com/kasemjeff/aipass-desktop.git" },
   "bugs": { "url": "https://github.com/kasemjeff/aipass-desktop/issues" },
   "description": "AiPASS in a desktop window — bridge, chat and a file agent with a pi-style harness.",
-  "bin": {
-    "aipass": "aipass-bridge/bin/aipass.mjs"
-  },
   "scripts": {
     "dev": "node aipass-bridge/bridge/server.mjs",
     "test": "node scripts/test.mjs",
     "agents:lint": "node scripts/agents-lint.mjs",
-    "node-floor:check": "node scripts/check-node-floor.mjs",
     "typecheck": "tsc -p aipass-bridge/jsconfig.json",
     "coverage": "node scripts/test.mjs --coverage",
     "coverage:gate": "node scripts/coverage-gate.mjs",
@@ -22,28 +18,19 @@
     "smoke:e2e": "node scripts/smoke-e2e.mjs",
     "qa": "node scripts/qa-loop.mjs",
     "qa:loop": "node scripts/qa-loop.mjs",
-    "check": "node scripts/agents-lint.mjs && node scripts/check-node-floor.mjs && node scripts/test.mjs && node scripts/qa-loop.mjs && node scripts/coverage-gate.mjs",
-    "chat": "node aipass-bridge/chat.mjs",
-    "agent": "node aipass-bridge/agent.mjs",
-    "models": "node aipass-bridge/list.mjs models",
-    "styles": "node aipass-bridge/list.mjs styles",
-    "conversations": "node aipass-bridge/list.mjs conversations",
-    "credits": "node aipass-bridge/list.mjs credits",
-    "doctor": "node aipass-bridge/doctor.mjs",
-    "stats": "node aipass-bridge/stats.mjs",
+    "check": "node scripts/agents-lint.mjs && node scripts/test.mjs && node scripts/qa-loop.mjs && node scripts/coverage-gate.mjs",
     "loadtest": "node scripts/loadtest.mjs",
+    "bench": "node scripts/bench.mjs",
     "bench:retrieval": "node scripts/retrieval-bench.mjs",
     "evals": "node scripts/evals.mjs",
     "evals:lint": "node scripts/evals-lint.mjs",
     "evals:compare": "node scripts/evals-compare.mjs",
     "experiments": "node scripts/experiments.mjs",
     "meta": "node scripts/meta-optimize.mjs",
-    "setup-assistant": "node aipass-bridge/setup-assistant.mjs",
     "setup": "node aipass-bridge/setup.mjs",
     "desktop": "node desktop/main.mjs",
     "desktop:backend": "node desktop/main.mjs --detach --root .",
     "desktop:build": "node scripts/build-desktop.mjs",
-    "desktop:gen-config": "node scripts/build-desktop.mjs --gen-config",
     "desktop:content-pack": "node scripts/build-content-pack.mjs",
     "desktop:feed": "node scripts/build-update-feed.mjs",
     "desktop:install-ladder": "node scripts/install-ladder.mjs",
@@ -55,10 +42,10 @@
     "tauri:build:linux": "tauri build --config desktop/src-tauri/tauri.conf.json --bundles deb,appimage"
   },
   "engines": {
-    "node": ">=24"
+    "node": ">=20"
   },
   "devDependencies": {
-    "@types/node": "^24.19.2",
+    "@types/node": "^26.6.5",
     "typescript": "^7.0.2"
   }
 }

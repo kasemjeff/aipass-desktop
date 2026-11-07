@@ -147,14 +147,13 @@ const HOME = mkdtempSync(path.join(os.tmpdir(), 'aipass-suite-home-'));
 const BROWSER_HOME = mkdtempSync(path.join(os.tmpdir(), 'aipass-suite-browser-'));
 const BROWSER_PROFILE = path.join(BROWSER_HOME, 'profile');
 const BROWSER_PIDS = path.join(BROWSER_HOME, 'pids.txt');
-// The suite must not use the developer's bridge port either. A CLI the suite
-// runs auto-starts a bridge (aipass-bridge/bin/aipass.mjs) and that bridge
-// binds AIPASS_PORT — the real 8787 — with the no-token escape hatch the
+// The suite must not use the developer's bridge port either. A runner the
+// suite spawns (the one-shot agent, an acp server) binds AIPASS_PORT — the
+// real 8787 — with the no-token escape hatch the
 // suite turns on, and it is spawned DETACHED, so it outlives the run. Its pid
-// landed in the suite's scratch home, where `aipass stop` (which reads the
-// developer's real one) could never reach it: an unauthenticated bridge
-// squatting the real port, which any web page could blind-POST to. The floor
-// here names a port of the suite's own, so a CLI that starts a bridge starts
+// landed in the suite's scratch home. An unauthenticated bridge
+// squatting the real port is one any web page could blind-POST to. The floor
+// here names a port of the suite's own, so a runner that starts a bridge starts
 // it somewhere harmless.
 const BRIDGE_PORT = process.env.AIPASS_PORT?.trim() || String(await freePort());
 // The environment the suite runs in, shared with the coverage gate

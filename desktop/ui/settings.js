@@ -1044,8 +1044,8 @@ const TABS = [
   { id: 'rules', icon: '🛡️', title: 'กฎไฟล์', sub: 'path ที่มีกฎละเว้นโหมด — first match wins', custom: 'rules', render: renderRulesTab, save: saveRulesTab },
   { id: 'hooks', icon: '🪝', title: 'hooks (คำสั่งของคุณ)', sub: 'คำสั่งที่รันเอง — ตั้งแต่เริ่มบทสนทนา ก่อน/หลังเครื่องมือ ถึงตอนจบ', custom: 'hooks', render: renderHooksTab, save: saveHooksTab },
   // Health is pull-based on purpose (docs/RELIABILITY.md): no daemon pages
-  // anyone, so the check lives where the person already looks — one button,
-  // same answers as `aipass doctor` + `npm run stats -- --alerts`.
+  // anyone, so the check lives where the person already looks — one button
+  // that asks the bridge, the extension and the account for themselves.
   { id: 'health', icon: '🩺', title: 'สุขภาพ', sub: 'bridge · extension · tab · credits — กดตรวจตอนนี้', custom: 'health', render: renderHealthTab, save: saveEmptyTab },
 ];
 /**

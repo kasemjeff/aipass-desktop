@@ -895,7 +895,7 @@ test('a binary file is refused with somewhere else to go, not read as text', asy
   await agent(dir);
   const afterPdf = handler.sent[1];
   assert.match(afterPdf, /is a PDF file, not text/);
-  assert.match(afterPdf, /--file doc\.pdf/, 'it must name the command that does work');
+  assert.match(afterPdf, /attach doc\.pdf/, 'it must name the way that does work');
   assert.ok(!/%PDF/.test(afterPdf.split('doc.pdf is a PDF')[1] ?? ''), 'no raw bytes are forwarded');
   assert.match(handler.sent[2], /zip-based document/, 'an xlsx is named by what it is');
 });

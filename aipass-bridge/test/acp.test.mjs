@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 
-const BIN = path.resolve('aipass-bridge/bin/aipass.mjs');
+const BIN = path.resolve('aipass-bridge/acp.mjs');
 const NODE = process.execPath;
 
 /**
@@ -14,7 +14,7 @@ const NODE = process.execPath;
  */
 function drive(steps, until = null) {
   return new Promise((resolve) => {
-    const child = spawn(NODE, [BIN, 'acp'], { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+    const child = spawn(NODE, [BIN], { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
     let buf = '';
     const responses = [];
     const finish = () => { try { child.kill(); } catch {} resolve(responses); };

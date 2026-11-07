@@ -1,5 +1,5 @@
 // The project goal (harness/goal.mjs): one durable objective, the rounds a
-// plain DONE buys while it is active, and the person's own CLI over it.
+// plain DONE buys while it is active, and the person's own command over it.
 //
 // The pins here are the parts that make it safe in this harness: the store is
 // per project and owner-only, the model can only complete or block it (never
@@ -22,7 +22,7 @@ import { runTask } from '../harness/loop.mjs';
 import { Overlay } from '../harness/overlay.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const CLI = path.join(HERE, '..', 'bin', 'aipass.mjs');
+const CLI = path.join(HERE, '..', 'goal.mjs');
 const dirs = [];
 const tempDir = () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aipass-goal-'));
@@ -223,10 +223,10 @@ test('a slim first message carries the goal too, before the task', async () => {
 
 // --- the CLI -----------------------------------------------------------------
 
-test('cli: aipass goal sets, shows, and refuses a silent replace', () => {
+test('goal: the command sets, shows, and refuses a silent replace', () => {
   const { root, home } = project();
   const env = { ...process.env, AIPASS_HOME: home };
-  const cli = (...args) => spawnSync(process.execPath, [CLI, 'goal', ...args], { cwd: root, env, encoding: 'utf8' });
+  const cli = (...args) => spawnSync(process.execPath, [CLI, ...args], { cwd: root, env, encoding: 'utf8' });
 
   const set = cli('set', 'ship the parser', '--rounds', '3');
   assert.equal(set.status, 0, set.stderr);
