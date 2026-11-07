@@ -25,6 +25,7 @@ import { createBanners } from './banners.js';
 import { createSettings } from './settings.js';
 import { createWorking } from './working.js';
 import { createEventStream } from './stream.js';
+import { createDraft } from './draft.js';
 
 const $ = (id) => document.getElementById(id);
 const log = $('log');
@@ -1051,54 +1052,9 @@ function refreshMeta(s = null) {
    left the old project's paragraph in the new project's composer. Before
    a root is known the legacy global key is read — the boot sequence
    replaces it with the adopted project's own draft as soon as it lands. */
-const draftKey = () => (state.root ? `aipass.draft:${state.root}` : 'aipass.draft');
-const loadDraft = () => {
-  try { return localStorage.getItem(draftKey()) ?? ''; } catch { return ''; }
-};
-let draftLoadedKey = draftKey();
-/**
- * Swap the composer's draft for the project the window is now on.
- * Switching project is an explicit act and the old text was already
- * saved to the old project's key on input, so replacing the composer
- * with the new project's draft is the right swap. At boot nothing has
- * been typed yet, so the same swap just pre-fills the adopted project.
- */
-function restoreDraftForRoot() {
-  const key = draftKey();
-  if (key === draftLoadedKey) return;
-  draftLoadedKey = key;
-  const el = $('task');
-  if (el) el.value = loadDraft();
-}
-// A keystroke is not worth a synchronous write to storage every time, but
-// the first one after a quiet moment lands at once: a reload that comes
-// right behind it still finds the paragraph. A burst after it coalesces
-// into one trailing write every 150 ms, and pagehide flushes the rest.
-let draftTimer = null;
-let draftStamp = 0;
-const saveDraft = () => {
-  clearTimeout(draftTimer);
-  draftTimer = null;
-  draftStamp = Date.now();
-  try { localStorage.setItem(draftKey(), $('task').value); } catch { /* storage off */ }
-};
-const saveDraftLater = () => {
-  if (draftTimer) return;
-  const now = Date.now();
-  if (now - draftStamp >= 150) {
-    draftStamp = now;
-    saveDraft();
-    return;
-  }
-  draftTimer = setTimeout(() => {
-    draftTimer = null;
-    draftStamp = Date.now();
-    try { localStorage.setItem(draftKey(), $('task').value); } catch { /* storage off */ }
-  }, 150 - (now - draftStamp));
-};
-$('task').addEventListener('input', saveDraftLater);
-if (typeof window.addEventListener === 'function') window.addEventListener('pagehide', saveDraft);
-$('task').value = loadDraft();
+// The composer's draft (draft.js): per-project, surviving a reload.
+const draft = createDraft(ctx);
+const { restoreDraftForRoot, saveDraft } = draft;
 // The modules that fill the composer for the reader (a playbook's "ใช้", the
 // /skill command) save the draft through this — an assignment fires no input
 // event, so without it the next boot comes back without what was set.
