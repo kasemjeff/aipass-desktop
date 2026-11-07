@@ -6,11 +6,6 @@
 
 use crate::paths::aipass_home;
 
-/// The titlebar is the one surface the app cannot paint itself, so Windows
-/// draws a light frame over the warm window unless the theme is set before the
-/// window opens. The settings file is the only thing that knows this early —
-/// the backend that serves settings is not up yet — so read it directly;
-/// "auto" hands the frame back to the system, which is what auto means.
 pub(crate) fn desktop_theme() -> Option<tauri::Theme> {
     let path = aipass_home().join("settings.json");
     let choice = std::fs::read_to_string(path)

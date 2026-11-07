@@ -129,7 +129,7 @@ export function versionsAgree(versions) {
  * `AGENTS.md` is agent instructions, not code the packaged app loads.
  * `docs/` and `test/` are not shipped either: they were never in the list.
  */
-export const RESOURCE_DIRS = ['bin', 'bridge', 'deploy', 'extension', 'harness'];
+export const RESOURCE_DIRS = ['bridge', 'deploy', 'extension', 'harness'];
 export const NOT_SHIPPED_LOOSE = new Set(['.env.example', 'AGENTS.md']);
 
 /** The `bundle.resources` map, computed from `aipass-bridge/` on disk. */

@@ -88,21 +88,6 @@ impl Backend {
     }
 
     pub(crate) fn spawn(&self) -> std::io::Result<std::process::Child> {
-        // A stale sidecar path after a build cleanup must be a named
-        // condition, not a crash loop: an absolute path that is gone will
-        // not come back on its own, so name it with the fix and let the
-        // backoff retry at its slowest rate.
-        {
-            let node = PathBuf::from(&self.node);
-            if node.is_absolute() && !node.exists() {
-                let msg = format!(
-                    "Node runtime not found at {} — reinstall or place Node beside the app, or put Node on PATH",
-                    self.node
-                );
-                note(msg.as_str());
-                return Err(std::io::Error::new(std::io::ErrorKind::NotFound, msg));
-            }
-        }
         // The root is resolved HERE, not once at startup: a content update
         // promotes a new tree, and the backend that runs it has to be
         // started from there.
