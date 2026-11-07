@@ -1682,7 +1682,7 @@ test('a typed draft survives a reload', async () => {
   const { node, tick } = await bootApp(BACKEND);
   node('task').value = 'a paragraph worth keeping';
   node('task').dispatch('input');
-  assert.equal(store.get('aipass.draft'), 'a paragraph worth keeping', 'the draft is stored as you type');
+  assert.equal(store.get('aipass.draft:/tmp/proj'), 'a paragraph worth keeping', 'the draft is stored as you type');
   void tick;
 });
 
@@ -1700,13 +1700,52 @@ test('the draft is gone once the task it held is sent', async () => {
   node('task').value = 'the text that was sent';
   node('task').dispatch('keydown', { key: 'Enter' });
   await tick(); await tick();
-  assert.equal(store.get('aipass.draft'), '', 'the sent text is not stored as a draft');
+  assert.equal(store.get('aipass.draft:/tmp/proj'), '', 'the sent text is not stored as a draft');
 
   // A command goes through the same composer and the same clear.
   node('task').value = '/status';
   node('task').dispatch('keydown', { key: 'Enter' });
   await tick(); await tick();
-  assert.equal(store.get('aipass.draft'), '', 'and a sent command clears the draft too');
+  assert.equal(store.get('aipass.draft:/tmp/proj'), '', 'and a sent command clears the draft too');
+});
+
+test('the draft belongs to the project, not to the window', async () => {
+  // One global draft meant switching project mid-thought left the old
+  // project's paragraph in the new project's composer. Each project has
+  // its own key, the boot adopts the current project's draft, and a
+  // switch swaps in the other project's.
+  const store = new Map([
+    ['aipass.draft', 'legacy global draft'],
+    ['aipass.draft:/tmp/proj', 'draft for proj'],
+    ['aipass.draft:/tmp/other', 'draft for other'],
+  ]);
+  globalThis.localStorage = {
+    getItem: (k) => (store.has(k) ? store.get(k) : null),
+    setItem: (k, v) => store.set(k, String(v)),
+    removeItem: (k) => store.delete(k),
+  };
+  const { node, tick } = await bootApp({
+    ...BACKEND,
+    status: () => ({ ...BACKEND.status(), projects: [
+      { path: '/tmp/proj', name: 'proj', current: true },
+      { path: '/tmp/other', name: 'other', current: false },
+    ] }),
+    'projects.list': () => [
+      { path: '/tmp/proj', name: 'proj', current: true },
+      { path: '/tmp/other', name: 'other', current: false },
+    ],
+    'projects.switch': () => ({ root: '/tmp/other' }),
+  });
+  await tick(); await tick();
+  assert.equal(node('task').value, 'draft for proj', 'the boot pre-fills the adopted project draft, not the legacy global one');
+
+  node('task').value = 'edited draft for proj';
+  node('task').dispatch('input');
+  node('project').value = '/tmp/other';
+  node('project').dispatch('change');
+  await tick(); await tick();
+  assert.equal(node('task').value, 'draft for other', 'switching project swaps in that project draft');
+  assert.equal(store.get('aipass.draft:/tmp/proj'), 'edited draft for proj', 'the old project keeps its own draft');
 });
 
 test('the session list filters as you type', async () => {

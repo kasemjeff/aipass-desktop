@@ -759,6 +759,7 @@ async function restoreFromSnapshot() {
   // keeps showing the project the human chose, even if another window has
   // since moved the backend (rpc.mjs run binds runs to the window's root).
   if (!painted && snap.status?.root) state.root = snap.status.root;
+  restoreDraftForRoot();
   if (painted) { renderPending(snap.pending); refreshMeter(); ctx.refreshContextPanel?.(); restoreAsks(snap.asks ?? {}); return; }
   // The card comes off only when there is a conversation to put in its place:
   // an idle window keeps the note that says what this is.
@@ -1290,11 +1291,30 @@ function refreshMeta(s = null) {
 // one spot — Enter sends, Shift+Enter is a newline, and while a run is live the
 // same controls stop it instead.
 /* A typed paragraph lost to a stray reload is a small betrayal, so the draft
-   lives in the window's storage and comes back on the next boot. */
-const DRAFT_KEY = 'aipass.draft';
+   lives in the window's storage and comes back on the next boot. The draft
+   is per project: one global draft meant switching project mid-thought
+   left the old project's paragraph in the new project's composer. Before
+   a root is known the legacy global key is read — the boot sequence
+   replaces it with the adopted project's own draft as soon as it lands. */
+const draftKey = () => (state.root ? `aipass.draft:${state.root}` : 'aipass.draft');
 const loadDraft = () => {
-  try { return localStorage.getItem(DRAFT_KEY) ?? ''; } catch { return ''; }
+  try { return localStorage.getItem(draftKey()) ?? ''; } catch { return ''; }
 };
+let draftLoadedKey = draftKey();
+/**
+ * Swap the composer's draft for the project the window is now on.
+ * Switching project is an explicit act and the old text was already
+ * saved to the old project's key on input, so replacing the composer
+ * with the new project's draft is the right swap. At boot nothing has
+ * been typed yet, so the same swap just pre-fills the adopted project.
+ */
+function restoreDraftForRoot() {
+  const key = draftKey();
+  if (key === draftLoadedKey) return;
+  draftLoadedKey = key;
+  const el = $('task');
+  if (el) el.value = loadDraft();
+}
 // A keystroke is not worth a synchronous write to storage every time, but
 // the first one after a quiet moment lands at once: a reload that comes
 // right behind it still finds the paragraph. A burst after it coalesces
@@ -1305,7 +1325,7 @@ const saveDraft = () => {
   clearTimeout(draftTimer);
   draftTimer = null;
   draftStamp = Date.now();
-  try { localStorage.setItem(DRAFT_KEY, $('task').value); } catch { /* storage off */ }
+  try { localStorage.setItem(draftKey(), $('task').value); } catch { /* storage off */ }
 };
 const saveDraftLater = () => {
   if (draftTimer) return;
@@ -1318,7 +1338,7 @@ const saveDraftLater = () => {
   draftTimer = setTimeout(() => {
     draftTimer = null;
     draftStamp = Date.now();
-    try { localStorage.setItem(DRAFT_KEY, $('task').value); } catch { /* storage off */ }
+    try { localStorage.setItem(draftKey(), $('task').value); } catch { /* storage off */ }
   }, 150 - (now - draftStamp));
 };
 $('task').addEventListener('input', saveDraftLater);
@@ -1922,6 +1942,7 @@ async function refreshProjects(projects) {
     if (!inList) state.root = mine.path;
     select.value = mine.path;
   }
+  restoreDraftForRoot();
   if (previous !== select.value) await refreshSessions();
 }
 
@@ -1929,6 +1950,7 @@ $('project').onchange = async () => {
   const result = await rpc('projects.switch', { path: $('project').value }).catch((err) => ({ error: err.message }));
   if (result.error) { addNote(`สลับโปรเจกต์ไม่ได้: ${friendly(result.error)}`); return; }
   state.root = result.root ?? $('project').value;
+  restoreDraftForRoot();
   // The worktree belongs to the project it was made from, so switching
   // project leaves it too — otherwise the run would land in a checkout of
   // the project the window just left.
