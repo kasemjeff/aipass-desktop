@@ -1,3 +1,4 @@
+// @ts-check
 // The commands: everything the app can be told to do, and the palette
 // that lists them.
 //
@@ -17,10 +18,10 @@ import { SKILL_NAME_RE } from './panels/sessions.js';
 /**
  * The commands: the palette and the handlers behind it.
  *
- * @param {object} ctx the window it draws into
+ * @param {any} ctx the window it draws into
  */
 export function createCommands(ctx) {
-  const { $, el, state, rpc, friendly, scrollDown, addNote, addCommandOut, sendTask, paintCacheStats, hideModal, openModal, fillModels, refreshModels, fillProviders, refreshHeader, refreshMeta, checkForUpdate, openHelp, openSettings, showMemory, showGoal, showMcp, showSymbols, showIndex, listModels, pickConversation, freshConversation, attachPath, clipPaste, startNewSession, resumeSession, forkSession, togglePlan, showSkills, useSkill, showPendingDiff, applyChecked, discardAll, pickProject, openFile, pickFile, setWorking, cancelRun, showCheckpoints, exportSession, showSessionTree, showGitStatus, showSchedule, showMediaModels, showWorktrees } = ctx;
+  const { $, el, log, state, rpc, friendly, scrollDown, addNote, addCommandOut, sendTask, paintCacheStats, hideModal, openModal, fillModels, refreshModels, fillProviders, refreshHeader, refreshMeta, checkForUpdate, openHelp, openSettings, showMemory, showGoal, showMcp, showSymbols, showIndex, listModels, pickConversation, freshConversation, attachPath, clipPaste, startNewSession, resumeSession, forkSession, togglePlan, showSkills, useSkill, showPendingDiff, applyChecked, discardAll, pickProject, openFile, pickFile, setWorking, cancelRun, showCheckpoints, exportSession, showSessionTree, showGitStatus, showSchedule, showMediaModels, showWorktrees } = ctx;
 
 
 /* Every command the app has, reachable by typing "/". The header carries three
@@ -28,34 +29,34 @@ export function createCommands(ctx) {
  * you have to guess at, and the list itself explains what the app does. */
 const COMMANDS = [
   { cmd: 'help', desc: 'วิธีใช้ทั้งหมด', run: openHelp },
-  { cmd: 'model', desc: 'เปลี่ยนโมเดล — /model หรือ /model <id>', args: true, run: (arg) => (arg ? setModel(arg) : pickModel()) },
-  { cmd: 'provider', desc: 'สลับผู้ให้บริการ — /provider หรือ /provider <id>', args: true, run: (arg) => (arg ? setProvider(arg) : pickProvider()) },
+  { cmd: 'model', desc: 'เปลี่ยนโมเดล — /model หรือ /model <id>', args: true, run: (/** @type {any} */ arg) => (arg ? setModel(arg) : pickModel()) },
+  { cmd: 'provider', desc: 'สลับผู้ให้บริการ — /provider หรือ /provider <id>', args: true, run: (/** @type {any} */ arg) => (arg ? setProvider(arg) : pickProvider()) },
   { cmd: 'models', desc: 'ดูรายการโมเดลที่ใช้คุยได้', run: listModels },
-  { cmd: 'mode', desc: 'โหมดการทำงาน — /mode ask|auto|yolo|plan', args: true, run: (arg) => (arg ? setMode(arg) : pickMode()) },
+  { cmd: 'mode', desc: 'โหมดการทำงาน — /mode ask|auto|yolo|plan', args: true, run: (/** @type {any} */ arg) => (arg ? setMode(arg) : pickMode()) },
   { cmd: 'status', desc: 'สถานะ bridge / extension / tab / credits', run: showStatus },
   { cmd: 'update', desc: 'เช็กและติดตั้งเวอร์ชันใหม่ — /update', run: () => checkForUpdate({ force: true, quiet: false }) },
   { cmd: 'paint', desc: 'สถิติ paint cache ของการสตรีม — hit/miss ต่อเฟรม', run: showPaintStats },
   { cmd: 'conversations', desc: 'เลือกบทสนทนาของ bridge (ความจำของโมเดล)', run: pickConversation },
   { cmd: 'fresh', desc: 'เริ่มบทสนทนาบน bridge ใหม่ (ความจำ wiped)', run: freshConversation },
   { cmd: 'compact', desc: 'บีบบริบททันที (สรุปงานเก่าแล้วเริ่ม conversation ใหม่)', run: compactNow },
-  { cmd: 'memory', desc: 'ดู facts ที่จำข้าม session — /memory clear ลืมทั้งหมด', args: true, run: (arg) => showMemory(arg) },
-  { cmd: 'goal', desc: 'เป้าหมายระยะยาวของโปรเจกต์ — /goal set|pause|resume|done|block|clear', args: true, run: (arg) => showGoal(arg) },
+  { cmd: 'memory', desc: 'ดู facts ที่จำข้าม session — /memory clear ลืมทั้งหมด', args: true, run: (/** @type {any} */ arg) => showMemory(arg) },
+  { cmd: 'goal', desc: 'เป้าหมายระยะยาวของโปรเจกต์ — /goal set|pause|resume|done|block|clear', args: true, run: (/** @type {any} */ arg) => showGoal(arg) },
   { cmd: 'mcp', desc: 'ดู servers/tools จาก MCP (จัดการที่ /settings → MCP)', run: showMcp },
-  { cmd: 'symbols', desc: 'ดู declarations ของไฟล์ หรือที่ที่ชื่อถูกนิยาม — /symbols <file|name>', args: true, run: (arg) => showSymbols(arg) },
-  { cmd: 'index', desc: 'สถานะ index ของโปรเจกต์ — /index ดูสถานะ · /index clear ลบ', run: (arg) => showIndex(arg) },
+  { cmd: 'symbols', desc: 'ดู declarations ของไฟล์ หรือที่ที่ชื่อถูกนิยาม — /symbols <file|name>', args: true, run: (/** @type {any} */ arg) => showSymbols(arg) },
+  { cmd: 'index', desc: 'สถานะ index ของโปรเจกต์ — /index ดูสถานะ · /index clear ลบ', run: (/** @type {any} */ arg) => showIndex(arg) },
   { cmd: 'new', desc: 'เริ่มบทสนทนาใหม่ในหน้าต่าง', run: startNewSession },
   { cmd: 'resume', desc: 'เปิดบทสนทนาเดิม', run: resumeSession },
   { cmd: 'fork', desc: 'แยกบทสนทนาจุดนี้ไปแก้ต่อแยก', run: forkSession },
   { cmd: 'plan', desc: 'เปิด/ปิด plan mode (ร่างแผนให้อนุมัติก่อนทำ)', run: togglePlan },
   { cmd: 'attach', desc: 'แนบรูป เอกสาร หรือวิดีโอ', run: () => $('file-picker').click() },
   { cmd: 'clip', desc: 'แนบจากคลิปบอร์ด (เช่น screenshot ที่ Ctrl+V)', run: clipPaste },
-  { cmd: 'file', desc: 'แนบไฟล์จาก path — /file <path>', args: true, run: (arg) => attachPath(arg, 'file') },
-  { cmd: 'image', desc: 'แนบรูปจาก path — /image <path>', args: true, run: (arg) => attachPath(arg, 'image') },
-  { cmd: 'open', desc: 'เปิดดูไฟล์ — /open <path>', args: true, run: (arg) => (arg ? openFile(arg) : pickFile()) },
+  { cmd: 'file', desc: 'แนบไฟล์จาก path — /file <path>', args: true, run: (/** @type {any} */ arg) => attachPath(arg, 'file') },
+  { cmd: 'image', desc: 'แนบรูปจาก path — /image <path>', args: true, run: (/** @type {any} */ arg) => attachPath(arg, 'image') },
+  { cmd: 'open', desc: 'เปิดดูไฟล์ — /open <path>', args: true, run: (/** @type {any} */ arg) => (arg ? openFile(arg) : pickFile()) },
   { cmd: 'skills', desc: 'คู่มือ (playbook) ที่มี', run: showSkills },
-  { cmd: 'skill', desc: 'เรียกคู่มือ — /skill <ชื่อ> (ไม่ใส่ชื่อ = เปิดรายการ)', args: true, run: (arg) => (arg ? invokeSkill(arg) : showSkills()) },
+  { cmd: 'skill', desc: 'เรียกคู่มือ — /skill <ชื่อ> (ไม่ใส่ชื่อ = เปิดรายการ)', args: true, run: (/** @type {any} */ arg) => (arg ? invokeSkill(arg) : showSkills()) },
   { cmd: 'diff', desc: 'ดูการเปลี่ยนแปลงที่รอเขียน', run: showPendingDiff },
-  { cmd: 'review', desc: 'รีวิวการเปลี่ยนแปลง — อ่านอย่างเดียว ไม่แก้อะไร (/review [base])', args: true, run: (arg) => reviewChange(arg) },
+  { cmd: 'review', desc: 'รีวิวการเปลี่ยนแปลง — อ่านอย่างเดียว ไม่แก้อะไร (/review [base])', args: true, run: (/** @type {any} */ arg) => reviewChange(arg) },
   { cmd: 'apply', desc: 'เขียนไฟล์ที่อนุมัติลงดิสก์', run: applyChecked },
   { cmd: 'discard', desc: 'ทิ้งไฟล์ที่รออยู่ทั้งหมด', run: discardAll },
   // The undo of a write, the transcript as a file, and the tree of the
@@ -82,6 +83,7 @@ const COMMANDS = [
   { cmd: 'stop', desc: 'ยกเลิกรันที่กำลังทำ', run: () => cancelRun() },
 ];
 
+/** @type {{open: boolean, items: any[], index: number}} */
 const slash = { open: false, items: [], index: 0 };
 
 // Mode is the one setting that decides everything else it might do — may it
@@ -97,16 +99,16 @@ const MODE_VIEWS = {
 };
 const MODE_CYCLE = ['ask', 'auto', 'plan'];
 
-const slashMatches = (value) => {
+const slashMatches = (/** @type {any} */ value) => {
   const typed = value.slice(1).split(/\s+/)[0].toLowerCase();
   return COMMANDS.filter((c) => c.cmd.startsWith(typed));
 };
 
 // "/" opens the palette while the first word is still being typed; a space
 // means an argument is being written and the palette has done its job.
-const slashTyping = (value) => value.startsWith('/') && !/\s/.test(value.slice(1));
+const slashTyping = (/** @type {any} */ value) => value.startsWith('/') && !/\s/.test(value.slice(1));
 
-function renderSlash(value, keepSelection = false) {
+function renderSlash(/** @type {any} */ value, keepSelection = false) {
   slash.items = slashMatches(value);
   // A typed word that is already a whole command selects it: "/mode" has to mean
   // /mode, not /model, even though "mode" is a prefix of "model".
@@ -124,7 +126,7 @@ function renderSlash(value, keepSelection = false) {
     li.id = `slash-opt-${item.cmd}`;
     li.setAttribute('aria-selected', i === slash.index ? 'true' : 'false');
     li.append(el('span', 'cmd', '/' + item.cmd), el('span', 'desc', item.desc));
-    li.onmousedown = (ev) => { ev.preventDefault(); pickSlash(i); };
+    li.onmousedown = (/** @type {any} */ ev) => { ev.preventDefault(); pickSlash(i); };
     list.append(li);
   });
   // Nothing matches: say so instead of vanishing. A palette that silently
@@ -147,7 +149,7 @@ function renderSlash(value, keepSelection = false) {
   else task.removeAttribute('aria-activedescendant');
 }
 
-function openSlash(value) {
+function openSlash(/** @type {any} */ value) {
   slash.open = true;
   renderSlash(value);
 }
@@ -162,7 +164,7 @@ function closeSlash() {
   task.removeAttribute('aria-activedescendant');
 }
 
-function moveSlash(delta) {
+function moveSlash(/** @type {any} */ delta) {
   if (!slash.items.length) return;
   slash.index = (slash.index + delta + slash.items.length) % slash.items.length;
   renderSlash($('task').value, true); // arrows override the exact-match preference
@@ -170,7 +172,7 @@ function moveSlash(delta) {
 
 /** Run the highlighted command. One with arguments leaves "/cmd " in the box so
  *  the argument can be typed instead of silently guessing. */
-function pickSlash(index) {
+function pickSlash(/** @type {any} */ index) {
   const item = slash.items[index];
   if (!item) return;
   closeSlash();
@@ -184,7 +186,7 @@ function pickSlash(index) {
   void runCommand(item, arg);
 }
 
-function runCommand(item, arg) {
+function runCommand(/** @type {any} */ item, /** @type {any} */ arg) {
   addCommandOut(`/${item.cmd}${arg ? ` ${arg}` : ''}`);
   return Promise.resolve()
     .then(() => item.run(arg))
@@ -193,8 +195,8 @@ function runCommand(item, arg) {
 
 /* ------------------------------------------------------- command handlers */
 
-async function setModel(id) {
-  const done = await rpc('config.set', { model: id }).catch((err) => ({ error: err.message }));
+async function setModel(/** @type {any} */ id) {
+  const done = await rpc('config.set', { model: id }).catch((/** @type {any} */ err) => ({ error: err.message }));
   if (done.error) { addNote(`เปลี่ยนโมเดลไม่ได้: ${friendly(done.error)}`); return; }
   state.settings = await rpc('settings.get').catch(() => null);
   await refreshHeader();
@@ -208,8 +210,8 @@ async function setModel(id) {
  * settings file — the terminal sees it too. The model list is rebuilt
  * afterwards: the models of one provider mean nothing to another.
  */
-async function setProvider(id) {
-  const done = await rpc('provider.set', { id }).catch((err) => ({ error: err.message }));
+async function setProvider(/** @type {any} */ id) {
+  const done = await rpc('provider.set', { id }).catch((/** @type {any} */ err) => ({ error: err.message }));
   if (done.error) { addNote(`สลับผู้ให้บริการไม่ได้: ${friendly(done.error)}`); return; }
   state.provider = id;
   await fillProviders(id);
@@ -220,7 +222,7 @@ async function setProvider(id) {
 }
 
 function pickProvider() {
-  rpc('providers.list').then((res) => {
+  rpc('providers.list').then((/** @type {any} */ res) => {
     const list = res?.providers ?? [];
     $('modal-title').textContent = 'เลือกผู้ให้บริการ';
     const body = $('modal-body');
@@ -241,7 +243,7 @@ function pickProvider() {
     close.onclick = hideModal;
     $('modal-actions').append(close);
     openModal();
-  }).catch((err) => addNote(err.message));
+  }).catch((/** @type {any} */ err) => addNote(err.message));
 }
 
 /**
@@ -253,12 +255,12 @@ function pickProvider() {
  */
 function pickModel() {
   state.modelPicker = true;
-  refreshModels().then((res) => {
+  refreshModels().then((/** @type {any} */ res) => {
     const all = res?.data ?? res?.models ?? [];
     // The site's catalog carries non-chat entries too (embedding and friends);
     // a picker that lists them offers a choice the chat cannot use. A list
     // with no kind at all (a provider that does not say) keeps every row.
-    const list = all.filter((m) => typeof m === 'string' || !m?.kind || m.kind === 'chat');
+    const list = all.filter((/** @type {any} */ m) => typeof m === 'string' || !m?.kind || m.kind === 'chat');
     $('modal-title').textContent = 'เลือกโมเดล';
     const body = $('modal-body');
     body.textContent = '';
@@ -277,15 +279,15 @@ function pickModel() {
     close.onclick = hideModal;
     $('modal-actions').append(close);
     openModal();
-  }).catch((err) => addNote(err.message));
+  }).catch((/** @type {any} */ err) => addNote(err.message));
 }
 
-function setMode(mode) {
-  if (!MODE_VIEWS[mode]) { addNote('โหมดที่ใช้ได้: ask | auto | yolo | plan'); return null; }
+function setMode(/** @type {any} */ mode) {
+  if (!(/** @type {any} */ (MODE_VIEWS))[mode]) { addNote('โหมดที่ใช้ได้: ask | auto | yolo | plan'); return null; }
   $('mode').value = mode;
-  const patch = MODE_VIEWS[mode];
+  const patch = (/** @type {any} */ (MODE_VIEWS))[mode];
   state.settings = { ...(state.settings ?? {}), ...patch };
-  rpc('settings.set', patch).catch((err) => addNote(`เปลี่ยนโหมดไม่ได้: ${err.message}`));
+  rpc('settings.set', patch).catch((/** @type {any} */ err) => addNote(`เปลี่ยนโหมดไม่ได้: ${err.message}`));
   return $('mode').selectedOptions[0].textContent;
 }
 
@@ -321,10 +323,10 @@ function pickMode() {
  * that names a playbook that is not there is a task that silently loses its
  * manual. The reader types the task on and sends.
  */
-async function invokeSkill(name) {
+async function invokeSkill(/** @type {any} */ name) {
   const bare = String(name ?? '').trim();
   if (!SKILL_NAME_RE.test(bare)) { addNote('ชื่อคู่มือใช้ได้เฉพาะ a-z 0-9 และ - — ดูรายการที่ /skills'); return; }
-  const found = await rpc('skills.load', { name: bare }).catch((err) => ({ error: err.message }));
+  const found = await rpc('skills.load', { name: bare }).catch((/** @type {any} */ err) => ({ error: err.message }));
   if (found.error) { addNote(`ไม่มีคู่มือ "${bare}" — ${found.error}`); return; }
   useSkill(bare);
 }
@@ -336,7 +338,7 @@ async function invokeSkill(name) {
  * refuses every mutating marker, so this handler only names what is under
  * review and starts the run. The CLI's --review reaches the same floor.
  */
-async function reviewChange(arg) {
+async function reviewChange(/** @type {any} */ arg) {
   if (state.running) {
     addNote('มีรันอยู่ — กดหยุดก่อน แล้วสั่ง /review อีกครั้ง');
     return;
@@ -353,9 +355,9 @@ async function reviewChange(arg) {
 
 /** Rotate the context now: the model summarises what it has done, that summary
  *  is recorded in the session, and the next run starts from it. */async function compactNow() {
-  const before = await rpc('status').then((s) => s.context).catch(() => null);
+  const before = await rpc('status').then((/** @type {any} */ s) => s.context).catch(() => null);
   addCommandOut(`บีบบริบท… ใช้ ${before?.used?.toLocaleString?.() ?? '?'} / ${before?.budget?.toLocaleString?.() ?? '?'} token — สรุปงานเก่าก่อน`);
-  const done = await rpc('compact').catch((err) => ({ error: err.message }));
+  const done = await rpc('compact').catch((/** @type {any} */ err) => ({ error: err.message }));
   if (done.error) { addNote(`บีบไม่ได้: ${done.error}`); return; }
   refreshMeter();
   if (done.summary) {
@@ -378,7 +380,7 @@ function refreshMeter(status = null) {
   // The status the caller already has is used rather than asked for again:
   // the header refreshes every ten seconds, and it was asking twice.
   const ask = status ? Promise.resolve(status) : rpc('status');
-  ask.then((st) => {
+  ask.then((/** @type {any} */ st) => {
     const use = st?.context;
     const slot = $('context');
     if (!slot) return;
@@ -424,7 +426,7 @@ async function showStatus() {
   // The bridge's caches (models/quota/conversation) report what rode the cache
   // instead of the tab; a bridge too old to count them omits the block.
   if (st.cache) {
-    const pair = (v) => v ? `${(v.hits ?? 0).toLocaleString()} hit / ${(v.fetches ?? 0).toLocaleString()} fetch` : '—';
+    const pair = (/** @type {any} */ v) => v ? `${(v.hits ?? 0).toLocaleString()} hit / ${(v.fetches ?? 0).toLocaleString()} fetch` : '—';
     lines.push(`cache: โมเดล ${pair(st.cache.models)} · เครดิต ${pair(st.cache.quota)} · บทสนทนา ${pair(st.cache.conversation)}`);
   }
   if (credits) lines.push(`credits: ${credits.available?.toLocaleString?.() ?? credits.available} / ${credits.limit?.toLocaleString?.() ?? credits.limit}`);

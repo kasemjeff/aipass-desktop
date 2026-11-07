@@ -1,8 +1,9 @@
+// @ts-check
 // The worktrees feature module (extracted from app.js).
 // Owns the second-checkout surface: list, enter, leave, remove, render bar.
 // All shared state lives on ctx; nothing is module-global.
 
-export function createWorktrees(ctx) {
+export function createWorktrees(/** @type {any} */ ctx) {
 /* -------------------------------------------------------------- worktrees */
 
 /**
@@ -18,7 +19,7 @@ export function createWorktrees(ctx) {
  * each one: a person who cannot find the folder cannot merge it.
  */
 async function showWorktrees() {
-  const res = await ctx.rpc('worktree.list').catch((err) => ({ error: err.message }));
+  const res = await ctx.rpc('worktree.list').catch((/** @type {any} */ err) => ({ error: err.message }));
   const list = res?.worktrees ?? [];
   ctx.state.worktrees = list;
 
@@ -51,7 +52,7 @@ async function showWorktrees() {
         ? `เปลี่ยน ${files.length} ไฟล์ (+${st.added ?? 0} −${st.removed ?? 0}) · ${files.slice(0, 4).join(', ')}${files.length > 4 ? '…' : ''}`
         : 'ยังไม่มีอะไรเปลี่ยนในนี้'));
       const row = ctx.el('div', 'wt-actions');
-      const sameProject = (a, b) => String(a).replace(/\\/g, '/').toLowerCase() === String(b).replace(/\\/g, '/').toLowerCase();
+      const sameProject = (/** @type {any} */ a, /** @type {any} */ b) => String(a).replace(/\\/g, '/').toLowerCase() === String(b).replace(/\\/g, '/').toLowerCase();
       const enter = ctx.el('button', 'mini', ctx.state.runRoot && sameProject(ctx.state.runRoot, w.path) ? 'กำลังทำงานในนี้' : 'ทำงานในนี้');
       enter.onclick = async () => { await enterWorktree(w.path); await showWorktrees(); };
       const drop = ctx.el('button', 'mini', 'ลบ');
@@ -75,7 +76,7 @@ async function showWorktrees() {
     const text = name.value.trim();
     if (!text) { ctx.addNote('ต้องตั้งชื่อ worktree ก่อน'); return; }
     make.disabled = true;
-    const made = await ctx.rpc('worktree.create', { name: text }).catch((err) => ({ error: err.message }));
+    const made = await ctx.rpc('worktree.create', { name: text }).catch((/** @type {any} */ err) => ({ error: err.message }));
     make.disabled = false;
     if (made.error) { ctx.addNote(`สร้าง worktree ไม่สำเร็จ: ${ctx.friendly(made.error)}`); return; }
     await enterWorktree(made.path);
@@ -94,7 +95,7 @@ async function showWorktrees() {
   // and the ones that have sat there for a while go.
   const sweep = ctx.el('button', null, 'เก็บกวาดที่ไม่ต้องการแล้ว');
   sweep.onclick = async () => {
-    const done = await ctx.rpc('worktree.sweep').catch((err) => ({ error: err.message }));
+    const done = await ctx.rpc('worktree.sweep').catch((/** @type {any} */ err) => ({ error: err.message }));
     if (done.error) { ctx.addNote(`เก็บกวาดไม่สำเร็จ: ${ctx.friendly(done.error)}`); return; }
     ctx.addNote(done.removed?.length
       ? `เก็บกวาดไป ${done.removed.length} worktree — branch ยังอยู่ใน repo ถ้าต้องการเอากลับ`
@@ -128,7 +129,7 @@ function worktreeLocked() {
   return true;
 }
 
-async function enterWorktree(path) {
+async function enterWorktree(/** @type {any} */ path) {
   if (worktreeLocked()) return;
   ctx.state.runRoot = path;
   renderWorktreeBar();
@@ -151,7 +152,7 @@ async function leaveWorktree() {
  * The window asks first: an uncommitted file inside a worktree exists
  * nowhere else, and the branch keeps the COMMITS but not those bytes.
  */
-async function removeWorktree(path) {
+async function removeWorktree(/** @type {any} */ path) {
   if (worktreeLocked()) return;
   const st = await ctx.rpc('worktree.status', { path }).catch(() => null);
   const files = st?.files ?? [];
@@ -159,9 +160,9 @@ async function removeWorktree(path) {
     ? `ลบ worktree นี้? — ยังมี ${files.length} ไฟล์ที่ไม่ได้ merge การลบจะทำให้ไฟล์เหล่านั้นหายไป`
     : 'ลบ worktree นี้? — โฟลเดอร์จะถูกลบออกจากเครื่อง (branch ยังอยู่ใน repo)';
   if (!(await ctx.askConfirm({ title: 'ลบ worktree', message: ask, danger: true, confirmLabel: 'ลบ' }))) return;
-  const done = await ctx.rpc('worktree.remove', { path, force: true }).catch((err) => ({ error: err.message }));
+  const done = await ctx.rpc('worktree.remove', { path, force: true }).catch((/** @type {any} */ err) => ({ error: err.message }));
   if (done.error) { ctx.addNote(`ลบ worktree ไม่ได้: ${ctx.friendly(done.error)}`); return; }
-  const sameProject2 = (a, b) => String(a).replace(/\\/g, '/').toLowerCase() === String(b).replace(/\\/g, '/').toLowerCase();
+  const sameProject2 = (/** @type {any} */ a, /** @type {any} */ b) => String(a).replace(/\\/g, '/').toLowerCase() === String(b).replace(/\\/g, '/').toLowerCase();
   if (ctx.state.runRoot && sameProject2(ctx.state.runRoot, path)) await leaveWorktree();
   ctx.addNote('ลบ worktree แล้ว — branch ยังอยู่ใน repo ถ้าต้องการเอากลับ');
 }

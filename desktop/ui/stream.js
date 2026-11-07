@@ -1,3 +1,4 @@
+// @ts-check
 // The event transport: the EventSource, the watchdog that writes a run off
 // when it goes silent, and the project/session filter every handler shares.
 //
@@ -69,6 +70,7 @@ export async function createEventStream(ctx) {
   // backend coming back. An aborted probe means "cannot say": it is not a
   // refusal, so it gets three strikes before the write-off, but a refusal
   // (connection refused, the process gone) is answered at once.
+  /** @type {any} */
   let statusProbe = null;
   let probeGen = 0;
   let probeFails = 0;
@@ -122,7 +124,7 @@ export async function createEventStream(ctx) {
     statusProbe = ctrl;
     const probeTimer = setTimeout(() => ctrl.abort(), 4_000);
     const st = await rpc('status', { root: state.root ?? undefined }, statusProbe.signal)
-      .catch((err) => (err?.name === 'AbortError' ? 'hung' : null))
+      .catch((/** @type {any} */ err) => (err?.name === 'AbortError' ? 'hung' : null))
       .finally(() => clearTimeout(probeTimer));
     if (gen !== probeGen) return; // a newer probe superseded this one
     statusProbe = null;
@@ -185,7 +187,7 @@ export async function createEventStream(ctx) {
    * — a dropped question would leave that run waiting on an answer nobody can
    * see. Those name the other project so the answer is never blind.
    */
-  const sameProject = (a, b) => String(a).replace(/\\/g, '/').toLowerCase() === String(b).replace(/\\/g, '/').toLowerCase();
+  const sameProject = (/** @type {any} */ a, /** @type {any} */ b) => String(a).replace(/\\/g, '/').toLowerCase() === String(b).replace(/\\/g, '/').toLowerCase();
 
   /**
    * Is this project one of ours?
@@ -195,18 +197,18 @@ export async function createEventStream(ctx) {
    * happened in, and a frame from the worktree is as much ours as one from the
    * project — otherwise the run in the worktree would be invisible.
    */
-  const isOwnProject = (project) => !project || !state.root
+  const isOwnProject = (/** @type {any} */ project) => !project || !state.root
     || sameProject(project, state.root)
     || (state.runRoot && sameProject(project, state.runRoot));
 
   /** null when the event belongs to this window's project; otherwise the
    *  project's folder name, for the answer surfaces that show anyway. */
-  function foreignProject(project) {
+  function foreignProject(/** @type {any} */ project) {
     if (!project || isOwnProject(project)) return null;
     return String(project).replace(/[\\/]+$/, '').split(/[\\/]/).pop() || String(project);
   }
 
-  function onRun(name, fn) {
+  function onRun(/** @type {any} */ name, /** @type {any} */ fn) {
     stream.addEventListener(name, (e) => {
       const data = JSON.parse(e.data);
       if (data.project && state.root && !isOwnProject(data.project)) return;
@@ -222,7 +224,7 @@ export async function createEventStream(ctx) {
     });
   }
 
-  function onAny(name, fn) {
+  function onAny(/** @type {any} */ name, /** @type {any} */ fn) {
     stream.addEventListener(name, (e) => fn(JSON.parse(e.data), e));
   }
 

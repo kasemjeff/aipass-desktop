@@ -1,3 +1,4 @@
+// @ts-check
 // The files panel: the tree of the project, and the search over it.
 //
 // The panel used to list one directory and stop: clicking a folder did
@@ -13,7 +14,7 @@
 /**
  * The files panel: the tree, the trail and the search.
  *
- * @param {object} ctx the window it draws into
+ * @param {any} ctx the window it draws into
  */
 export function createFilesPanel(ctx) {
   const { $, el, state, rpc, clickable, friendly, addNote, addCommandOut } = ctx;
@@ -27,13 +28,14 @@ export function createFilesPanel(ctx) {
 //
 // The field has two modes, and the button at its end says which one is on:
 // by the NAME of a file, or by what is WRITTEN in it.
+/** @type {any} */
 const filesState = { dir: '.', query: '', mode: 'name', entries: [], results: null, error: null, searching: false };
 
 /** The type of a file, from its name: the shape tells you what a file is
  *  before the name is read. */
 const CODE_EXT = new Set(['js', 'mjs', 'cjs', 'ts', 'tsx', 'jsx', 'py', 'rs', 'go', 'java', 'c', 'h', 'cc', 'cpp', 'hpp', 'cs', 'rb', 'php', 'sh', 'ps1', 'css', 'scss', 'html', 'json', 'yaml', 'yml', 'toml', 'sql', 'lua', 'swift', 'kt', 'vue', 'svelte']);
 const IMAGE_EXT = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico', 'avif']);
-const fileIcon = (name, dir) => {
+const fileIcon = (/** @type {any} */ name, /** @type {any} */ dir) => {
   if (dir) return 'ico-dir';
   const ext = String(name).split('.').pop()?.toLowerCase() ?? '';
   if (IMAGE_EXT.has(ext)) return 'ico-image';
@@ -42,7 +44,7 @@ const fileIcon = (name, dir) => {
 };
 
 /** A file's size, the way a person reads it: 812 B, 12 KB, 3.4 MB. */
-function fileSize(bytes) {
+function fileSize(/** @type {any} */ bytes) {
   if (bytes == null || !Number.isFinite(bytes)) return '';
   if (bytes < 1024) return `${bytes} B`;
   const kb = bytes / 1024;
@@ -61,7 +63,7 @@ function projectLabel() {
 }
 
 /** A path in two: the folder it lives in, and the name it has there. */
-function splitPath(p) {
+function splitPath(/** @type {any} */ p) {
   const cut = String(p ?? '').lastIndexOf('/');
   return {
     dir: cut === -1 ? '' : String(p).slice(0, cut),
@@ -76,7 +78,7 @@ function splitPath(p) {
  * A search that shows what it matched is a search you can trust: the reader
  * sees WHY the row is in the list, and not only that it is.
  */
-function markText(text, positions) {
+function markText(/** @type {any} */ text, /** @type {any} */ positions) {
   const box = el('span');
   const hit = new Set(positions ?? []);
   let buf = '';
@@ -100,7 +102,7 @@ function markText(text, positions) {
  * way back. The head of the section says where you are; this says how to
  * get out again.
  */
-function renderCrumbs(dir, searching = false) {
+function renderCrumbs(/** @type {any} */ dir, searching = false) {
   const box = $('files-crumbs');
   if (!box) return;
   box.textContent = '';
@@ -130,7 +132,7 @@ function renderCrumbs(dir, searching = false) {
  * A search result that is a folder is a way INTO it — and once you are in it,
  * the list is that folder, not the results of the word you typed.
  */
-function openFolder(rel) {
+function openFolder(/** @type {any} */ rel) {
   filesState.query = '';
   filesState.results = null;
   filesState.searching = false;
@@ -162,7 +164,7 @@ function renderFiles() {
   renderCrumbs(dir, searching);
   ul.textContent = '';
 
-  const all = searching ? (filesState.results ?? []) : (filesState.entries ?? []);
+  const all = /** @type {any} */ (searching ? (filesState.results ?? []) : (filesState.entries ?? []));
   const count = $('files-count');
   if (count) {
     count.textContent = searching
@@ -221,7 +223,7 @@ function renderFiles() {
       li.title = `${rel}:${e.line}\n${e.text}`;
       clickable(li, () => void ctx.openFile(rel, e.line));
     } else {
-      const nameHits = (e.hits ?? []).filter((i) => i >= parts.start).map((i) => i - parts.start);
+      const nameHits = (e.hits ?? []).filter((/** @type {any} */ i) => i >= parts.start).map((/** @type {any} */ i) => i - parts.start);
       // A folder keeps its slash in the tree; in the search the path below
       // the name says where it is, and a slash there would be noise.
       const label = searching ? parts.name : (e.dir ? `${e.name}/` : e.name);
@@ -243,9 +245,9 @@ function renderFiles() {
       // Attach straight from the panel: the file is right there, and a picker
       // is a detour.
       const attach = el('button', 'mini', 'แนบ');
-      attach.onclick = async (ev) => {
+      attach.onclick = async (/** @type {any} */ ev) => {
         ev?.stopPropagation?.();
-        const item = await rpc('attachment.stage', { path: rel }).catch((err) => ({ error: err.message }));
+        const item = await rpc('attachment.stage', { path: rel }).catch((/** @type {any} */ err) => ({ error: err.message }));
         if (item.error) { addNote(`แนบไม่ได้: ${friendly(item.error)}`); return; }
         state.attachments.set(item.id, item);
         ctx.renderAttachments();
@@ -262,7 +264,7 @@ function renderFiles() {
 
 /** The list could not be read. Say so, and offer the one thing that fixes
  *  it: reading it again. */
-function renderFilesError(message, dir) {
+function renderFilesError(/** @type {any} */ message, /** @type {any} */ dir) {
   const ul = $('files');
   ul.textContent = '';
   const li = el('li', 'dim');
@@ -290,7 +292,7 @@ async function refreshFiles(dir = filesState.dir) {
   // the disk, and the reader should see that a new one is being taken.
   const btn = $('files-refresh');
   btn?.classList.add('busy');
-  const out = await rpc('fs.list', { dir: target }).catch((err) => ({ error: err.message }));
+  const out = await rpc('fs.list', { dir: target }).catch((/** @type {any} */ err) => ({ error: err.message }));
   btn?.classList.remove('busy');
   filesState.dir = target;
   filesState.error = out?.error ? String(out.error) : null;
@@ -306,10 +308,10 @@ async function refreshFiles(dir = filesState.dir) {
  * and not a walk — the difference between a search that keeps up with the
  * keyboard and one that does not.
  */
-async function searchFiles(query) {
+async function searchFiles(/** @type {any} */ query) {
   const byContent = filesState.mode === 'content';
   const out = await rpc(byContent ? 'fs.grep' : 'fs.search', byContent ? { query, limit: 60 } : { query, limit: 120 })
-    .catch((err) => ({ error: err.message }));
+    .catch((/** @type {any} */ err) => ({ error: err.message }));
   if (filesState.query !== query) return; // a newer word won the race
   filesState.searching = false;
   if (out?.error) {
@@ -329,7 +331,7 @@ async function searchFiles(query) {
  * The button at the end of the field says which one is on, and the shortcut
  * (Ctrl+Shift+F) flips it — the two ways every editor offers a grep.
  */
-function setSearchMode(mode) {
+function setSearchMode(/** @type {any} */ mode) {
   if (filesState.mode === mode) return;
   filesState.mode = mode;
   filesState.results = null;
@@ -360,6 +362,7 @@ $('file-mode').onclick = () => setSearchMode(filesState.mode === 'content' ? 'na
 // The field has two modes, and the list says which one it is: empty, the
 // panel walks the folder you are in; with a word in it, the panel answers
 // from the whole project.
+/** @type {any} */
 let fileSearchTimer = null;
 $('file-filter').oninput = () => {
   const query = ($('file-filter').value ?? '').trim();
@@ -380,8 +383,8 @@ $('file-filter').oninput = () => {
 // The keyboard, in the field: Enter opens what the search found, and ↓ walks
 // down into the results. A field you can type in but not act on is a form,
 // not a tool.
-$('file-filter').addEventListener('keydown', (ev) => {
-  const first = (filesState.results ?? filesState.entries ?? [])[0];
+$('file-filter').addEventListener('keydown', (/** @type {any} */ ev) => {
+  const first = /** @type {any} */ ((filesState.results ?? filesState.entries ?? [])[0]);
   if (ev.key === 'Enter' && first) {
     ev.preventDefault();
     const rel = filesState.query

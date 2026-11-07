@@ -1,3 +1,4 @@
+// @ts-check
 // The window's own ask: a confirm and a text field, answered in the sheet.
 //
 // window.confirm and window.prompt answer nothing on WKWebView and WebKitGTK
@@ -10,7 +11,7 @@
 /**
  * The ask factory: confirm and prompt, promised, over the window's sheet.
  *
- * @param {object} ctx the window it draws into — needs `$`, `el`,
+ * @param {any} ctx the window it draws into — needs `$`, `el`,
  *   `openModal`, `hideModal`, and `setModalCloseHook` (app.js wires the
  *   sheet's every close path to it)
  */
@@ -20,6 +21,7 @@ export function createAsk(ctx) {
   // One ask at a time — the sheet is one dialog. Opening a second settles
   // the first as its own kind of "no" and hands the sheet back first, so the
   // second borrow sees the sheet, not the first ask's leftovers.
+  /** @type {any} */
   let pending = null;
 
   // Hand the sheet back the way it was taken. An ask that opens from inside
@@ -29,6 +31,7 @@ export function createAsk(ctx) {
   // back is the sheet again, not a copy of it. A bare hideModal here would
   // close the sheet under the person and paint the next error into nodes
   // nobody can see.
+  /** @param {any} borrowed */
   function giveBack(borrowed) {
     if (!borrowed) {
       hideModal();
@@ -46,6 +49,7 @@ export function createAsk(ctx) {
     if (borrowed.focus) borrowed.focus.focus?.();
   }
 
+  /** @param {{title: string, message: string, note?: string, confirmLabel?: string, cancelLabel?: string, danger?: boolean, kind?: string, value?: string, placeholder?: string, inputLabel?: any}} opts */
   function ask({ title, message, note, confirmLabel = 'ยืนยัน', cancelLabel = 'ยกเลิก', danger = false, kind = 'confirm', value = '', placeholder = '', inputLabel = null }) {
     return new Promise((resolve) => {
       if (pending) {
@@ -65,6 +69,7 @@ export function createAsk(ctx) {
         focus: document.activeElement,
       } : null;
       pending = { settle: resolve, kind, borrowed };
+      /** @param {any} answer */
       const give = (answer) => {
         const done = pending;
         pending = null;
@@ -87,6 +92,7 @@ export function createAsk(ctx) {
       body.textContent = '';
       if (message) body.append(el('p', null, message));
       if (note) body.append(el('p', 'dim', note));
+      /** @type {any} */
       let field = null;
       if (kind === 'text') {
         field = el('input');
@@ -96,7 +102,7 @@ export function createAsk(ctx) {
         field.setAttribute('aria-label', inputLabel ?? title);
         // Enter says yes, like the prompt it replaces: the hand is already
         // on the keyboard, and sending it to the button is a detour.
-        field.addEventListener('keydown', (ev) => {
+        field.addEventListener('keydown', (/** @type {KeyboardEvent} */ ev) => {
           if (ev.key === 'Enter') { ev.preventDefault?.(); give(field.value); }
         });
         body.append(field);
@@ -118,8 +124,10 @@ export function createAsk(ctx) {
   }
 
   /** True only when the person said so. Cancel, Escape and an outside close all read as no. */
+  /** @param {any} opts */
   const askConfirm = (opts) => ask({ ...opts, kind: 'confirm' });
   /** The typed text, or null when the ask went unanswered; an empty confirm is ''. */
+  /** @param {any} opts */
   const askText = (opts) => ask({ ...opts, kind: 'text' });
 
   return { askConfirm, askText };

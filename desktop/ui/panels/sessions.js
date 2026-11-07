@@ -1,3 +1,4 @@
+// @ts-check
 // The rail: the history of this project's conversations, and the folds
 // around it.
 //
@@ -14,12 +15,12 @@
    model's own wire protocol, desktop/AGENTS.md): the draft names the playbook
    the way the loop expects it loaded, and the reader appends the actual task. */
 export const SKILL_NAME_RE = /^[a-z0-9][a-z0-9-]*$/i;
-export const skillUsePhrase = (name) => `อ่านคู่มือ ${name} (SKILL ${name}) และทำตามคู่มือนั้นสำหรับงานนี้: `;
+export const skillUsePhrase = (/** @type {any} */ name) => `อ่านคู่มือ ${name} (SKILL ${name}) และทำตามคู่มือนั้นสำหรับงานนี้: `;
 
 /**
  * The rail: the session list, the folds, the playbooks and the facts.
  *
- * @param {object} ctx the window it draws into
+ * @param {any} ctx the window it draws into
  */
 export function createSessionsPanel(ctx) {
   const { $, el, state, rpc, clickable, addNote, addCommandOut, hideModal, openModal } = ctx;
@@ -33,10 +34,10 @@ const TH_MONTHS = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.�
 /* The midnight a day starts at, and how many midnights back a moment is. Two
    questions ask that — the word a row shows and the group it lands in — and
    they must not disagree, so the arithmetic lives here once. */
-const midnight = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
-const daysAgo = (when) => Math.round((midnight(new Date()) - midnight(when)) / 86_400_000);
+const midnight = (/** @type {any} */ d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+const daysAgo = (/** @type {any} */ when) => Math.round((Number(midnight(new Date())) - Number(midnight(when))) / 86_400_000);
 
-function sessionDay(when) {
+function sessionDay(/** @type {any} */ when) {
   const away = daysAgo(when);
   if (away <= 0) return 'วันนี้';
   if (away === 1) return 'เมื่อวาน';
@@ -50,7 +51,7 @@ function sessionDay(when) {
  * wall of clocks; the groups turn it into a handful of questions ("today",
  * "this week", "older") and the clock stays where it belongs — in the row.
  */
-function sessionBucket(when) {
+function sessionBucket(/** @type {any} */ when) {
   if (!when || Number.isNaN(when.getTime())) return 'เก่ากว่านั้น';
   const away = daysAgo(when);
   if (away <= 0) return 'วันนี้';
@@ -71,13 +72,13 @@ const FOLD_KEY = 'aipass.side.fold';
 const readFolds = () => {
   try { return JSON.parse(localStorage.getItem(FOLD_KEY) ?? '{}') ?? {}; } catch { return {}; }
 };
-function applyFold(id, folded) {
+function applyFold(/** @type {any} */ id, /** @type {any} */ folded) {
   $(id)?.classList.toggle('folded', folded);
   // The section and its button carry the same name, minus the suffix:
   // files-section and files-fold.
   $(id.replace(/-section$/, '-fold'))?.setAttribute('aria-expanded', String(!folded));
 }
-function toggleFold(id) {
+function toggleFold(/** @type {any} */ id) {
   const folded = !$(id)?.classList.contains('folded');
   applyFold(id, folded);
   const folds = readFolds();
@@ -95,7 +96,7 @@ for (const id of ['sessions-section', 'files-section']) {
  * reach with the mouse is half a list, and the mouse is not the only thing
  * a person has.
  */
-function arrowNav(list, ev) {
+function arrowNav(/** @type {any} */ list, /** @type {any} */ ev) {
   if (ev.key !== 'ArrowDown' && ev.key !== 'ArrowUp') return;
   const rows = [...(list?.children ?? [])].filter((r) => r.tabIndex === 0);
   if (!rows.length) return;
@@ -106,8 +107,8 @@ function arrowNav(list, ev) {
   rows[next].focus?.();
   rows[next].scrollIntoView?.({ block: 'nearest' });
 }
-$('sessions').addEventListener('keydown', (ev) => arrowNav($('sessions'), ev));
-$('files').addEventListener('keydown', (ev) => arrowNav($('files'), ev));
+$('sessions').addEventListener('keydown', (/** @type {any} */ ev) => arrowNav($('sessions'), ev));
+$('files').addEventListener('keydown', (/** @type {any} */ ev) => arrowNav($('files'), ev));
 
 /**
  * The session list. 99 sessions on this machine and counting — a list of 40 with
@@ -118,6 +119,7 @@ $('files').addEventListener('keydown', (ev) => arrowNav($('files'), ev));
 // header of every file), and refreshSessions runs on every search keystroke —
 // so the list rides a short cache. Every mutation in this panel passes
 // bypassArchive, and the bar is honest again right away.
+  /** @type {any} */
 let archivedCache = null;
 let archivedAt = 0;
 const ARCHIVED_TTL = 60_000;
@@ -136,11 +138,11 @@ async function refreshSessions(bypassArchive = false) {
   // Helper sessions (created by a SUBAGENT run) are hidden by default so the
   // sidebar stays about the person's own conversations; a toggle shows them.
   const showHelpers = (typeof localStorage !== 'undefined' ? localStorage.getItem('aipass.showHelperSessions') : null) === '1';
-  const list = showHelpers ? rawList : rawList.filter((s) => !s.helper);
+  const list = showHelpers ? rawList : rawList.filter((/** @type {any} */ s) => !s.helper);
   const ul = $('sessions');
   ul.textContent = '';
   const query = ($('session-filter')?.value ?? '').trim().toLowerCase();
-  const matched = list.filter((s) => !query || `${s.title ?? ''} ${s.id}`.toLowerCase().includes(query));
+  const matched = list.filter((/** @type {any} */ s) => !query || `${s.title ?? ''} ${s.id}`.toLowerCase().includes(query));
   const shown = matched.slice(0, 60);
   // How many there are, next to the label — a list whose size is invisible is
   // a list you cannot tell apart from "nothing there". While the filter is on
@@ -165,7 +167,7 @@ async function refreshSessions(bypassArchive = false) {
       try {
         const out = await rpc('session.archive', { olderThanDays: 30, limit: 50 });
         addCommandOut(out?.count ? `เก็บ ${out.count} บทสนทนาเก่าเข้า archive/ แล้ว` : 'ไม่มีบทสนทนาเก่าเกิน 30 วันให้เก็บ');
-      } catch (err) { addNote(`เก็บไม่ได้: ${err.message}`); }
+      } catch (/** @type {any} */ err) { addNote(`เก็บไม่ได้: ${err.message}`); }
       await refreshSessions(true);
     };
     bar.append(btn);
@@ -212,7 +214,7 @@ async function refreshSessions(bypassArchive = false) {
     // business.
     const out = el('button', 'mini', 'ส่งออก');
     out.title = 'ส่งออกบทสนทนานี้เป็นไฟล์ md หรือ html';
-    out.onclick = (ev) => { ev.stopPropagation?.(); void ctx.exportSession(s.id, s.title); };
+    out.onclick = (/** @type {any} */ ev) => { ev.stopPropagation?.(); void ctx.exportSession(s.id, s.title); };
     li.append(out);
     clickable(li, () => void ctx.openSession(s.id));
     ul.append(li);
@@ -228,7 +230,7 @@ async function refreshSessions(bypassArchive = false) {
  * bring one back either, which made the archive a one-way door. The row
  * says how many are in there, and each of them can be put back where it was.
  */
-async function drawArchived(ul, bypass = false) {
+async function drawArchived(/** @type {any} */ ul, bypass = false) {
   const archived = await archivedRows(bypass);
   if (!archived.length) return;
   const bar = el('li', 'dim archive-bar');
@@ -246,7 +248,7 @@ async function drawArchived(ul, bypass = false) {
     try {
       const out = await rpc('session.prune', { olderThanDays: 90, limit: 50 });
       addCommandOut(out?.count ? `ลบบทสนทนาที่เก็บเก่า ${out.count} รายการแล้ว` : 'ไม่มีบทสนทนาที่เก็บเก่าเกิน 90 วันให้ลบ');
-    } catch (err) { addNote(`ลบไม่ได้: ${err.message}`); }
+    } catch (/** @type {any} */ err) { addNote(`ลบไม่ได้: ${err.message}`); }
     await refreshSessions(true);
   };
   let open = false;
@@ -267,7 +269,7 @@ async function drawArchived(ul, bypass = false) {
         try {
           await rpc('session.unarchive', { id: s.id });
           addCommandOut(`คืนบทสนทนา "${s.title ?? '(untitled)'}" เข้ารายการแล้ว`);
-        } catch (err) { addNote(`คืนไม่ได้: ${err.message}`); }
+        } catch (/** @type {any} */ err) { addNote(`คืนไม่ได้: ${err.message}`); }
         await refreshSessions(true);
       };
       row.append(back);
@@ -305,7 +307,7 @@ const ROLE_TH = { user: 'ผู้ใช้', project: 'โปรเจกต์
  * run load it, and the draft storage is synced through the one saveDraft the
  * composer listens with — an assignment fires no input event.
  */
-function useSkill(name) {
+function useSkill(/** @type {any} */ name) {
   const task = $('task');
   task.value = skillUsePhrase(name);
   ctx.saveDraft?.();
@@ -318,14 +320,14 @@ function useSkill(name) {
  * click and done by the second — a button that destroys on the click that
  * aims at "ดู" is how a playbook is lost to a mis-aimed pointer.
  */
-async function removeSkillRow(btn, s, ul) {
+async function removeSkillRow(/** @type {any} */ btn, /** @type {any} */ s, /** @type {any} */ ul) {
   if (btn.dataset.arm !== '1') {
     btn.dataset.arm = '1';
     btn.textContent = 'ยืนยันลบ?';
     return;
   }
   const target = s.role === 'project' ? 'project' : 'user';
-  const done = await rpc('skills.remove', { name: s.name, target }).catch((err) => ({ error: err.message }));
+  const done = await rpc('skills.remove', { name: s.name, target }).catch((/** @type {any} */ err) => ({ error: err.message }));
   if (done.error) { addNote(`ลบไม่ได้: ${done.error}`); return; }
   addCommandOut(`ลบคู่มือ ${s.name} ออกจาก${target === 'project' ? 'โปรเจกต์ (.aipass/skills)' : 'ผู้ใช้ (~/.aipass/skills)'}แล้ว`);
   renderSkillList(ul, await refreshSkills());
@@ -339,7 +341,7 @@ async function removeSkillRow(btn, s, ul) {
  * read. Each row carries the invoke and (for the libraries a person may write)
  * the remove — the list is where a playbook is managed, not only named.
  */
-function renderSkillList(ul, skills = state.skills) {
+function renderSkillList(/** @type {any} */ ul, skills = state.skills) {
   ul.textContent = '';
   if (!skills.length) {
     ul.append(el('li', 'dim', '(ยังไม่มีคู่มือ — กด "ติดตั้งคู่มือ…" หรือวางไฟล์ .md ในโฟลเดอร์คู่มือ)'));
@@ -351,15 +353,15 @@ function renderSkillList(ul, skills = state.skills) {
     const name = el('span', 'name', s.name);
     name.title = s.file ?? '';
     row.append(name);
-    if (s.role) row.append(el('span', 'role dim', ROLE_TH[s.role] ?? s.role));
+    if (s.role) row.append(el('span', 'role dim', (/** @type {any} */ (ROLE_TH))[s.role] ?? s.role));
     const actions = el('span', 'skill-actions');
     const use = el('button', 'mini', 'ใช้');
     use.title = 'เติมคำเรียกคู่มือนี้ในช่องพิมพ์ — แล้วพิมพ์งานต่อท้าย';
-    use.onclick = (ev) => { ev.stopPropagation(); useSkill(s.name); };
+    use.onclick = (/** @type {any} */ ev) => { ev.stopPropagation(); useSkill(s.name); };
     actions.append(use);
     if (s.role === 'user' || s.role === 'project') {
       const del = el('button', 'mini danger', 'ลบ');
-      del.onclick = (ev) => { ev.stopPropagation(); void removeSkillRow(del, s, ul); };
+      del.onclick = (/** @type {any} */ ev) => { ev.stopPropagation(); void removeSkillRow(del, s, ul); };
       actions.append(del);
     }
     row.append(actions);
@@ -367,10 +369,10 @@ function renderSkillList(ul, skills = state.skills) {
     const view = el('pre', 'dim skill-body', '');
     view.hidden = true;
     // Selecting a line of the playbook is not asking to close it.
-    view.onclick = (ev) => ev.stopPropagation();
+    view.onclick = (/** @type {any} */ ev) => ev.stopPropagation();
     clickable(li, async () => {
       if (!view.hidden) { view.hidden = true; return; }
-      const found = await rpc('skills.load', { name: s.name }).catch((err) => ({ error: err.message }));
+      const found = await rpc('skills.load', { name: s.name }).catch((/** @type {any} */ err) => ({ error: err.message }));
       view.textContent = found.error ?? found.text ?? '';
       view.hidden = false;
     });
@@ -386,7 +388,7 @@ function renderSkillList(ul, skills = state.skills) {
  * backend — the backend receives text and a whitelisted name, the same two
  * things a paste carries. Overwriting an existing playbook asks once.
  */
-function installSkillDialog({ onInstalled } = {}) {
+function installSkillDialog({ onInstalled } = /** @type {any} */ ({})) {
   $('modal-title').textContent = 'ติดตั้งคู่มือ (playbook)';
   const body = $('modal-body');
   body.textContent = '';
@@ -436,14 +438,14 @@ function installSkillDialog({ onInstalled } = {}) {
     const target = targetSel.value;
     if (!SKILL_NAME_RE.test(name)) { addNote('ชื่อคู่มือใช้ได้เฉพาะ a-z 0-9 และ - (เริ่มด้วยตัวอักษรหรือตัวเลข)'); return; }
     if (!text.trim()) { addNote('ยังไม่มีเนื้อหา — วาง markdown หรือเลือกไฟล์ .md ก่อน'); return; }
-    const send = (overwrite) => rpc('skills.install', { name, text, target, overwrite });
-    let done = await send(false).catch((err) => ({ error: err.message }));
+    const send = (/** @type {any} */ overwrite) => rpc('skills.install', { name, text, target, overwrite });
+    let done = await send(false).catch((/** @type {any} */ err) => ({ error: err.message }));
     if (done.error && /already exists/.test(done.error)) {
       // The ask goes through the window's own dialog: a bare confirm answers
       // nothing on WKWebView and WebKitGTK, where a missing confirm used to
       // read as a yes and overwrote the playbook without being asked.
       if (!(await ctx.askConfirm({ title: 'เขียนทับคู่มือ', message: `มีคู่มือ "${name}" อยู่แล้ว — เขียนทับ?`, confirmLabel: 'เขียนทับ' }))) { addNote('ยกเลิกการเขียนทับ'); return; }
-      done = await send(true).catch((err) => ({ error: err.message }));
+      done = await send(true).catch((/** @type {any} */ err) => ({ error: err.message }));
     }
     if (done.error) { addNote(`ติดตั้งไม่ได้: ${done.error}`); return; }
     addCommandOut(`ติดตั้งคู่มือ ${name} ลง${target === 'project' ? 'โปรเจกต์ (.aipass/skills)' : 'ผู้ใช้ (~/.aipass/skills)'}แล้ว${done.overwritten ? ' (เขียนทับ)' : ''}`);
@@ -468,7 +470,7 @@ function installSkillDialog({ onInstalled } = {}) {
  * are working on. The list is drawn into whatever container the sheet gives
  * it, so opening the sheet always shows what is true right now.
  */
-async function renderMemoryFacts(ul, head) {
+async function renderMemoryFacts(/** @type {any} */ ul, /** @type {any} */ head) {
   const res = await rpc('memory.list').catch(() => null);
   const facts = res?.facts ?? [];
   if (head) head.textContent = facts.length ? `facts ข้าม session (${facts.length})` : 'facts ข้าม session';

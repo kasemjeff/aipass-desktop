@@ -1,3 +1,4 @@
+// @ts-check
 /* aipass desktop — the window.
  *
  * All state lives on the backend (`/rpc`); this file is a view. Runs survive a
@@ -27,6 +28,10 @@ import { createWorking } from './working.js';
 import { createEventStream } from './stream.js';
 import { createDraft } from './draft.js';
 
+/**
+ * @param {string} id
+ * @returns {any}
+ */
 const $ = (id) => document.getElementById(id);
 const log = $('log');
 
@@ -49,6 +54,11 @@ const rpc = client.rpc;
 
 /* ---------------------------------------------------------------- helpers */
 
+/**
+ * @param {string} tag
+ * @param {?string} [cls]
+ * @param {?string} [text]
+ */
 const el = (tag, cls, text) => {
   const n = document.createElement(tag);
   if (cls) n.className = cls;
@@ -57,7 +67,7 @@ const el = (tag, cls, text) => {
 };
 
 /** The line under the composer: '' hides it; busy adds the pulsing dot. */
-const setHint = (text, busy = false) => {
+const setHint = (/** @type {any} */ text, busy = false) => {
   const h = $('hint');
   h.textContent = text ?? '';
   h.classList.toggle('busy', Boolean(busy && text));
@@ -74,11 +84,11 @@ const { setWorking, paintWorking } = working;
 setWorking(false);
 
 /** Make a list row behave like a button: click, Enter and Space all run it. */
-const clickable = (row, run) => {
+const clickable = (/** @type {any} */ row, /** @type {any} */ run) => {
   row.onclick = run;
   row.tabIndex = 0;
   row.setAttribute('role', 'button');
-  row.addEventListener('keydown', (ev) => {
+  row.addEventListener('keydown', (/** @type {any} */ ev) => {
     // A key pressed on a control INSIDE the row is that control's business.
     // The row's handler used to swallow it and call preventDefault, which
     // cancelled the control's own activation: Enter on the "แนบ" button
@@ -95,6 +105,7 @@ const clickable = (row, run) => {
    unknown error is better verbatim than guessed at. A copy may be a function:
    some failures have two causes with two fixes, and the window knows which
    one it is looking at. */
+/** @type {any[]} */
 const ERROR_COPY = [
   // The extension is not attached. Two jobs hide behind the same
   // "extensions: 0": the extension was never loaded, or the bridge refused
@@ -122,7 +133,7 @@ const ERROR_COPY = [
   // number at all) so the banner can say which fix applies.
   [/credit|quota|0 of .* left|insufficient/i, 'เครดิตหมด (0) — รอรอบถัดไป หรือสลับไปใช้โมเดล free-credit (gemini-3.1-flash-lite)'],
 ];
-const friendly = (msg) => {
+const friendly = (/** @type {any} */ msg) => {
   const s = String(msg ?? '');
   for (const [re, copy] of ERROR_COPY) if (re.test(s)) return typeof copy === 'function' ? copy() : copy;
   return s;
@@ -136,7 +147,7 @@ const STAGE_COPY = {
   swap: 'สลับไฟล์',
   finalize: 'โหลดปลั๊กอินใหม่',
 };
-const stageLabel = (stage) => STAGE_COPY[stage] ?? stage;
+const stageLabel = (/** @type {any} */ stage) => (/** @type {any} */ (STAGE_COPY))[stage] ?? stage;
 /** Follow the conversation only while the reader is already at the bottom.
  *  Scrolling up to read something and being yanked back down by the next line
  *  is the kind of small thing that makes a window feel hostile. */
@@ -152,7 +163,7 @@ const atBottom = () => log.scrollHeight - log.scrollTop - log.clientHeight < 80;
 let scrollQueued = false;
 const nextScrollFrame = typeof requestAnimationFrame === 'function'
   ? requestAnimationFrame
-  : (fn) => setTimeout(fn, 0);
+  : (/** @type {any} */ fn) => setTimeout(fn, 0);
 const scrollDown = (force = false) => {
   if (force) { log.scrollTop = log.scrollHeight; return; }
   if (scrollQueued) return;
@@ -188,6 +199,9 @@ setLogBusy(false);
 // backend client. Every module of the window takes this one object, so there
 // is one answer to "what is the window showing right now" — and a module that
 // needs another module's work reaches it through here.
+// The shared context is a bag by design: modules reach each other through it,
+// so it is `any` — there is no fixed shape to check against.
+/** @type {any} */
 const ctx = { $, el, log, state, scrollDown, atBottom, rpc, client, clickable, friendly, stageLabel, setLogBusy };
 // The context meter's timer. The sheet starts it and the sheet's close stops
 // it — one timer, shared through the context, so a "คืนค่าเดิม" (which
@@ -208,8 +222,9 @@ ctx.cancelRun = cancelRun;
 // notes, the commands' refresh), but /update reaches them from the commands,
 // which are built before — so the context carries a wrapper that resolves
 // when the first command runs.
+/** @type {any} */
 let banners = null;
-ctx.checkForUpdate = (...a) => banners.checkForUpdate(...a);
+ctx.checkForUpdate = (/** @type {any[]} */ ...a) => banners.checkForUpdate(...a);
 // The file panel and the rail open sessions and files through the commands.
 ctx.openFile = openFile;
 ctx.openSession = openSession;
@@ -253,7 +268,7 @@ const { addTask, addNote, addCommandOut, assistantText, assistantSummary, replay
  * "verify" where every other row reads a word. The label is applied here.
  */
 const TOOL_KIND = { verify: 'Verify' };
-const toolKind = (kind) => TOOL_KIND[kind] ?? kind;
+const toolKind = (/** @type {any} */ kind) => (/** @type {any} */ (TOOL_KIND))[kind] ?? kind;
 
 // The rail: the session list, the playbooks and the facts the app remembers.
 const sessionsPanel = createSessionsPanel(ctx);
@@ -277,7 +292,7 @@ const helpersPanel = createHelpersPanel(ctx);
 const { addHelper, updateHelper, addJob, updateJob } = helpersPanel;
 ctx.helpersPanel = helpersPanel;
 // Exposed for the test harness (ui.test.mjs drives the panel directly).
-globalThis.__ctx = ctx;
+(/** @type {any} */ (globalThis)).__ctx = ctx;
 
 // The confirm and prompt of the window — every destructive or typed ask in
 // the panels and features goes through these, because window.confirm and
@@ -377,9 +392,13 @@ function resetTranscript() {
 // outside #log (directly before #pending), so folding the run's trail never
 // swallows it — and its list scrolls inside a bounded box (styles.css), so a
 // plan of fifty items no longer pushes the conversation off the screen.
+/** @type {any} */
 let todoPanel = null;
+/** @type {any} */
 let todoHead = null;
+/** @type {any} */
 let todoList = null;
+/** @type {any} */
 let todoRows = []; // [{ li, text }] — lets an unchanged row stay put across updates
 
 /** Drop the plan/todo card — a new session must not show the old one's plan. */
@@ -392,7 +411,7 @@ function clearTodo() {
   todoRows = [];
 }
 
-function renderTodo(items) {
+function renderTodo(/** @type {any} */ items) {
   // A todo frame is wire data; a malformed one is dropped, never a crash in
   // the middle of the run's stream.
   if (!Array.isArray(items)) return;
@@ -433,7 +452,7 @@ function renderTodo(items) {
   todoList.scrollTop = keepScroll;
 }
 
-function renderPending(changes) {
+function renderPending(/** @type {any} */ changes) {
   const wrap = $('pending');
   const list = $('pending-list');
   // A file the human unticked stays unticked. The panel is rebuilt on every
@@ -479,7 +498,7 @@ function renderPending(changes) {
   badge.className = `check-badge ${verdict === 'pass' ? 'pass' : verdict === 'fail' ? 'fail' : 'none'}${show ? '' : ' hidden'}`;
 }
 
-async function showDiff(file) {
+async function showDiff(/** @type {any} */ file) {
   const change = await rpc('diff', { file }).catch((err) => ({ error: err.message }));
   const body = $('modal-body');
   body.textContent = '';
@@ -516,6 +535,7 @@ ctx.showDiff = showDiff;
 // through here: every path out of the sheet — a button, Escape, another
 // surface taking the modal — ends in hideModal, so the hook is the one place
 // a promise can be settled from.
+/** @type {any} */
 let modalCloseHook = null;
 
 function openModal() {
@@ -536,7 +556,7 @@ function openModal() {
  * the only way back. Tab from the last control wraps to the first, and
  * Shift+Tab from the first wraps to the last.
  */
-function trapFocus(ev) {
+function trapFocus(/** @type {any} */ ev) {
   const modal = $('modal');
   const items = [...(modal.querySelectorAll?.('button, input, select, textarea, a[href], [tabindex]') ?? [])]
     .filter((n) => n.getClientRects?.().length !== 0 || n.offsetParent !== null);
@@ -581,11 +601,11 @@ function hideModal() {
 
 // The ask registers here, and one ask lives at a time — the hook is the
 // sheet's, not the ask's, so registering replaces whatever stood there.
-ctx.setModalCloseHook = (fn) => { modalCloseHook = fn; };
+ctx.setModalCloseHook = (/** @type {any} */ fn) => { modalCloseHook = fn; };
 
 /* ------------------------------------------------------------ permissions */
 
-function askPermission({ id, kind, arg, risk, preview, project = null }) {
+function askPermission(/** @type {any} */ { id, kind, arg, risk, preview, project = null }) {
   // A plugin marker is not a file and not a command: it is code the model
   // wants to run, and the person is asked about the marker and what it was
   // handed. The title says so, because "change this file?" over a marker
@@ -623,7 +643,7 @@ function askPermission({ id, kind, arg, risk, preview, project = null }) {
   actions.textContent = '';
   // The answer routes by the request's project: with two windows open, this
   // question may belong to the project that is not the backend's current one.
-  const answer = (decision) => { hideModal(); rpc('permission.answer', { id, decision, ...(project ? { project } : {}) }); };
+  const answer = (/** @type {any} */ decision) => { hideModal(); rpc('permission.answer', { id, decision, ...(project ? { project } : {}) }); };
   const deny = el('button', null, 'deny');
   deny.onclick = () => answer('deny');
   const allow = el('button', 'primary', 'allow');
@@ -652,7 +672,7 @@ function askPlan(project = null) {
 }
 
 /** A gate the reload swallowed: the run is still waiting on an answer. */
-function restoreAsks(asks) {
+function restoreAsks(/** @type {any} */ asks) {
   if (asks.plan) { askPlan(); return; }
   const list = asks.permissions ?? [];
   if (!list.length) return;
@@ -763,7 +783,7 @@ const STOP_REASON = {
   'goal-rounds': 'ครบรอบเป้าหมาย — หยุด',
 };
 
-onRun('task_start', (data) => {
+onRun('task_start', (/** @type {any} */ data) => {
   if (data?.helper) return; // helper frames must not collapse the parent's turn
   // The run has started: the transcript is busy, so the live region keeps
   // its announcements until the run ends instead of reading the answer's
@@ -785,7 +805,7 @@ onRun('task_start', (data) => {
 
 // A run that cannot proceed because no logged-in chat tab is open is the one
 // failure with a one-click fix, so it gets a banner instead of a log line.
-onAny('needs_tab', (data) => {
+onAny('needs_tab', (/** @type {any} */ data) => {
   const { url } = data;
   state.needsTab = true;
   refreshReadiness();
@@ -797,7 +817,7 @@ onAny('needs_tab', (data) => {
   log.append(bar);
   scrollDown();
 });
-onAny('tab_opened', (data) => {
+onAny('tab_opened', (/** @type {any} */ data) => {
   state.needsTab = false;
   addNote(`เปิด ${data.url} ในบราวเซอร์แล้ว — รอสักครู่แล้วส่งใหม่`);
   refreshReadiness();
@@ -810,14 +830,14 @@ onAny('tab_opened', (data) => {
  * own. A window that silently loses frames is a window that shows a run it
  * did not fully see, so the loss is a line in the conversation.
  */
-onAny('fell_behind', (data) => {
+onAny('fell_behind', (/** @type {any} */ data) => {
   const dropped = Number(data?.dropped ?? 0);
   if (!dropped) return;
   addNote(`ตกหล่น ${dropped} ข้อความจาก backend (หน้าต่างไม่ได้อ่านเร็วพอ) — บทสนทนาที่เหลืออาจไม่ครบ`);
 });
-onRun('assistant_delta', (data) => { if (data?.helper) return; assistantText(data.text); });
-onRun('reasoning_delta', (data) => { if (data?.helper) return; thinkingText(data.text); });
-onRun('step', (data) => {
+onRun('assistant_delta', (/** @type {any} */ data) => { if (data?.helper) return; assistantText(data.text); });
+onRun('reasoning_delta', (/** @type {any} */ data) => { if (data?.helper) return; thinkingText(data.text); });
+onRun('step', (/** @type {any} */ data) => {
   if (data?.helper) return;
   const { step, maxSteps, elapsed } = data;
   // A step is a boundary: the reply that just streamed is finished and its
@@ -831,14 +851,14 @@ onRun('step', (data) => {
 // (mid-run inject) The message the person queued mid-run went out with a
 // step's paste. The window that queued it already said so when the RPC
 // answered; this says it was delivered — including in a second window.
-onRun('injected', (data) => {
+onRun('injected', (/** @type {any} */ data) => {
   addNote(`ส่งข้อความของคุณถึงโมเดลแล้ว (กลางรัน${Number(data?.n) > 1 ? ` ${data.n} ข้อความ` : ''})`);
 });
 
 // The run ended before a step could carry the queued message: it comes back
 // to the composer — a message the person wrote is their intent, not litter.
 // A composer the person has typed into since is left alone.
-onRun('inject_orphaned', (data) => {
+onRun('inject_orphaned', (/** @type {any} */ data) => {
   const texts = Array.isArray(data?.texts) ? data.texts : [];
   if (!texts.length) return;
   if (!$('task').value.trim()) {
@@ -848,7 +868,7 @@ onRun('inject_orphaned', (data) => {
   addNote('รันจบก่อนข้อความจะถูกส่ง — ข้อความกลับมาอยู่ในช่องพิมพ์ กดส่งได้เลย');
 });
 
-onRun('thinking', (data) => {
+onRun('thinking', (/** @type {any} */ data) => {
   const { text } = data;
   // The headline is the first line of the reply, and the bubble is already
   // showing that reply: a line under the step that says it again is the
@@ -859,20 +879,20 @@ onRun('thinking', (data) => {
   log.append(el('div', 'thinking', '⎿ ' + text));
   scrollDown();
 });
-onRun('tool', (data) => addTool({ ...data, kind: toolKind(data.kind) }));
-onRun('note', (data) => addNote(data.text));
-onRun('firewall_note', (data) => addNote(data.text));
-onRun('nudge', (data) => { if (data?.helper) return; addNote(`no marker in that reply — nudging (${data.n}/2)`); });
-onRun('give_up', (data) => { if (data?.helper) return; addNote('no marker after three replies — stopping.'); });
+onRun('tool', (/** @type {any} */ data) => addTool({ ...data, kind: toolKind(data.kind) }));
+onRun('note', (/** @type {any} */ data) => addNote(data.text));
+onRun('firewall_note', (/** @type {any} */ data) => addNote(data.text));
+onRun('nudge', (/** @type {any} */ data) => { if (data?.helper) return; addNote(`no marker in that reply — nudging (${data.n}/2)`); });
+onRun('give_up', (/** @type {any} */ data) => { if (data?.helper) return; addNote('no marker after three replies — stopping.'); });
 onRun('ignore_done', () => addNote('(ignoring DONE — it came before the results it asked for)'));
-onRun('stagnation', (data) => {
+onRun('stagnation', (/** @type {any} */ data) => {
   const { action, pattern } = data;
   const what = pattern === 'oscillation' ? 'สองคำสั่งสลับกันไปมา' : 'คำสั่งเดิมซ้ำ';
   addNote(action === 'stop' ? `ลูปไม่เดินหน้า (${what}) — หยุดให้แล้ว` : `ลูปไม่เดินหน้า (${what}) — สั่งให้เปลี่ยนวิธีแล้ว`);
 });
 onRun('verify_prompt', () => addNote('ขอให้โมเดลพิสูจน์สิ่งที่แก้ก่อนจบ — รันเช็ค หรืออ่านการแก้กลับมา'));
-onRun('check_start', (data) => addNote(`ก่อนรับ DONE — ให้ read-only child ตรวจงานที่ค้างอยู่ (${data.files.length} ไฟล์)`));
-onRun('check_end', (data) => {
+onRun('check_start', (/** @type {any} */ data) => addNote(`ก่อนรับ DONE — ให้ read-only child ตรวจงานที่ค้างอยู่ (${data.files.length} ไฟล์)`));
+onRun('check_end', (/** @type {any} */ data) => {
   const { verdict, ran, skipped } = data;
   const what = skipped ? 'ข้ามการตรวจ — เปิด conversation แยกไม่สำเร็จ'
     : verdict === 'pass' ? `ตรวจผ่านแล้ว (${ran} command)`
@@ -882,12 +902,12 @@ onRun('check_end', (data) => {
 });
 // The goal's three moments: a DONE refused because the project still has work,
 // the model declaring the objective met, and the model asking for a person.
-onRun('goal_round', (data) => addNote(`เป้าหมายยังไม่เสร็จ — เริ่มรอบ ${data.round}/${data.max}`));
-onRun('goal_done', (data) => addNote(`ปิดเป้าหมายแล้ว${data.done ? ` — ${data.done}` : ''}`));
-onRun('goal_blocked', (data) => addNote(`เป้าหมายติด (${data.reason || 'ไม่ระบุเหตุผล'}) — บอกโมเดลได้ที่ /goal resume`));
+onRun('goal_round', (/** @type {any} */ data) => addNote(`เป้าหมายยังไม่เสร็จ — เริ่มรอบ ${data.round}/${data.max}`));
+onRun('goal_done', (/** @type {any} */ data) => addNote(`ปิดเป้าหมายแล้ว${data.done ? ` — ${data.done}` : ''}`));
+onRun('goal_blocked', (/** @type {any} */ data) => addNote(`เป้าหมายติด (${data.reason || 'ไม่ระบุเหตุผล'}) — บอกโมเดลได้ที่ /goal resume`));
 /** A stopped run is a dead end unless the next move is offered: "carry on" is
  *  one click instead of retyping what to do next. */
-function offerCarryOn(what) {
+function offerCarryOn(/** @type {any} */ what) {
   const row = el('div', 'note continue-row');
   row.append(el('span', null, what));
   const on = el('button', 'mini', 'ให้ทำต่อ');
@@ -905,20 +925,20 @@ onRun('step_limit', () => {
 });
 // With no step cap set, a spent budget is what ends a long run — the same dead
 // end the step limit used to be, so it gets the same way out.
-onRun('budget', (data) => {
+onRun('budget', (/** @type {any} */ data) => {
   const { used } = data;
   addNote(`budget spent (${used}) — stopping`);
   offerCarryOn(`หยุดเพราะครบ budget (${used}) — `);
 });
-onRun('error', (data) => { if (data?.helper) return; addNote(`error: ${friendly(data.message)}`); });
-onRun('todo', (data) => renderTodo(data.items));
-onRun('diff_update', (data) => renderPending(data.changes));
+onRun('error', (/** @type {any} */ data) => { if (data?.helper) return; addNote(`error: ${friendly(data.message)}`); });
+onRun('todo', (/** @type {any} */ data) => renderTodo(data.items));
+onRun('diff_update', (/** @type {any} */ data) => renderPending(data.changes));
 // The questions show regardless of project: dropping one would leave that run
 // waiting on an answer nobody can see. Their body names the other project, and
 // the answer routes back by it (rpc.mjs permission.answer / plan.answer).
-onAny('permission_request', (data) => askPermission(data));
-onAny('plan_request', (data) => askPlan(data.project));
-onRun('compacted', (data) => {
+onAny('permission_request', (/** @type {any} */ data) => askPermission(data));
+onAny('plan_request', (/** @type {any} */ data) => askPlan(data.project));
+onRun('compacted', (/** @type {any} */ data) => {
   const { summary } = data;
   addCommandOut(`context เต็ม — สรุปงานที่ผ่านมาแล้วไว้ในบทสนทนาใหม่`);
   // The summary is what survives the rotation. Showing it turns an
@@ -932,31 +952,31 @@ onRun('compacted', (data) => {
   }
   scrollDown();
 });
-onRun('helper_start', (data) => { addHelper(data); addNote(`helper started: ${data.task}`); });
-onRun('helper_end', (data) => {
+onRun('helper_start', (/** @type {any} */ data) => { addHelper(data); addNote(`helper started: ${data.task}`); });
+onRun('helper_end', (/** @type {any} */ data) => {
   const { summary, prepared, skipped } = data;
   updateHelper(data);
   addNote(`helper finished${prepared?.length ? `, prepared ${prepared.length} file(s) for approval` : ''}${skipped?.length ? `, left ${skipped.length} file(s) alone (a newer version was already staged)` : ''}: ${summary}`);
 });
-onRun('subagent_start', (data) => { if (data?.background) addHelper(data); addNote(`subagent started: ${data?.task}`); });
-onRun('subagent_end', (data) => { if (data?.background) updateHelper(data); addNote(`subagent finished: ${data?.out ?? data?.summary ?? ''}`); });
-onRun('job_start', (data) => { addJob(data); addNote(`background job ${data?.id ?? ''} started: ${data?.command ?? ''}`); });
-onRun('job_end', (data) => { updateJob(data); addNote(`background job ${data?.id ?? ''} finished (exit ${data?.code ?? '?'})`); });
-onRun('done_line', (data) => {
+onRun('subagent_start', (/** @type {any} */ data) => { if (data?.background) addHelper(data); addNote(`subagent started: ${data?.task}`); });
+onRun('subagent_end', (/** @type {any} */ data) => { if (data?.background) updateHelper(data); addNote(`subagent finished: ${data?.out ?? data?.summary ?? ''}`); });
+onRun('job_start', (/** @type {any} */ data) => { addJob(data); addNote(`background job ${data?.id ?? ''} started: ${data?.command ?? ''}`); });
+onRun('job_end', (/** @type {any} */ data) => { updateJob(data); addNote(`background job ${data?.id ?? ''} finished (exit ${data?.code ?? '?'})`); });
+onRun('done_line', (/** @type {any} */ data) => {
   if (data?.helper) return;
   const { text, extra } = data;
   assistantSummary(text || 'done');
   if (extra) assistantSummary(extra);
   endTurn();
 });
-onRun('plugin_call', (data) => {
+onRun('plugin_call', (/** @type {any} */ data) => {
   const { marker, arg } = data;
   addNote(`plugin ${marker} ${arg}`.trim());
 });
 // (stop) The backend heard the stop. The run winds down — the tool in flight
 // ends on its own — so the window says so at once: pressing stop used to
 // paint nothing at all, and the button looked broken until the run ended.
-onRun('cancelled', (data) => {
+onRun('cancelled', (/** @type {any} */ data) => {
   if (data?.running === false) return; // there was no run to stop
   state.stopping = true;
   $('send').textContent = 'กำลังหยุด…';
@@ -966,7 +986,7 @@ onRun('cancelled', (data) => {
   setWorking(true, { label: 'กำลังหยุด…' });
   addNote('รับคำสั่งหยุดแล้ว — กำลังจบงานที่กำลังทำอยู่');
 });
-onRun('finished', async (data) => {
+onRun('finished', async (/** @type {any} */ data) => {
   if (data?.helper) return;
   const { summary, stopReason, spent, credits, check, todo } = data;
   // The run's verdict rides the pending panel: the badge under the change
@@ -986,7 +1006,7 @@ onRun('finished', async (data) => {
   refreshMeter();
   ctx.refreshContextPanel?.();
   if (credits) addNote(`credits  ${credits.available?.toLocaleString?.() ?? credits.available} of ${credits.limit?.toLocaleString?.() ?? credits.limit} left${spent > 0 ? ` · ${spent.toLocaleString()} this run` : ''}`);
-  if (stopReason !== 'done') addNote(STOP_REASON[stopReason] ?? `stopped: ${stopReason}`);
+  if (stopReason !== 'done') addNote((/** @type {any} */ (STOP_REASON))[stopReason] ?? `stopped: ${stopReason}`);
   // The checklist's account of the run: the card re-tallies from the final
   // state, and a completed run that still leaves items open says how many and
   // offers the one-click way back in — a plan that ended "done" with open
@@ -1012,7 +1032,7 @@ onRun('finished', async (data) => {
   await repaintPanels();
   await refreshPending();
 });
-onRun('applied', (data) => {
+onRun('applied', (/** @type {any} */ data) => {
   const { written, deleted, files } = data;
   addNote(`applied  ${written ?? 0} written, ${deleted ?? 0} deleted${files?.length ? ` — ${files.join(', ')}` : ''}`);
   renderPending([]);
@@ -1020,16 +1040,16 @@ onRun('applied', (data) => {
   // that just landed on disk stays invisible until a reload.
   void refreshFiles();
 });
-onRun('discarded', (data) => { renderPending([]); addNote(`discarded ${data?.files ?? 0} pending change(s).`); });
-onRun('session', (data) => {
+onRun('discarded', (/** @type {any} */ data) => { renderPending([]); addNote(`discarded ${data?.files ?? 0} pending change(s).`); });
+onRun('session', (/** @type {any} */ data) => {
   const s = data;
   state.sessionId = s.id;
   refreshMeta(s);
 });
 
 /** The line above the conversation: what session this is, on what model. */
-function refreshMeta(s = null) {
-  const model = $('model').value || state.settings?.defaultModel || '';
+function refreshMeta(/** @type {any} */ s = null) {
+  const model = $('model').value || (/** @type {any} */ (state.settings))?.defaultModel || '';
   const provider = $('provider').value || state.provider || '';
   const file = s?.file ? s.file.split(/[\\/]/).slice(-2).join('/') : '';
   const meta = $('meta');
@@ -1070,13 +1090,13 @@ ctx.saveDraft = saveDraft;
  */
 function runOptions() {
   const out = {};
-  const s = state.settings ?? {};
+  const s = /** @type {any} */ (state.settings ?? {});
   if (s.allowGitWrite !== undefined) out.allowGitWrite = Boolean(s.allowGitWrite);
   if (s.allowVerify !== undefined) out.allowVerify = Boolean(s.allowVerify);
   return out;
 }
 
-async function sendTask(seed = null, opts = {}) {
+async function sendTask(/** @type {any} */ seed = null, /** @type {any} */ opts = {}) {
   const text = (seed ?? $('task').value).trim();
   if (!text) return;
 
@@ -1143,7 +1163,7 @@ async function sendTask(seed = null, opts = {}) {
       // backend that does not know the option keeps its own default.
       ...runOptions(),
     });
-  } catch (err) {
+  } catch (/** @type {any} */ err) {
     addNote(`error: ${friendly(err.message)}`);
     state.running = false;
     state.stopping = false;
@@ -1161,7 +1181,7 @@ async function sendTask(seed = null, opts = {}) {
  * when the run ended in the meantime — the text goes back in the composer
  * rather than vanishing, because a message the person wrote is their intent.
  */
-async function injectMidrun(text) {
+async function injectMidrun(/** @type {any} */ text) {
   $('task').value = '';
   saveDraft();
   closeSlash();
@@ -1178,7 +1198,7 @@ async function injectMidrun(text) {
       return;
     }
     addNote(`เข้าคิวแล้ว — จะส่งให้โมเดลพร้อมผลสเต็ปถัดไป (คิว ${res?.queued ?? 1})`);
-  } catch (err) {
+   } catch (/** @type {any} */ err) {
     $('task').value = text;
     saveDraft();
     addNote(`error: ${friendly(err.message)}`);
@@ -1218,12 +1238,12 @@ function cancelRun() {
     });
 }
 
-$('composer').onsubmit = (ev) => {
+$('composer').onsubmit = (/** @type {any} */ ev) => {
   ev.preventDefault();
   sendTask();
 };
 
-$('task').addEventListener('keydown', (ev) => {
+$('task').addEventListener('keydown', (/** @type {any} */ ev) => {
   const value = ev.currentTarget.value;
 
   // Shift+Tab belongs to nobody else in here: it cycles the mode. (The
@@ -1254,14 +1274,14 @@ $('task').addEventListener('keydown', (ev) => {
 });
 
 // Typing filters the palette; deleting the "/" dismisses it.
-$('task').addEventListener('input', (ev) => {
+$('task').addEventListener('input', (/** @type {any} */ ev) => {
   const value = ev.currentTarget.value;
   if (slashTyping(value)) { slash.index = 0; renderSlash(value); }
   else closeSlash();
 });
 
 // The button stops a live run and sends an idle one.
-$('send').onclick = (ev) => {
+$('send').onclick = (/** @type {any} */ ev) => {
   ev.preventDefault();
   if (state.running) cancelRun();
   else sendTask();
@@ -1305,7 +1325,7 @@ document.addEventListener('keydown', (ev) => {
   // focus. A form field keeps its question marks, and an open sheet keeps
   // its own keys.
   else if (ev.key === '?' && !modalOpen && !ev.ctrlKey && !ev.metaKey && !ev.altKey
-    && !['INPUT', 'TEXTAREA', 'SELECT'].includes(ev.target?.tagName ?? '')) {
+    && !['INPUT', 'TEXTAREA', 'SELECT'].includes((/** @type {any} */ (ev.target))?.tagName ?? '')) {
     ev.preventDefault();
     openHelp();
   }
@@ -1319,7 +1339,7 @@ document.addEventListener('keydown', (ev) => {
   // someone typing first. Form controls (the select, the settings sheet) keep
   // their own Tab behaviour, and an open sheet keeps its own too.
   else if (ev.key === 'Tab' && ev.shiftKey && !modalOpen && ev.target !== $('task')
-    && !['INPUT', 'TEXTAREA', 'SELECT'].includes(ev.target?.tagName ?? '')) {
+    && !['INPUT', 'TEXTAREA', 'SELECT'].includes((/** @type {any} */ (ev.target))?.tagName ?? '')) {
     ev.preventDefault();
     cycleMode();
   }
@@ -1348,6 +1368,7 @@ $('new-session').onclick = startNewSession;
 // The filter is a text field: a round trip and a whole list rebuilt for every
 // keystroke is a lot of work for a person typing one word. The wait is short
 // enough to feel immediate and long enough to be one call.
+/** @type {any} */
 let filterTimer = null;
 $('session-filter').oninput = () => {
   clearTimeout(filterTimer);
@@ -1378,9 +1399,9 @@ $('side-help').onclick = openHelp;
 // unlike effort it is not a per-message judgement call but a rarely-touched
 // model parameter, and a knob nobody turns has no business sitting in the row
 // read on every message.
-function applySettingsToUi(settings = state.settings ?? {}) {
+function applySettingsToUi(/** @type {any} */ settings = state.settings ?? {}) {
   const mode = settings.requirePlanApproval ? 'plan' : (settings.mode ?? 'ask');
-  $('mode').value = MODE_VIEWS[mode] ? mode : 'ask';
+  $('mode').value = (/** @type {any} */ (MODE_VIEWS))[mode] ? mode : 'ask';
 
   const level = settings.thinking ?? 'low';
   $('thinking').value = ['off', 'low', 'medium', 'high', 'max'].includes(level) ? level : 'low';
@@ -1437,7 +1458,7 @@ $('provider').onchange = async () => {
     const st = await rpc('status').catch(() => null);
     await fillModels(st?.model ?? null);
     refreshMeta();
-  } catch (err) {
+   } catch (/** @type {any} */ err) {
     addNote(`เปลี่ยนผู้ให้บริการไม่ได้: ${err.message}`);
   }
 };
@@ -1476,7 +1497,7 @@ function openHelp() {
   const body = $('modal-body');
   body.textContent = '';
 
-  const section = (title, lines) => {
+  const section = (/** @type {any} */ title, /** @type {any} */ lines) => {
     const h = el('h4', null, title);
     const ul = el('ul');
     for (const line of lines) ul.append(el('li', null, line));
@@ -1548,20 +1569,20 @@ Object.assign(ctx, filesPanel);
 
 /* ------------------------------------------------------------ attachments */
 
-const readAsDataUrl = (file) => new Promise((resolve, reject) => {
+const readAsDataUrl = (/** @type {any} */ file) => new Promise((resolve, reject) => {
   const reader = new FileReader();
   reader.onload = () => resolve(reader.result);
   reader.onerror = () => reject(reader.error);
   reader.readAsDataURL(file);
 });
 
-async function stageFiles(files) {
+async function stageFiles(/** @type {any} */ files) {
   for (const file of files) {
     try {
       const dataUrl = await readAsDataUrl(file);
       const item = await rpc('attachment.stage', { name: file.name, dataUrl });
       state.attachments.set(item.id, item);
-    } catch (err) {
+     } catch (/** @type {any} */ err) {
       addNote(`could not attach ${file.name}: ${err.message}`);
     }
   }
@@ -1610,9 +1631,9 @@ $('model-refresh').onclick = () => { void refreshModels(); };
 // Dropping a file anywhere over the window attaches it.
 ['dragover', 'drop'].forEach((type) => {
   document.addEventListener(type, (ev) => {
-    if (!ev.dataTransfer?.files?.length) return;
+    if (!(/** @type {any} */ (ev)).dataTransfer?.files?.length) return;
     ev.preventDefault();
-    stageFiles([...ev.dataTransfer.files]);
+    stageFiles([...(/** @type {any} */ (ev)).dataTransfer.files]);
   });
 });
 
@@ -1628,7 +1649,7 @@ document.addEventListener('paste', (ev) => {
 
 /* --------------------------------------------------------------- projects */
 
-async function refreshProjects(projects) {
+async function refreshProjects(/** @type {any} */ projects) {
   const select = $('project');
   const previous = select.value;
   select.textContent = '';
@@ -1647,8 +1668,8 @@ async function refreshProjects(projects) {
   // backend's "current" is whichever window spoke last — and this window's
   // file panel, its sessions and its pending changes are the ones its user is
   // looking at. Two windows on two projects must not trade places.
-  const inList = state.root ? projects.find((p) => sameProject(p.path, state.root)) : null;
-  const mine = inList ?? projects.find((p) => p.current) ?? projects[0];
+  const inList = state.root ? projects.find((/** @type {any} */ p) => sameProject(p.path, state.root)) : null;
+  const mine = inList ?? projects.find((/** @type {any} */ p) => p.current) ?? projects[0];
   if (mine?.path) {
     if (!inList) state.root = mine.path;
     select.value = mine.path;
@@ -1683,9 +1704,9 @@ $('add-project').onclick = async () => {
   let chosen = null;
   // The File System Access API gives a real picker in a Chromium webview; a
   // typed path is the fallback for anything that does not have it.
-  if (window.showDirectoryPicker) {
+  if ((/** @type {any} */ (window)).showDirectoryPicker) {
     try {
-      const handle = await window.showDirectoryPicker({ mode: 'read' });
+      const handle = await (/** @type {any} */ (window)).showDirectoryPicker({ mode: 'read' });
       chosen = handle.name;
       await rpc('projects.add', { name: chosen, path: nameToPath(chosen) });
     } catch { /* cancelled */ }
@@ -1700,7 +1721,7 @@ $('add-project').onclick = async () => {
 
 // A picker returns a display name, not a path; the backend resolves it against
 // the home directory, which is where the picker starts.
-function nameToPath(name) { return `~/${name}`; }
+function nameToPath(/** @type {any} */ name) { return `~/${name}`; }
 
 /* --------------------------------------------------------------- settings */
 
@@ -1808,7 +1829,7 @@ document.addEventListener('click', (e) => {
     }
   } catch {}
   let dragging = false;
-  handle.addEventListener('mousedown', (e) => {
+  handle.addEventListener('mousedown', (/** @type {any} */ e) => {
     dragging = true;
     handle.classList.add('dragging');
     e.preventDefault();
@@ -1850,8 +1871,8 @@ async function refreshPanels() {
   // has to know the current marker table; takesBody decides whether a block's
   // inner lines are eaten with the header. An older backend without toolDefs
   // still works: plain markers, single-line.
-  state.pluginTools = (details?.toolDefs ?? (details?.tools ?? []).map((marker) => ({ marker })))
-    .filter((t) => t?.marker);
+  state.pluginTools = (details?.toolDefs ?? (details?.tools ?? []).map((/** @type {any} */ marker) => ({ marker })))
+    .filter((/** @type {any} */ t) => t?.marker);
   // The panels a plugin draws are a widget, not a configuration row: they are
   // the plugin's own work surface, so they live in the rail — and in the
   // settings sheet, next to the plugin that draws them.
@@ -1879,7 +1900,7 @@ async function paintPluginPanels() {
 }
 
 /** Fill one holder with the panels. A plugin with nothing to say says so. */
-async function paintPanelsInto(holder, panels, idPrefix) {
+async function paintPanelsInto(/** @type {any} */ holder, /** @type {any} */ panels, /** @type {any} */ idPrefix) {
   if (!holder) return;
   holder.textContent = '';
   if (!panels.length) {
@@ -1911,7 +1932,7 @@ async function repaintPanels() {
 /** Paint one panel's body. A repaint replaces the whole box: the finished event
  *  refreshes every panel after every run, and appending a fresh body each time
  *  stacked the scratchpad's history into the sidebar a copy at a time. */
-async function paintPanel(box, id) {
+async function paintPanel(/** @type {any} */ box, /** @type {any} */ id) {
   box.textContent = '';
   box.append(el('h5', null, box.dataset.title ?? id));
   try {
@@ -1919,7 +1940,7 @@ async function paintPanel(box, id) {
     const body = el('div', 'plugin-body');
     body.innerHTML = html; // plugin markup is trusted: plugins are installed code
     box.append(body);
-  } catch (err) {
+   } catch (/** @type {any} */ err) {
     box.append(el('p', 'dim', err.message));
   }
 }
@@ -1949,7 +1970,7 @@ async function runDueSchedule({ force = false } = {}) {
 
 async function refreshHeader() {
   const st = await rpc('status').catch(() => null);
-  const dot = (ok, label) => {
+  const dot = (/** @type {any} */ ok, /** @type {any} */ label) => {
     const s = el('span');
     s.append(el('span', 'dot ' + (ok ? 'ok' : 'no')));
     s.append(document.createTextNode(label));
@@ -2008,6 +2029,7 @@ async function refreshHeader() {
  * to get the real list was to reload the window. These fields are what the
  * backend reports about the catalog, and they are what the window shows.
  */
+/** @type {any} */
 const modelState = {
   source: 'unknown',   // 'live' | 'fallback' | 'spec' | 'none' | 'unknown'
   at: 0,               // the stamp of the list on screen
@@ -2045,7 +2067,7 @@ const CATALOG_TITLE = {
  * had selected: a provider switch must not leave the previous provider's
  * model selectable.
  */
-async function fillModels(currentModel) {
+async function fillModels(/** @type {any} */ currentModel) {
   return loadModels({ prefer: 'model', currentModel });
 }
 
@@ -2054,7 +2076,7 @@ async function fillModels(currentModel) {
  *
  * This is the move the reader used to make by reloading the whole window.
  */
-async function refreshModels(opts = {}) {
+async function refreshModels(/** @type {any} */ opts = {}) {
   return loadModels({ force: true, ...opts });
 }
 
@@ -2100,7 +2122,7 @@ async function loadModels({ force = false, prefer = 'choice', currentModel = nul
       modelState.error = res?.error ?? null;
       renderModelOptions(all, currentModel, prefer);
       return res;
-    } catch (err) {
+     } catch (/** @type {any} */ err) {
       // The list on screen stays: a failed refresh must not cost the reader
       // the models they already had.
       modelState.error = err.message;
@@ -2134,21 +2156,21 @@ async function loadModels({ force = false, prefer = 'choice', currentModel = nul
  * before any send — so the picker says "the site dropped this" before the run
  * has to say it as an error. A fallback list cannot judge, so it never marks.
  */
-function renderModelOptions(all, currentModel = null, prefer = 'choice') {
+function renderModelOptions(/** @type {any} */ all, currentModel = null, prefer = 'choice') {
   const select = $('model');
   // What the reader had picked, before the options are torn down.
   const chosen = prefer === 'model'
     ? (currentModel || null)
     : (select.value || currentModel || null);
-  const chat = all.filter((m) => !m.kind || m.kind === 'chat');
-  const list = chat.some((m) => (m.id ?? m) === chosen)
+  const chat = all.filter((/** @type {any} */ m) => !m.kind || m.kind === 'chat');
+  const list = chat.some((/** @type {any} */ m) => (m.id ?? m) === chosen)
     ? chat
-    : [...chat, ...all.filter((m) => (m.id ?? m) === chosen)];
+    : [...chat, ...all.filter((/** @type {any} */ m) => (m.id ?? m) === chosen)];
   // `aipass/`-prefixed ids compare bare, the same way the loop's check does.
-  const bare = (id) => String(id ?? '').replace(/^aipass\//, '');
+  const bare = (/** @type {any} */ id) => String(id ?? '').replace(/^aipass\//, '');
   const dropped = Boolean(chosen) && modelState.source === 'live'
-    && !all.some((m) => bare(m.id ?? m) === bare(chosen));
-  if (chosen && !list.some((m) => (m.id ?? m) === chosen)) list.push({ id: chosen });
+    && !all.some((/** @type {any} */ m) => bare(m.id ?? m) === bare(chosen));
+  if (chosen && !list.some((/** @type {any} */ m) => (m.id ?? m) === chosen)) list.push({ id: chosen });
   // The list is rebuilt when the provider changes, so the old options go
   // first: a model of the previous provider must not stay selectable.
   select.textContent = '';
@@ -2177,11 +2199,11 @@ function paintModelChip() {
   const note = $('model-note');
   const btn = $('model-refresh');
   const select = $('model');
-  const label = CATALOG_LABEL[modelState.source] ?? '';
+  const label = (/** @type {any} */ (CATALOG_LABEL))[modelState.source] ?? '';
   if (note) {
     note.textContent = label;
     note.hidden = !label;
-    note.title = CATALOG_TITLE[modelState.source] ?? '';
+    note.title = (/** @type {any} */ (CATALOG_TITLE))[modelState.source] ?? '';
   }
   if (btn) {
     btn.disabled = modelState.loading;
@@ -2193,7 +2215,7 @@ function paintModelChip() {
   if (select) {
     select.title = modelState.error
       ? `โมเดล — ดึงรายการไม่สำเร็จ: ${modelState.error}`
-      : (CATALOG_TITLE[modelState.source] ?? 'โมเดล');
+      : ((/** @type {any} */ (CATALOG_TITLE))[modelState.source] ?? 'โมเดล');
   }
 }
 
@@ -2207,7 +2229,7 @@ setInterval(() => { void checkForUpdate().catch(() => {}); }, 6 * 60 * 60 * 1000
 
 async function listModels() {
   const models = await rpc('models').catch(() => null);
-  const list = (models?.data ?? models?.models ?? []).filter((m) => !m.kind || m.kind === 'chat');
+  const list = (models?.data ?? models?.models ?? []).filter((/** @type {any} */ m) => !m.kind || m.kind === 'chat');
   if (!list.length) { addCommandOut('bridge ยังไม่ส่งรายการโมเดลมา'); return; }
   const current = $('model').value;
   addCommandOut(`โมเดลที่คุยได้ ${list.length} ตัว (ตัวที่ใช้อยู่มี >):`);
@@ -2224,7 +2246,7 @@ function pickConversation() {
     const body = $('modal-body');
     body.textContent = '';
     body.append(el('p', 'dim', 'ความจำของโมเดลอยู่ฝั่ง bridge — สลับที่นี่ = เปลี่ยนสิ่งที่มันจำได้ ไม่กระทบไฟล์สครินช็อตในเครื่อง'));
-    const pick = (id, label, primary = false) => {
+    const pick = (/** @type {any} */ id, /** @type {any} */ label, primary = false) => {
       const row = el('button', primary ? 'primary' : null, label);
       row.style.display = 'block';
       row.style.width = '100%';
@@ -2251,7 +2273,7 @@ async function freshConversation() {
 
 /** Attach a file by typed path, the way the CLI's /file and /image do. A desktop
  *  user often has the path from the file manager rather than a picker. */
-async function attachPath(path, kind) {
+async function attachPath(/** @type {any} */ path, /** @type {any} */ kind) {
   if (!path) { addNote(`${kind === 'image' ? '/image' : '/file'} ต้องมี path ต่อท้าย`); return; }
   const item = await rpc('attachment.stage', { path }).catch((err) => ({ error: err.message }));
   if (item.error) { addNote(`แนบไม่ได้: ${item.error}`); return; }
@@ -2338,7 +2360,7 @@ function resumeSession() {
   });
 }
 
-async function openSession(id) {
+async function openSession(/** @type {any} */ id) {
   const seq = ++viewSeq;
   const opened = await rpc('session.open', { id }).catch((err) => ({ error: err.message }));
   if (opened.error) { addNote(`เปิดบทสนทนาไม่ได้: ${friendly(opened.error)}`); return; }
@@ -2387,7 +2409,7 @@ async function togglePlan() {
  * Open a file. A line number puts the reader on the line the search found —
  * the answer to "where is this?" is not the file, it is the line.
  */
-async function openFile(file, line = null) {
+async function openFile(/** @type {any} */ file, line = null) {
   const found = await rpc('fs.read', { file }).catch((err) => ({ error: err.message }));
   $('modal-title').textContent = file;
   const body = $('modal-body');
@@ -2412,7 +2434,7 @@ async function openFile(file, line = null) {
   $('modal-actions').append(close);
   openModal();
   // The line the reader came for is in view, not somewhere below the fold.
-  hit?.scrollIntoView?.({ block: 'center' });
+  (/** @type {any} */ (hit))?.scrollIntoView?.({ block: 'center' });
 }
 
 async function pickFile() {
@@ -2420,7 +2442,7 @@ async function pickFile() {
   $('modal-title').textContent = 'ไฟล์ในโปรเจกต์';
   const body = $('modal-body');
   body.textContent = '';
-  for (const e of entries.slice(0, 200).filter((x) => !x.dir)) {
+  for (const e of entries.slice(0, 200).filter((/** @type {any} */ x) => !x.dir)) {
     const row = el('button', null, e.name);
     row.style.display = 'block';
     row.style.width = '100%';
@@ -2461,7 +2483,7 @@ function showSkills() {
 }
 
 function pickProject() {
-  void ctx.rpc('projects.list').catch(() => []).then((projects) => {
+  void ctx.rpc('projects.list').catch(() => []).then((/** @type {any} */ projects) => {
     ctx.$('modal-title').textContent = 'เลือกโปรเจกต์';
     const body = ctx.$('modal-body');
     body.textContent = '';
@@ -2473,7 +2495,7 @@ function pickProject() {
       if (!p.current) {
         const remove = ctx.el('button', 'mini', 'เอาออก');
         remove.onclick = async () => {
-          await ctx.rpc('projects.remove', { path: p.path }).catch((err) => ctx.addNote(err.message));
+          await ctx.rpc('projects.remove', { path: p.path }).catch((/** @type {any} */ err) => ctx.addNote(err.message));
           await ctx.refreshProjects(await ctx.rpc('projects.list').catch(() => []));
           pickProject();
         };
@@ -2507,6 +2529,7 @@ const systemTheme = () => (window.matchMedia?.('(prefers-color-scheme: light)')?
  * open. "auto" has to follow it, or the theme is stale until the window is
  * reloaded — which is the one thing "auto" is supposed to save you from.
  */
+/** @type {any} */
 let systemThemeQuery = null;
 const watchSystemTheme = () => {
   const mq = window.matchMedia?.('(prefers-color-scheme: light)');
@@ -2520,7 +2543,7 @@ const onSystemTheme = () => {
   if ((state.settings?.theme ?? 'dark') === 'auto') applyTheme('auto');
 };
 
-function applyTheme(theme) {
+function applyTheme(/** @type {any} */ theme) {
   const picked = theme === 'auto' ? systemTheme() : (theme === 'light' ? 'light' : 'dark');
   if (theme === 'auto') watchSystemTheme();
   document.documentElement.dataset.theme = picked;

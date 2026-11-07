@@ -1,5 +1,6 @@
+// @ts-check
 // The pending-diff feature module (apply/discard).
-export function createPending(ctx) {
+export function createPending(/** @type {any} */ ctx) {
   let applyInFlight = false;
 
   async function showPendingDiff() {
@@ -14,7 +15,7 @@ export function createPending(ctx) {
     try {
       const files = [...ctx.state.pending.entries()].filter(([, info]) => info.checked).map(([file]) => file);
       if (!files.length) { ctx.addNote('ยังไม่มีไฟล์ที่ติ๊ก'); return; }
-      const written = await ctx.rpc('apply', { files }).catch((err) => ({ error: err.message }));
+      const written = await ctx.rpc('apply', { files }).catch((/** @type {any} */ err) => ({ error: err.message }));
       if (written.error) { ctx.addNote(`เขียนไฟล์ไม่ได้: ${ctx.friendly(written.error)}`); return; }
       await ctx.refreshPending();
       await ctx.refreshCheckpoints();
@@ -28,7 +29,7 @@ export function createPending(ctx) {
     if (applyInFlight) return;
     applyInFlight = true;
     try {
-      const dropped = await ctx.rpc('discard').catch((err) => ({ error: err.message }));
+      const dropped = await ctx.rpc('discard').catch((/** @type {any} */ err) => ({ error: err.message }));
       if (dropped.error) { ctx.addNote(`ทิ้งไฟล์ไม่ได้: ${ctx.friendly(dropped.error)}`); return; }
       await ctx.refreshPending();
     } finally {

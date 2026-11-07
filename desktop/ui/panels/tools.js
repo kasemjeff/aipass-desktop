@@ -1,3 +1,4 @@
+// @ts-check
 // The work surfaces of the settings sheet: git, media and the schedule.
 //
 // Three pages that are not settings at all — they are the machine's own
@@ -16,10 +17,10 @@
 // that reads like a broken feature.
 
 /** The last folder of a path — a project named by its folder, not its path. */
-const folderName = (root) => String(root ?? '').replace(/[\\/]+$/, '').split(/[\\/]/).pop() || String(root ?? '');
+const folderName = (/** @type {any} */ root) => String(root ?? '').replace(/[\\/]+$/, '').split(/[\\/]/).pop() || String(root ?? '');
 
 /** An <option>, built the way the page builds them (no globals to rely on). */
-const optionEl = (value, text) => {
+const optionEl = (/** @type {any} */ value, /** @type {any} */ text) => {
   const opt = document.createElement('option');
   opt.value = value;
   opt.textContent = text;
@@ -36,7 +37,7 @@ const optionEl = (value, text) => {
  * a commit lands in the repository's history, and no button in the app can
  * undo that.
  */
-export async function renderGitTab(page, sheet) {
+export async function renderGitTab(/** @type {any} */ page, /** @type {any} */ sheet) {
   const { el, rpc, state, addCommandOut, friendly, askConfirm } = sheet;
 
   const head = el('div', 'plugin-head');
@@ -50,7 +51,7 @@ export async function renderGitTab(page, sheet) {
 
   /** The three lists the repository is made of. */
   const paintLists = async () => {
-    const st = await rpc('git.status').catch((err) => ({ error: err.message }));
+    const st = await rpc('git.status').catch((/** @type {any} */ err) => ({ error: err.message }));
     if (st.error) {
       branch.textContent = 'อ่านสถานะ git ไม่ได้';
       lists.textContent = '';
@@ -75,7 +76,7 @@ export async function renderGitTab(page, sheet) {
           stage.setAttribute('aria-label', `stage ${file}`);
           stage.onclick = async () => {
             stage.disabled = true;
-            const done = await rpc('git.stage', { paths: [file] }).catch((err) => ({ error: err.message }));
+            const done = await rpc('git.stage', { paths: [file] }).catch((/** @type {any} */ err) => ({ error: err.message }));
             if (done.error) note.textContent = `stage ไม่สำเร็จ: ${friendly(done.error)}`;
             else note.textContent = '';
             await paintLists();
@@ -101,7 +102,7 @@ export async function renderGitTab(page, sheet) {
     const files = ticked();
     if (!files.length) { note.textContent = 'ยังไม่มีไฟล์ที่ติ๊กไว้ในแผงรอเขียน'; return; }
     stageTicked.disabled = true;
-    const done = await rpc('git.stage', { paths: files }).catch((err) => ({ error: err.message }));
+    const done = await rpc('git.stage', { paths: files }).catch((/** @type {any} */ err) => ({ error: err.message }));
     stageTicked.disabled = false;
     if (done.error) { note.textContent = `stage ไม่สำเร็จ: ${friendly(done.error)}`; return; }
     note.textContent = '';
@@ -122,7 +123,7 @@ export async function renderGitTab(page, sheet) {
     if (!text) { note.textContent = 'commit ต้องมีข้อความ — git ไม่รับ commit ที่ไม่มีข้อความ'; return; }
     if (!(await askConfirm({ title: 'ยืนยัน commit', message: `commit ข้อความว่า "${text}"?`, note: 'commit เขียนลงประวัติของ repo แล้ว ย้อนกลับยาก', confirmLabel: 'commit' }))) return;
     commit.disabled = true;
-    const done = await rpc('git.commit', { message: text }).catch((err) => ({ error: err.message }));
+    const done = await rpc('git.commit', { message: text }).catch((/** @type {any} */ err) => ({ error: err.message }));
     commit.disabled = false;
     if (done.error) { note.textContent = `commit ไม่สำเร็จ: ${friendly(done.error)}`; return; }
     note.textContent = '';
@@ -142,7 +143,7 @@ export async function renderGitTab(page, sheet) {
     const text = name.value.trim();
     if (!text) { note.textContent = 'ต้องมีชื่อ branch'; return; }
     make.disabled = true;
-    const done = await rpc('git.branch', { name: text }).catch((err) => ({ error: err.message }));
+    const done = await rpc('git.branch', { name: text }).catch((/** @type {any} */ err) => ({ error: err.message }));
     make.disabled = false;
     if (done.error) { note.textContent = `สร้าง branch ไม่สำเร็จ: ${friendly(done.error)}`; return; }
     note.textContent = '';
@@ -171,7 +172,7 @@ export async function renderGitTab(page, sheet) {
  * credits are gone — so the page shows what the model takes, and says what was
  * dropped when the render comes back.
  */
-export async function renderMediaTab(page, sheet) {
+export async function renderMediaTab(/** @type {any} */ page, /** @type {any} */ sheet) {
   const { el, rpc, state, addCommandOut, friendly } = sheet;
 
   page.append(el('p', 'settings-empty',
@@ -204,9 +205,10 @@ export async function renderMediaTab(page, sheet) {
   // The options the chosen model accepts, and nothing else.
   const options = el('div', 'set-group');
   page.append(options);
+  /** @type {any} */
   const chosen = {};
 
-  const pick = (label, note, values, key) => {
+  const pick = (/** @type {any} */ label, /** @type {any} */ note, /** @type {any} */ values, /** @type {any} */ key) => {
     const select = document.createElement('select');
     // The row's title is a sibling, so the select carries the name itself.
     select.setAttribute('aria-label', label);
@@ -223,7 +225,7 @@ export async function renderMediaTab(page, sheet) {
     const res = await rpc('media.options', { model: model.value }).catch(() => null);
     options.textContent = '';
     for (const key of Object.keys(chosen)) delete chosen[key];
-    const o = res?.options;
+    const o = /** @type {any} */ (res?.options);
     if (!o) { options.append(el('p', 'settings-empty', 'อ่านตัวเลือกของโมเดลนี้ไม่ได้')); return; }
     if (o.aspectRatio) pick('อัตราส่วน', 'ถ้าโมเดลไม่บอกรายการ ใส่เองได้', o.aspectRatios, 'ratio');
     if (o.resolution) pick('ความละเอียด', 'เช่น 720p หรือ 1080p', o.resolutions, 'resolution');
@@ -264,7 +266,7 @@ export async function renderMediaTab(page, sheet) {
     note.className = 'install-out dim';
     note.textContent = 'กำลังสร้าง… (อาจใช้เวลาเป็นนาที)';
     const done = await rpc('media.generate', { model: model.value, prompt: ask, ...chosen })
-      .catch((err) => ({ error: err.message }));
+      .catch((/** @type {any} */ err) => ({ error: err.message }));
     go.disabled = false;
     if (done.error) { note.className = 'install-out err'; note.textContent = `สร้างไม่สำเร็จ: ${friendly(done.error)}`; return; }
     note.className = 'install-out';
@@ -294,7 +296,7 @@ export async function renderMediaTab(page, sheet) {
  * page says so: a task that cannot run is worse than a task that was never
  * set.
  */
-export async function renderScheduleTab(page, sheet) {
+export async function renderScheduleTab(/** @type {any} */ page, /** @type {any} */ sheet) {
   const { el, rpc, state, addCommandOut, friendly } = sheet;
 
   page.append(el('p', 'settings-empty',
@@ -305,7 +307,7 @@ export async function renderScheduleTab(page, sheet) {
   page.append(list);
 
   const paint = async () => {
-    const res = await rpc('schedule.list').catch((err) => ({ error: err.message }));
+    const res = await rpc('schedule.list').catch((/** @type {any} */ err) => ({ error: err.message }));
     // An unreachable list is not an empty one: "no tasks" would read as if the
     // person never set any, when the bridge simply did not answer.
     if (res?.error) {
@@ -328,7 +330,7 @@ export async function renderScheduleTab(page, sheet) {
       del.setAttribute('aria-label', `ลบงาน: ${e.task ?? e.id ?? ''}`);
       del.onclick = async () => {
         del.disabled = true;
-        const done = await rpc('schedule.remove', { id: e.id }).catch((err) => ({ error: err.message }));
+        const done = await rpc('schedule.remove', { id: e.id }).catch((/** @type {any} */ err) => ({ error: err.message }));
         del.disabled = false;
         if (done.error) { note.className = 'install-out err'; note.textContent = `ลบไม่สำเร็จ: ${friendly(done.error)}`; return; }
         note.className = 'install-out dim';
@@ -370,7 +372,7 @@ export async function renderScheduleTab(page, sheet) {
       at: at.value.trim(),
       kind: kind.value,
       project: state.root ?? undefined,
-    }).catch((err) => ({ error: err.message }));
+    }).catch((/** @type {any} */ err) => ({ error: err.message }));
     add.disabled = false;
     if (done.error) { note.className = 'install-out err'; note.textContent = `เพิ่มไม่สำเร็จ: ${friendly(done.error)}`; return; }
     note.className = 'install-out dim';
@@ -384,7 +386,7 @@ export async function renderScheduleTab(page, sheet) {
   const due = el('button', null, 'รันที่ครบเวลาแล้ว');
   due.onclick = async () => {
     due.disabled = true;
-    const out = await rpc('schedule.runDue').catch((err) => ({ error: err.message }));
+    const out = await rpc('schedule.runDue').catch((/** @type {any} */ err) => ({ error: err.message }));
     due.disabled = false;
     if (out.error) { note.className = 'install-out err'; note.textContent = `รันไม่สำเร็จ: ${friendly(out.error)}`; return; }
     note.className = 'install-out dim';

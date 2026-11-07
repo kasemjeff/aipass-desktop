@@ -1,9 +1,11 @@
+// @ts-check
 /* The wire spellings — the placeholders the edge in front of de.aipass.net
  * needs — are the WAF's, and its table lives in the harness: one table, one
  * owner. The window asks the backend for those rules at boot and keeps them
  * here, so the text on screen is the text the model wrote. Until the table
  * arrives the text is shown as it came: a plain answer beats a broken one. */
 
+/** @type {Array<[RegExp, string]>} */
 let rules = [];
 
 /**
@@ -13,12 +15,12 @@ let rules = [];
  * @param {Array<[string, string, string]>} pairs
  */
 export function setRestoreTable(pairs) {
-  rules = (Array.isArray(pairs) ? pairs : [])
+  rules = /** @type {Array<[RegExp, string]>} */ ((Array.isArray(pairs) ? pairs : [])
     .filter((p) => Array.isArray(p) && p.length === 3)
     .map(([source, flags, to]) => {
       try { return [new RegExp(source, flags), to]; } catch { return null; }
     })
-    .filter(Boolean);
+    .filter(Boolean));
 }
 
 /**

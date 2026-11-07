@@ -1,5 +1,6 @@
+// @ts-check
 // Session tree + export feature module.
-export function createSessionTree(ctx) {
+export function createSessionTree(/** @type {any} */ ctx) {
 function exportSession(id = null, title = null) {
   const sessionId = id ?? ctx.state.sessionId;
   if (!sessionId) { ctx.addNote('ยังไม่มีบทสนทนาที่จะส่งออก — เปิดบทสนทนาก่อน'); return; }
@@ -33,7 +34,7 @@ function exportSession(id = null, title = null) {
     const wanted = format.value === 'html' ? '.html' : '.md';
     path.value = path.value.replace(/\.(md|html)$/i, '') + wanted;
   };
-  const row = (label, note, node) => {
+  const row = (/** @type {any} */ label, /** @type {any} */ note, /** @type {any} */ node) => {
     const r = ctx.el('div', 'set-row');
     const info = ctx.el('div', 'set-info');
     info.append(ctx.el('div', 'set-title', label));
@@ -57,7 +58,7 @@ function exportSession(id = null, title = null) {
       id: sessionId,
       format: format.value,
       path: path.value.trim(),
-    }).catch((err) => ({ error: err.message }));
+    }).catch((/** @type {any} */ err) => ({ error: err.message }));
     save.disabled = false;
     if (done.error) {
       const err = ctx.el('p', 'install-out err', `ส่งออกไม่ได้: ${ctx.friendly(done.error)}`);
@@ -84,7 +85,7 @@ function exportSession(id = null, title = null) {
 /* ------------------------------------------------------------------- tree */
 
 /** The day a tree row falls in, read as a local day (never a UTC one). */
-const dayKeyDate = (key) => {
+const dayKeyDate = (/** @type {any} */ key) => {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(key ?? ''));
   return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : null;
 };

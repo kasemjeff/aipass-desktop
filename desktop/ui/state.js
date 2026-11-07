@@ -33,13 +33,21 @@ export function createState() {
     pending: new Map(),   // file → {checked, added, removed, deleted, isNew}
     attachments: new Map(), // id → {name, bytes, mime}
     sessionId: null,
+    /** @type {any} */
     settings: null,
+    /** @type {any} */
+    lastCheck: null,
+    // The settings sheet's working draft: rows edit this until save. The
+    // sheet owns it; it lives here so every page reads the same object.
+    draft: null,
     // Which provider the run talks to: the built-in AiPASS one (the local
     // bridge and its tab) or an added API provider. The picker is the switch.
     provider: 'aipass',
     providers: [],
     plugins: null,
+    /** @type {any[]} */
     pluginTools: [],      // {marker, takesBody} — what the transcript must hide
+    /** @type {any[]} */
     pluginPanels: [],     // the panels the plugins paint — the sheet and the rail draw them
     skills: [],           // the playbooks on disk — the settings sheet lists them
     panelHost: null,      // the settings sheet's panel area, when it is open
@@ -66,6 +74,7 @@ export function createState() {
     // headline arrives after that boundary, and it is the first line of the
     // prose this bubble is already showing.
     lastBubble: null,
+    /** @type {any} */
     modalReturnFocus: null, // where the focus was before the sheet took it
     // Whether the model picker is the sheet on screen. Its Ctrl+R refreshes
     // the list in place, and the global Ctrl+R stays a page reload.
