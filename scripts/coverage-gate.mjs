@@ -43,43 +43,43 @@ const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const FLOORS = {
   // The window's logic, driven in a fake DOM. It is imported once per UI
   // test, so the gate measures the union of the boots.
-  'desktop/ui/app.js': { lines: 80, branches: 55, functions: 58 },
+  'desktop/ui/app.js': { lines: 88, branches: 58, functions: 67 },
   // The window's own modules: the client, the state, the conversation, the
   // sheet, the commands and the two panels.
-  'desktop/ui/rpc.js': { lines: 95, branches: 82, functions: 68 },
+  'desktop/ui/rpc.js': { lines: 98, branches: 90, functions: 95 },
   'desktop/ui/state.js': { lines: 95, branches: 95, functions: 95 },
-  'desktop/ui/transcript.js': { lines: 94, branches: 70, functions: 85 },
+  'desktop/ui/transcript.js': { lines: 94, branches: 78, functions: 85 },
   // The notices pinned over the conversation (no chat tab, the extension's
   // token, the model catalog, the update) and the welcome card.
-  'desktop/ui/banners.js': { lines: 90, branches: 70, functions: 65 },
-  'desktop/ui/settings.js': { lines: 75, branches: 56, functions: 58 },
-  'desktop/ui/commands.js': { lines: 70, branches: 62, functions: 59 },
-  'desktop/ui/panels/files.js': { lines: 87, branches: 66, functions: 69 },
-  'desktop/ui/panels/sessions.js': { lines: 86, branches: 70, functions: 68 },
-  'desktop/ui/panels/context.js': { lines: 60, branches: 50, functions: 35 },
+  'desktop/ui/banners.js': { lines: 94, branches: 78, functions: 71 },
+  'desktop/ui/settings.js': { lines: 80, branches: 60, functions: 62 },
+  'desktop/ui/commands.js': { lines: 72, branches: 65, functions: 62 },
+  'desktop/ui/panels/files.js': { lines: 86, branches: 68, functions: 71 },
+  'desktop/ui/panels/sessions.js': { lines: 98, branches: 95, functions: 82 },
+  'desktop/ui/panels/context.js': { lines: 84, branches: 54, functions: 45 },
   // The window's own ask: confirm and prompt through the sheet, on every
   // platform (the native dialogs answer nothing on WKWebView/WebKitGTK).
-  'desktop/ui/ask.js': { lines: 90, branches: 75, functions: 88 },
+  'desktop/ui/ask.js': { lines: 98, branches: 85, functions: 98 },
   // The backend the window talks to.
-  'aipass-bridge/harness/rpc.mjs': { lines: 92, branches: 74, functions: 66 },
+  'aipass-bridge/harness/rpc.mjs': { lines: 95, branches: 77, functions: 69 },
   // The backend's methods, one module per domain.
-  'aipass-bridge/harness/rpc/core.mjs': { lines: 95, branches: 55, functions: 52 },
-  'aipass-bridge/harness/rpc/settings.mjs': { lines: 80, branches: 51, functions: 62 },
-  'aipass-bridge/harness/rpc/session.mjs': { lines: 88, branches: 52, functions: 79 },
-  'aipass-bridge/harness/rpc/files.mjs': { lines: 69, branches: 62, functions: 71 },
-  'aipass-bridge/harness/rpc/plugins.mjs': { lines: 55, branches: 95, functions: 15 },
-  'aipass-bridge/harness/rpc/update.mjs': { lines: 60, branches: 95, functions: 14 },
+  'aipass-bridge/harness/rpc/core.mjs': { lines: 95, branches: 67, functions: 74 },
+  'aipass-bridge/harness/rpc/settings.mjs': { lines: 87, branches: 59, functions: 74 },
+  'aipass-bridge/harness/rpc/session.mjs': { lines: 93, branches: 65, functions: 85 },
+  'aipass-bridge/harness/rpc/files.mjs': { lines: 93, branches: 63, functions: 80 },
+  'aipass-bridge/harness/rpc/plugins.mjs': { lines: 59, branches: 95, functions: 23 },
+  'aipass-bridge/harness/rpc/update.mjs': { lines: 62, branches: 95, functions: 15 },
   // The stages of a run: its state, the option sheet, the send pipeline, the
   // DONE gates and the budgets.
-  'aipass-bridge/harness/run/context.mjs': { lines: 95, branches: 90, functions: 86 },
-  'aipass-bridge/harness/run/options.mjs': { lines: 95, branches: 63, functions: 95 },
-  'aipass-bridge/harness/run/send.mjs': { lines: 95, branches: 79, functions: 82 },
-  'aipass-bridge/harness/run/gates.mjs': { lines: 94, branches: 85, functions: 95 },
-  'aipass-bridge/harness/run/budgets.mjs': { lines: 92, branches: 63, functions: 67 },
+  'aipass-bridge/harness/run/context.mjs': { lines: 98, branches: 90, functions: 98 },
+  'aipass-bridge/harness/run/options.mjs': { lines: 98, branches: 88, functions: 98 },
+  'aipass-bridge/harness/run/send.mjs': { lines: 98, branches: 86, functions: 90 },
+  'aipass-bridge/harness/run/gates.mjs': { lines: 97, branches: 90, functions: 98 },
+  'aipass-bridge/harness/run/budgets.mjs': { lines: 95, branches: 65, functions: 70 },
   // The launcher's rules.
-  'aipass-bridge/harness/launcher.mjs': { lines: 94, branches: 80, functions: 88 },
+  'aipass-bridge/harness/launcher.mjs': { lines: 94, branches: 82, functions: 89 },
   // The CLI's client for a running desktop backend.
-  'aipass-bridge/harness/desktop-rpc.mjs': { lines: 98, branches: 95, functions: 64 },
+  'aipass-bridge/harness/desktop-rpc.mjs': { lines: 98, branches: 98, functions: 65 },
 };
 
 /**
