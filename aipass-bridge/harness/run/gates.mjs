@@ -1,19 +1,28 @@
 // @ts-check
 // The DONE gates: what has to be true before a run may end.
 //
-// Four gates sit between a model's "DONE" and the end of the run:
+// The gates that sit between a model's "DONE" and the end of the run, in
+// order:
 //
 //   1. the checker  — staged code earns a read-only verdict before a DONE is
 //      accepted; a `fail` rides the next message instead of ending the run
 //   2. the strict gate — with `requireCheck` on, a DONE over a declared check
 //      that is still failing is refused outright
-//   3. the plan checkpoint — a DONE that arrives with plan/TODO items still
+//   3. the jobs gate — a DONE over a background command still running is
+//      refused once (nudge), then ends as `jobs-running`
+//   4. the review check — a review's closing message must carry findings;
+//      one nudge, then the answer stands (advisory)
+//   5. the goal gate — a plain DONE while the person's goal is active buys
+//      another round, or stops at the cap
+//   6. the plan checkpoint — a DONE that arrives with plan/TODO items still
 //      open names them and asks for a ticked TODO
-//   4. the language hook — a closing message that is mostly not Thai while the
+//   7. the language hook — a closing message that is mostly not Thai while the
 //      person reads Thai is asked for a rewrite, once
 //
 // They live together because they share one order and one set of counters:
-// checker → checkpoint → language → done_line (docs/LOOP_DESIGN.md).
+// checker → strict → jobs → review → goal → checkpoint → language → done_line
+// (docs/LOOP_DESIGN.md). Both DONE paths (no-work and stage-and-DONE) must
+// run this same chain.
 import path from 'node:path';
 import { posix } from '../overlay.mjs';
 import { thaiRatio } from '../lang.mjs';
@@ -196,7 +205,8 @@ export function createDoneGates(run) {
    * (wait and poll, or stop). A DONE after that is accepted only as an end
    * that says so: the run stops with `jobs-running` and the summary names the
    * output files, so the person is not told the work finished when a build is
-   * still going. A job that finished between steps is already not counted.
+   * still going — the run stops it on the way out. A job that finished
+   * between steps is already not counted.
    *
    * @param {boolean} canNudge whether a step is left to carry the nudge
    * @returns {{stop: boolean, msg: string|null}}
@@ -210,9 +220,9 @@ export function createDoneGates(run) {
       run.note(`background commands still running: ${ids.join(', ')} — asking before DONE`);
       run.emit('note', { text: `background command(s) ${ids.join(', ')} are still running — asking the model to wait or stop them before DONE` });
       const lines = running.map((j) => `- ${j.id}: ${j.task} — output: ${j.outputRel}`);
-      return { stop: false, msg: `Before DONE: the background command(s) this run started are still running:\n${lines.join('\n')}\n\nPoll with JOBS until they finish, or end one with JOBS stop <id> (the whole tree). A DONE you send anyway ends the run and leaves the job to the person.` };
+      return { stop: false, msg: `Before DONE: the background command(s) this run started are still running:\n${lines.join('\n')}\n\nPoll with JOBS until they finish, or end one with JOBS stop <id> (the whole tree). A DONE you send anyway ends the run — the job is stopped with it.` };
     }
-    run.summary = `DONE with background command(s) still running: ${ids.join(', ')} — their output is in ${running.map((j) => j.outputRel).join(', ')}`;
+    run.summary = `DONE with background command(s) still running: ${ids.join(', ')} — stopped with the run; their output is in ${running.map((j) => j.outputRel).join(', ')}`;
     run.stopReason = 'jobs-running';
     run.note(`background commands left running at DONE: ${ids.join(', ')}`);
     run.emit('note', { text: run.summary });

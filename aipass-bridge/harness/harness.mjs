@@ -17,6 +17,7 @@ import { createLanguageServers } from './lsp.mjs';
 import { PermissionEngine } from './permissions.mjs';
 import { SessionStore } from './session.mjs';
 import { Compactor, DEFAULT_MODEL_BUDGETS } from './compact.mjs';
+import { checkModel } from './run/preflight.mjs';
 import { loadMemory, saveMemory, clearMemory, carryFacts } from './memory-store.mjs';
 import { McpManager } from './mcp.mjs';
 import { runTask, applyOverlay, resolveHelperPreset } from './loop.mjs';
@@ -32,7 +33,7 @@ import { aipassHome, harnessOptions } from './settings.mjs';
 
 /** @typedef {import('./settings.mjs').HarnessOptions} HarnessOptions */
 
-const REPO_SKILLS = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'skills');
+const REPO_SKILLS = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'skills');
 
 export class Harness {
   /** Resolves the plan-approval gate; null when nobody is waiting on it. */
@@ -713,7 +714,7 @@ export class Harness {
     } catch { /* best effort */ }
   }
 
-  async run(task, { first = null, runPluginTool = null } = {}) {
+  async run(task, { first = null, runPluginTool = null, retry = false } = {}) {
     if (!task?.trim()) throw new Error('no task given');
     // One run per harness. The bridge holds exactly one current conversation
     // and one position in it, so a second run would overwrite the first's
@@ -753,12 +754,24 @@ export class Harness {
       const runSession = this.session;
       const settled = new Set();
 
+      // (preflight) Catalog check before anything that costs a model call or
+      // touches the overlay: MCP load, resume, compaction. A gone model fails
+      // the run by name here, and the verdict rides into runTask so it is not
+      // fetched twice.
+      const preflight = await checkModel(this.bridge, this.options.model ?? this.bridge?.model);
+      const preflightGone = preflight.gone ? preflight.summary : null;
+      if (preflightGone) {
+        this.events.emit('note', { text: `catalog check: ${preflightGone}` });
+      }
+
       // MCP: lazy-load configured servers once per harness, then merge their
       // tools into the plugin tool table so the preamble and the loop see them.
-      try { await this.mcp.ensureLoaded(); } catch { /* best effort */ }
-      const mcpTools = this.mcp.toolTable();
-      const basePluginTools = (this.options.pluginTools ?? []).filter((t) => !String(t?.marker ?? '').startsWith('MCP__'));
-      this.options.pluginTools = [...basePluginTools, ...mcpTools];
+      if (!preflightGone) {
+        try { await this.mcp.ensureLoaded(); } catch { /* best effort */ }
+        const mcpTools = this.mcp.toolTable();
+        const basePluginTools = (this.options.pluginTools ?? []).filter((t) => !String(t?.marker ?? '').startsWith('MCP__'));
+        this.options.pluginTools = [...basePluginTools, ...mcpTools];
+      }
 
       const isFirst = first ?? this.session.entries.every((e) => e.type !== 'task');
 
@@ -770,7 +783,7 @@ export class Harness {
       // seeded from the transcript. Before the budget check below, on purpose:
       // the estimate describes a conversation that no longer exists.
       let seedText = null;
-      if (!isFirst && !this.conversation && !this.options.conversation && !this.options.reuse) {
+      if (!preflightGone && !isFirst && !this.conversation && !this.options.conversation && !this.options.reuse) {
         await this.#ensureConversation({ resume: true });
         if (this.conversation) {
           seedText = this.#resumeSeed(task);
@@ -785,7 +798,7 @@ export class Harness {
       // seed is built here, against this run's own task — at rotation time
       // nobody knew it yet. Consumed once: a second run must not repeat the
       // seed into a conversation that already carries it.
-      if (!seedText && this.#pendingSummary) {
+      if (!preflightGone && !seedText && this.#pendingSummary) {
         const { summary, memory } = this.#pendingSummary;
         this.#pendingSummary = null;
         seedText = this.compactor.seed({
@@ -818,12 +831,12 @@ export class Harness {
           todo: this.#sessionTodo(),
         });
       }
-      if (!seedText && this.compactor.needsCompaction(this.session)) {
+      if (!preflightGone && !seedText && this.compactor.needsCompaction(this.session)) {
         this.events.emit('note', { text: 'context is filling up - summarising earlier work and starting a fresh conversation' });
         seedText = (await this.compactNow(task)).seedText;
       }
 
-      await this.#ensureConversation();
+      if (!preflightGone) await this.#ensureConversation();
 
       // Cross-session memory: on the first run of a session, carry forward the
       // facts persisted from earlier sessions so the model does not rediscover
@@ -832,7 +845,7 @@ export class Harness {
       // (carryFacts): the task's own facts first, then the newest of the rest
       // — the store keeps everything, the first message takes what this task
       // needs.
-      const carried = isFirst && this.#crossSessionMemory.length
+      const carried = (!preflightGone && isFirst && this.#crossSessionMemory.length)
         ? carryFacts(this.#crossSessionMemory, task)
         : [];
       const effectiveTask = carried.length
@@ -854,6 +867,8 @@ export class Harness {
       this.events.on('finished', saidFinished);
       try {
         return await runTask(effectiveTask, {
+          preflightGone,
+          skipModelCheck: true,
           bridge: this.bridge,
           // The run talks in its own conversation, named on every send: with
           // several projects running at once the bridge's shared pointer can be
@@ -908,6 +923,7 @@ export class Harness {
             signal: this.abort.signal,
             seedText,
           },
+          retry,
           first: isFirst,
         });
       } catch (e) {
@@ -1091,14 +1107,21 @@ export class Harness {
    * checks; the other roles only read.
    */
   #makeHelper() {
-    return async (task, role = null) => {
+    return async (task, role = null, id = null) => {
       // The loop has already refused an unknown or malformed role line; the
       // resolve here is the same pure function, so the spec the helper is
       // built from cannot be a different one than the gate judged.
+      if (this._helperSeq == null) this._helperSeq = 0;
+      const helperId = id || `h${++this._helperSeq}`;
+      const helperStartedAt = Date.now();
       const resolved = resolveHelperPreset(role, this.options.helperPresets);
       if (resolved.error) return resolved.error;
       const spec = resolved.spec;
-      const brief = spec ? `${spec.lead}\n\nTask: ${task}` : task;
+      let brief = spec ? `${spec.lead}\n\nTask: ${task}` : task;
+      if (this.options?.instructions === false) {
+        const instrFile = ['AGENTS.md', 'CLAUDE.md', 'GEMINI.md'].find((n) => fs.existsSync(path.join(this.root, n)));
+        if (instrFile) brief += `\n\n(The project carries standing instructions in ${instrFile} — read it with NEED file ${instrFile} if its conventions matter to this task.)`;
+      }
       // A verifier may RUN checks, but only where the run itself may: the
       // child narrows the parent's permissions, never widens them.
       const canRun = Boolean(spec?.run) && Boolean(this.options.allowRun);
@@ -1106,12 +1129,20 @@ export class Harness {
       // work in progress is its starting point, so its edit builds on what the
       // parent staged instead of re-deriving it from disk. Its own edits stay
       // in `child.map` — the copy-back below merges them.
+      // Tag every event this helper emits with its id, so the window can tell
+      // a helper's frames apart from the parent's (and skip the ones that would
+      // otherwise collapse the parent's turn mid-run).
+      const taggedEvents = {
+        emit: (type, payload) => this.events.emit(type, { ...(payload ?? {}), helper: helperId }),
+        on: this.events.on ? this.events.on.bind(this.events) : null,
+        off: this.events.off ? this.events.off.bind(this.events) : null,
+      };
       const child = new Overlay(this.root, { base: this.overlay });
       // What the parent looked like when this helper started. The copy-back
       // uses it to tell this helper's own edits apart from a version staged
       // while it was running — by the parent itself or by a sibling helper.
       const before = new Map(this.overlay.map);
-      const childSession = this.store.create({ root: this.root, model: this.bridge.model, title: `${role ? `${role}: ` : 'helper: '}${task.slice(0, 60)}` });
+      const childSession = this.store.create({ root: this.root, model: this.bridge.model, title: `${role ? `${role}: ` : 'helper: '}${task.slice(0, 60)}`, helper: true });
       // The parent's path rules travel with the helper. They are statements
       // about the project (`.env*  deny`), not about which run is editing, so
       // a rule-free engine here would make every one of them a lie the moment
@@ -1127,7 +1158,7 @@ export class Harness {
       // restore to get wrong.
       const made = await this.bridge.createConversation({ temporary: true, message: brief, adopt: false }).catch(() => null);
       const helperConversation = made?.id ?? null;
-      this.events.emit('helper_start', { task, role: role || null, session: childSession.id });
+      this.events.emit('helper_start', { id: helperId, task, role: role || null, session: childSession.id });
 
       let result;
       try {
@@ -1135,7 +1166,7 @@ export class Harness {
           bridge: this.bridge,
           tools: createTools({
             root: this.root, overlay: child, skills: this.skills, bridge: this.bridge,
-            model: this.bridge.model, allowRun: canRun && !this.options.review, events: this.events,
+            model: this.bridge.model, allowRun: canRun && !this.options.review, events: taggedEvents,
             readOnly: Boolean(spec) || Boolean(this.options.review),
             readOnlyNote: spec
               ? 'this helper is read-only — report it in your summary instead.'
@@ -1148,7 +1179,7 @@ export class Harness {
           overlay: child,
           session: childSession,
           permissions: childPermissions,
-          events: this.events,
+          events: taggedEvents,
           conversation: helperConversation,
           conversationTemporary: helperConversation ? true : null,
           // The project goal belongs to the parent run: a helper neither
@@ -1159,7 +1190,7 @@ export class Harness {
           // It is not a session either: the person's lifecycle hooks fire for
           // the run they started, not once per helper, and a parent's review
           // does not make every helper a review.
-          options: { ...this.options, maxSteps: this.options.maxSteps > 0 ? Math.min(this.options.maxSteps, 8) : 8, subagent: false, review: false, lifecycleHooks: false, allowRun: canRun && !this.options.review, signal: this.abort.signal },
+          options: { ...this.options, maxSteps: this.options.maxSteps > 0 ? Math.min(this.options.maxSteps, 8) : 8, maxToolCalls: this.options.maxToolCalls > 0 ? Math.min(this.options.maxToolCalls, 50) : 50, maxWallClockMs: this.options.maxWallClockMs > 0 ? Math.min(this.options.maxWallClockMs, 600_000) : 600_000, subagent: false, review: false, lifecycleHooks: false, allowRun: canRun && !this.options.review, signal: this.abort.signal, instructions: false },
           first: true,
         });
       } catch (err) {
@@ -1191,12 +1222,24 @@ export class Harness {
       if (skipped.length) {
         this.session?.append('note', { text: `a newer version was already staged, so the helper's edits were not applied: ${skipped.join(', ')}` });
       }
-      this.events.emit('helper_end', { task, role: role || null, summary: result.summary ?? '', prepared, skipped });
+      const helperMs = Date.now() - helperStartedAt;
+      const helperEstTokens = this.compactor ? this.compactor.estimate(childSession) : null;
+      this.events.emit('helper_end', { id: helperId, task, role: role || null, summary: result.summary ?? '', prepared, skipped, steps: result?.steps ?? 0, ms: helperMs, estTokens: helperEstTokens });
 
       const lines = [result.summary ?? 'The helper finished without a summary.'];
       if (prepared.length) lines.push(`Files prepared and waiting for approval: ${prepared.join(', ')}`);
       if (skipped.length) lines.push(`Not applied — a newer version of these files was already staged by the parent run or a parallel helper, so this helper's edits were left alone: ${skipped.join(', ')}. Read them back if they still need changing.`);
-      return lines.join('\n\n');
+      let out = lines.join('\n\n');
+      const cap = Number(this.options.maxResult) > 0 ? Number(this.options.maxResult) : 3000;
+      if (out.length > cap) {
+        const dir = path.join(this.root, '.aipass', 'spill');
+        try { await fs.promises.mkdir(dir, { recursive: true }); await fs.promises.writeFile(path.join(dir, `helper-${helperId}.txt`), out); } catch { /* best effort */ }
+        const rel = `.aipass/spill/helper-${helperId}.txt`;
+        const headCap = Math.max(1, Math.round(cap * 0.7));
+        const tailCap = Math.max(1, cap - headCap);
+        out = `${out.slice(0, headCap)}\n… ${out.length - cap} more bytes on disk at ${rel} — read with: NEED file ${rel}\n${out.slice(-tailCap)}`;
+      }
+      return out;
     };
   }
 
@@ -1326,6 +1369,8 @@ export class Harness {
             // The checker is run-and-report, bounded at 6: an uncapped parent
             // does not uncap it, a capped one can only lower it.
             maxSteps: this.options.maxSteps > 0 ? Math.min(this.options.maxSteps, 6) : 6,
+            maxToolCalls: this.options.maxToolCalls > 0 ? Math.min(this.options.maxToolCalls, 50) : 50,
+            maxWallClockMs: this.options.maxWallClockMs > 0 ? Math.min(this.options.maxWallClockMs, 600_000) : 600_000,
             plan: false,
             requirePlanApproval: false,
             subagent: false,

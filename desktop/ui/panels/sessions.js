@@ -114,8 +114,29 @@ $('files').addEventListener('keydown', (ev) => arrowNav($('files'), ev));
  * no filter is a list nobody scrolls, so it filters as you type, shows the date
  * a session is from, and keeps the newest first.
  */
-async function refreshSessions() {
-  const list = await rpc('session.list').catch(() => []);
+// The archive scan walks <project>/archive on the backend (a readdir and a
+// header of every file), and refreshSessions runs on every search keystroke —
+// so the list rides a short cache. Every mutation in this panel passes
+// bypassArchive, and the bar is honest again right away.
+let archivedCache = null;
+let archivedAt = 0;
+const ARCHIVED_TTL = 60_000;
+async function archivedRows(bypass = false) {
+  const now = Date.now();
+  if (!bypass && archivedCache && now - archivedAt < ARCHIVED_TTL) return archivedCache;
+  const out = await rpc('session.archived').catch(() => null);
+  if (out === null) return archivedCache ?? [];
+  archivedCache = out;
+  archivedAt = now;
+  return out;
+}
+
+async function refreshSessions(bypassArchive = false) {
+  const rawList = await rpc('session.list').catch(() => []);
+  // Helper sessions (created by a SUBAGENT run) are hidden by default so the
+  // sidebar stays about the person's own conversations; a toggle shows them.
+  const showHelpers = (typeof localStorage !== 'undefined' ? localStorage.getItem('aipass.showHelperSessions') : null) === '1';
+  const list = showHelpers ? rawList : rawList.filter((s) => !s.helper);
   const ul = $('sessions');
   ul.textContent = '';
   const query = ($('session-filter')?.value ?? '').trim().toLowerCase();
@@ -145,7 +166,7 @@ async function refreshSessions() {
         const out = await rpc('session.archive', { olderThanDays: 30, limit: 50 });
         addCommandOut(out?.count ? `เก็บ ${out.count} บทสนทนาเก่าเข้า archive/ แล้ว` : 'ไม่มีบทสนทนาเก่าเกิน 30 วันให้เก็บ');
       } catch (err) { addNote(`เก็บไม่ได้: ${err.message}`); }
-      await refreshSessions();
+      await refreshSessions(true);
     };
     bar.append(btn);
     ul.append(bar);
@@ -196,7 +217,7 @@ async function refreshSessions() {
     clickable(li, () => void ctx.openSession(s.id));
     ul.append(li);
   }
-  await drawArchived(ul);
+  await drawArchived(ul, bypassArchive);
 }
 
 /**
@@ -207,8 +228,8 @@ async function refreshSessions() {
  * bring one back either, which made the archive a one-way door. The row
  * says how many are in there, and each of them can be put back where it was.
  */
-async function drawArchived(ul) {
-  const archived = await rpc('session.archived').catch(() => []);
+async function drawArchived(ul, bypass = false) {
+  const archived = await archivedRows(bypass);
   if (!archived.length) return;
   const bar = el('li', 'dim archive-bar');
   const btn = el('button', 'mini', `คืนจากที่เก็บ (${archived.length})`);
@@ -226,7 +247,7 @@ async function drawArchived(ul) {
       const out = await rpc('session.prune', { olderThanDays: 90, limit: 50 });
       addCommandOut(out?.count ? `ลบบทสนทนาที่เก็บเก่า ${out.count} รายการแล้ว` : 'ไม่มีบทสนทนาที่เก็บเก่าเกิน 90 วันให้ลบ');
     } catch (err) { addNote(`ลบไม่ได้: ${err.message}`); }
-    await refreshSessions();
+    await refreshSessions(true);
   };
   let open = false;
   const box = el('div', 'archived-box');
@@ -247,7 +268,7 @@ async function drawArchived(ul) {
           await rpc('session.unarchive', { id: s.id });
           addCommandOut(`คืนบทสนทนา "${s.title ?? '(untitled)'}" เข้ารายการแล้ว`);
         } catch (err) { addNote(`คืนไม่ได้: ${err.message}`); }
-        await refreshSessions();
+        await refreshSessions(true);
       };
       row.append(back);
       box.append(row);
@@ -467,6 +488,12 @@ async function renderMemoryFacts(ul, head) {
   return facts;
 }
 
+  const toggleBtn = $('helper-sessions-toggle');
+  if (toggleBtn) {
+    const sync = () => { toggleBtn.setAttribute('aria-pressed', (typeof localStorage !== 'undefined' ? localStorage.getItem('aipass.showHelperSessions') : null) === '1' ? 'true' : 'false'); toggleBtn.textContent = (typeof localStorage !== 'undefined' ? localStorage.getItem('aipass.showHelperSessions') : null) === '1' ? 'h•' : 'h'; };
+    sync();
+    toggleBtn.onclick = () => { const cur = (typeof localStorage !== 'undefined' ? localStorage.getItem('aipass.showHelperSessions') : null) === '1'; if (typeof localStorage !== 'undefined') localStorage.setItem('aipass.showHelperSessions', cur ? '0' : '1'); sync(); refreshSessions(true); };
+  }
   return { refreshSessions, refreshSkills, renderSkillList, renderMemoryFacts, useSkill, installSkillDialog, sessionDay, sessionBucket };
 }
 

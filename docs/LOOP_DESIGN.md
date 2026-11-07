@@ -19,11 +19,11 @@ the run was given and what it has done so far:
 | `run/context.mjs` | `RunContext`: the wiring, the counters, the verdict, the conversation |
 | `run/options.mjs` | the option sheet, clamped once before a run touches state |
 | `run/send.mjs` | the send pipeline: the message, the rewrite ladder, the recovery waits |
-| `run/gates.mjs` | the DONE gates: the checker, the strict gate, the plan checkpoint, the language hook |
+| `run/gates.mjs` | the DONE gates: the checker, the strict gate, the jobs gate, the review check, the goal gate, the plan checkpoint, the language hook |
 | `run/budgets.mjs` | the budgets: the tool count, the wall clock, the credit cap |
 
 A stage is a module so it can be read — and pinned — on its own: the budget
-policy is three functions, and the DONE gates are four, and neither needs a
+policy is three functions, and the DONE gates are seven, and neither needs a
 bridge, a tool set or a session to be exercised.
 
 For the whole harness — the review, the findings, the open designs — see
@@ -71,9 +71,9 @@ runTask(task):
   │   no calls   → nudge ×2, then the stall path                 │
   │   calls      → execute in order, behind the permission gate  │
   │                 plan gate · diff_update · budgets            │
-  │   DONE       → after the calls: checker → goal rounds →      │
-  │                 plan checkpoint → language check →           │
-  │                 done_line → stop                             │
+  │   DONE       → after the calls: checker → strict → jobs →              │
+  │                 review → goal rounds → plan checkpoint →                │
+  │                 language check → done_line → stop                      │
   │ guards: repeat · stagnation · verify-nudge · compaction      │
   └──────────────────────────────────────────────────────────────┘
   │
@@ -142,12 +142,15 @@ may override it, but the saved value is what the window flips and relies on.
 The `for` body, in order. "Stops" names the stop reason if the stage ends the
 run.
 
-**Before the body — the pre-flight.** Once, before the first send, the saved
-model is checked against the bridge's live catalog: a model the site no longer
-offers fails the run by name (`error` — the sentence in the summary), instead
-of the site swapping in a substitute mid-run and never saying so. A missing
-or fallback list never judges a run, and `auto` is never judged — the site
-picks that one itself.
+ **Before the body — the pre-flight.** Once, before the first send (and before
+ `overlay.clear`, so a run that cannot run leaves the pending work in place),
+ the saved model is checked against the bridge's live catalog: a model the site
+ no longer offers fails the run by name (`error` — the sentence in the summary),
+ instead of the site swapping in a substitute mid-run and never saying so. A
+ missing or fallback list never judges a run, and `auto` is never judged — the
+ site picks that one itself. A run that does start and finds pending changes
+ from a previous run clears them and emits `discarded` (with the count), so the
+ work is never silently overwritten.
 
 **1. Budget before the send.** The wall clock is checked before every reply —
 waiting on a slow model is as real a spend as running a command — and so is
@@ -225,10 +228,16 @@ Stops: none — the parse only classifies the reply; step 4 reads what it means.
   answer. Emits `done_line` + `ask`. Stops: `ask`;
 - an effective DONE (an explicit `DONE`, or prose-only after tools have run):
   the finish pipeline — `finishCheck` when code is staged (always: a self-run
-  does not stand it down; at most two verdicts a run), then the plan
-  checkpoint (once a run that wrote a PLAN/TODO: a DONE with items still open
-  names them and asks for a ticked TODO — the next DONE ends the run either
-  way), then the language check, then `done_line`. Stops: `done`;
+  does not stand it down; at most two verdicts a run), then the strict gate
+  (`requireCheck` refuses a DONE over a failing declared check), then the jobs
+  gate (a background command still running earns one nudge, then ends as
+  `jobs-running`), then the review check (one findings nudge for a review that
+  closed without them), then the goal gate (a plain DONE while the goal is
+  active buys another round), then the plan checkpoint (once a run that wrote a
+  PLAN/TODO: a DONE with items still open names them and asks for a ticked TODO
+  — the next DONE ends the run either way), then the language check, then
+  `done_line`. Both DONE paths (no-work and stage-and-DONE) run this same
+  chain. Stops: `done`;
 - otherwise the nudge pipeline: streaks 1–2 emit `nudge` and send a
   marker-shaped reminder; the third consecutive blank reply is the stall path
   — one last checker attempt, and the verdict decides where the loop goes:
@@ -342,12 +351,15 @@ reply cannot mask why the run stopped; whatever was staged is still staged.
 
 With no read in flight, the reply's own ending is taken here — through the
 same finish pipeline step 4 uses, at the same order: the checker
-(`finishCheck`, when code is staged) → the goal rounds (a plain DONE while the
-project's goal is active earns another round; at the cap the goal is recorded
-blocked and the run ends as `goal-rounds`) → the plan checkpoint (a DONE with
-plan/TODO items still open names them and asks for a ticked TODO) → the
-language check (a reply that carried calls is judged on its closing line
-alone) → `done_line`. The run stops with `done`. An ASK takes the same turn
+(`finishCheck`, when code is staged) → the strict gate (`requireCheck` refuses
+a DONE over a failing declared check) → the jobs gate (a background command
+still running earns one nudge, then ends as `jobs-running`) → the review check
+(one findings nudge for a review that closed without them) → the goal rounds
+(a plain DONE while the project's goal is active earns another round; at the
+cap the goal is recorded blocked and the run ends as `goal-rounds`) → the plan
+checkpoint (a DONE with plan/TODO items still open names them and asks for a
+ticked TODO) → the language check (a reply that carried calls is judged on its
+closing line alone) → `done_line`. The run stops with `done`. An ASK takes the same turn
 without the checker and without the checkpoint — the language check applies to
 the question, and the run pauses on it (`ask`). A failing check or an open
 checklist does not end the run: its message rides the next step instead, and
@@ -358,7 +370,7 @@ DONE over a declared check that is still failing is refused outright
 A DONE with reads still in flight is deferred (`ignore_done`) so the reads
 execute and their results go out first. An ASK with reads in flight waits the
 same way — the read's result goes out, and the question lands a step later.
-Stops: `done`, `ask`, `done-unverified`, `goal-rounds` (the finish pipeline above),
+Stops: `done`, `ask`, `done-unverified`, `jobs-running`, `goal-rounds` (the finish pipeline above),
 `tools-limited`, `time-limited`, `credit-limited` (a budget spent mid-step),
 `cancelled`.
 
@@ -449,7 +461,9 @@ a sub-run is not a session.
 | stagnation | same step ×3, two trading places ×2, or a longer round twice | `stagnation` warn + "do something different" | `stagnation` |
 | budgets | tool count (300) and wall clock (30 min) — the only bound when no step cap is set; plus credits, only when set (`maxCredits`, 0 = off, checked against the cached quota) | `budget` event | `tools-limited` / `time-limited` / `credit-limited` |
 | plan gate | `PLAN` and no approval yet — asked after the reply's calls ran | `plan_request`, wait however long | decline → `plan-rejected` (nothing applied, no further step) |
-| plan checkpoint | DONE with plan/TODO items still open | one nudge naming them and asking for a ticked TODO (`todoPrompts`); the finish pipeline reads: checker → goal → checkpoint → language | — (the next DONE is honored either way) |
+| plan checkpoint | DONE with plan/TODO items still open | one nudge naming them and asking for a ticked TODO (`todoPrompts`); the finish pipeline reads: checker → strict → jobs → review → goal → checkpoint → language | — (the next DONE is honored either way) |
+| jobs gate | a DONE (or a stage-and-DONE) while a background command the run started is still running | one nudge naming the jobs and the two ways out (`jobsPrompts`); a DONE after that ends as `jobs-running` — the command is stopped with the run | `jobs-running` (the summary names the output files) |
+| review check | a review's closing message without findings | one nudge asking for the findings list (`reviewPrompted`); advisory — the answer stands | — (advisory, like language) |
 | goal rounds | a plain DONE while the project's goal is active | one nudge naming the objective and the round, `goal_round`; the round is only spent when a step is left to carry it | at the goal's `maxRounds` → the goal is recorded `blocked: round-limit` → `goal-rounds` |
 | checker | DONE (or a stalled step) with staged code | read-only verifier runs it; a self-run does not stand it down; a re-check only when the tree moved; `verifyCommand` names the check | fail → a correcting step; pass → `done`; with `requireCheck`, a later DONE over the failing tree → `done-unverified`; two verdicts a run, the last recorded |
 | verify nudge | staged code, nothing verified since the change | `verify_prompt` (once per run) | — |
@@ -470,6 +484,7 @@ check command; `requireCheck` exists wherever the checker can run.
 |---|---|
 | `done` | DONE accepted (possibly after the checker or a language rewrite) |
 | `done-unverified` | `requireCheck` was on and a DONE arrived over a declared check that was still failing |
+| `jobs-running` | a DONE (or a stage-and-DONE) arrived while a background command the run started was still running — the run does not claim the build finished; the command is stopped with the run; the summary names the output files |
 | `goal-rounds` | the project's goal was still active when its round cap was reached — the goal is recorded `blocked: round-limit` |
 | `ask` | the model paused on a question (ASK) — the next message answers it |
 | `steps` | a set step cap ran out (no cap is the default) |

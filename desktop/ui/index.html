@@ -143,6 +143,7 @@
             <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9.5l6 6 6-6"/></svg>
           </button>
           <span>ประวัติการสนทนา</span><span class="side-count" id="session-count"></span>
+          <button type="button" class="side-h-btn" id="helper-sessions-toggle" title="แสดง/ซ่อน helper sessions" aria-label="แสดง/ซ่อน helper sessions" aria-pressed="false">h</button>
         </h3>
         <ul id="sessions" class="list"></ul>
       </section>
@@ -181,6 +182,14 @@
         </div>
 
         <ul id="files" class="list dim"></ul>
+      </section>
+
+      <!-- Live helpers and background jobs. -->
+      <section class="side-section" id="helpers-section" hidden>
+        <h3 class="side-h">
+          <span>ผู้ช่วย &amp; งานพื้นหลัง</span><span class="side-count" id="helpers-count"></span>
+        </h3>
+        <ul id="helpers" class="list"></ul>
       </section>
 
       <!-- The panels a plugin draws are not rows here. They used to be two

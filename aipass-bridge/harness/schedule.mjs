@@ -480,13 +480,27 @@ export class ScheduleStore {
  * @returns {number|null} the child's pid
  */
 const startDetached = (entry, { spawnFn, cli, env }) => {
-  const child = spawnFn(process.execPath, [cli, 'agent', entry.task, '--root', entry.root], {
-    cwd: entry.root,
-    env: { ...env },
-    detached: true,
-    windowsHide: true,
-    stdio: 'ignore',
-  });
+  // A project that no longer exists has no job to run: spawning with a
+  // missing cwd fails with ENOENT, and an unhandled 'error' event on the
+  // ChildProcess is an uncaught exception — one stale entry killed the
+  // whole desktop backend in a restart loop. Skip it quietly instead.
+  try {
+    if (!fs.existsSync(entry.root)) return null;
+  } catch { return null; }
+  let child = null;
+  try {
+    child = spawnFn(process.execPath, [cli, 'agent', entry.task, '--root', entry.root], {
+      cwd: entry.root,
+      env: { ...env },
+      detached: true,
+      windowsHide: true,
+      stdio: 'ignore',
+    });
+  } catch { return null; }
+  if (!child) return null;
+  // The child errors asynchronously (ENOENT for any spawn reason): without
+  // a handler that error is an uncaught exception in the backend.
+  try { child.on('error', () => {}); } catch { /* a fake spawner may not emit */ }
   // The child is not ours to wait for. An unreferenced handle is what lets the
   // desktop backend exit while the scheduled work is still running, and the
   // detached child ends itself when its work is done.

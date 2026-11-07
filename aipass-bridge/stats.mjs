@@ -67,6 +67,7 @@ export function collectRuns(session) {
       doneUnverified: e.doneUnverified ?? 0,
       firewallNotes: e.firewallNotes ?? 0,
       stepMs: Array.isArray(e.stepMs) ? e.stepMs : [],
+      durationMs: Number.isFinite(Number(e.durationMs)) ? Number(e.durationMs) : null,
       spent: e.spent ?? null,
       tools,
     });
@@ -98,6 +99,8 @@ export function summarize(rows) {
     byRoot: {},
     stepMsTotal: 0,
     stepMsCount: 0,
+    durationMsTotal: 0,
+    durationMsCount: 0,
   };
   for (const r of rows) {
     totals.calls += r.calls;
@@ -134,6 +137,7 @@ export function summarize(rows) {
       totals.byTool[kind] = t;
     }
     for (const ms of r.stepMs) { totals.stepMsTotal += ms; totals.stepMsCount++; }
+    if (r.durationMs != null && Number.isFinite(r.durationMs)) { totals.durationMsTotal += r.durationMs; totals.durationMsCount++; }
   }
   return totals;
 }
@@ -275,7 +279,8 @@ function main() {
   console.log(`lifetime  ${totals.runs} run(s) · ${totals.calls} tool call(s) · refusals ${pct(totals.calls ? totals.refusals / totals.calls : 0)} · nudges ${totals.nudges} · stagnation ${totals.stagnations} · verify ${totals.verifyPrompts} · repeat ${totals.repeatBlocks} · lang ${totals.langPrompts} · checks ${totals.checks}${totals.checkFails ? ` (${totals.checkFails}✗)` : ''} · firewall ${totals.firewallNotes}${totals.commitBlocks ? ` · commit-gate ${totals.commitBlocks}` : ''}${totals.doneUnverified ? ` · unverified ${totals.doneUnverified}` : ''} · ${credits(totals.spent)} credits`);
   const avgStep = totals.stepMsCount ? Math.round(totals.stepMsTotal / totals.stepMsCount / 100) / 10 : null;
   const stops = Object.entries(totals.byStop).map(([k, n]) => `${k}×${n}`).join(', ');
-  if (avgStep !== null) console.log(`          avg step ${avgStep}s · ends: ${stops}`);
+  const avgRun = totals.durationMsCount ? Math.round(totals.durationMsTotal / totals.durationMsCount / 100) / 10 : null;
+  if (avgStep !== null || avgRun !== null) console.log(`          avg step ${avgStep ?? '?'}s · avg run ${avgRun ?? '?'}s · ends: ${stops}`);
   // Per-tool latency: the mean wall time each kind spent, next to its refusal
   // count — a slow run names where it went without reading the transcript.
   const toolLine = Object.entries(totals.byTool)

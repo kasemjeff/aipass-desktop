@@ -212,6 +212,7 @@ const renderContextTab = async (page, sheet) => {    // The context meter, live:
     group.append(sheet.row('งบบริบทก่อนหมุนเวียน (token)', 'ยิ่งสูงยิ่งจำได้มาก แต่เสียเครดิตเร็วขึ้น เพราะส่งบริบทเก่าซ้ำ', sheet.control({ key: 'compaction.contextTokens', type: 'number' })));
     group.append(sheet.row('สำรองสำหรับคำตอบ (token)', 'ที่ว่างไว้ให้โมเดลตอบ — ต้องน้อยกว่างบทั้งหมด', sheet.control({ key: 'compaction.reserveTokens', type: 'number' })));
     group.append(sheet.row('บทสนทนาล่าสุดที่เก็บดิบ (bytes)', 'ส่วนท้ายของบทสนทนาจะคงอยู่ตรง ๆ ไม่ถูกย่อรวม', sheet.control({ key: 'compaction.keepRecentBytes', type: 'number' })));
+group.append(sheet.row('Elision tier — ย่อผลลัพธ์เก่า (head…tail)', 'ผลลัพธ์เก่าที่ไม่ได้ใช้แล้วจะถูกย่อเป็นต้น…ท้าย เก็บลง spill — ประหยัด context (ค่าเริ่มต้น: ปิด)', sheet.control({ key: 'compaction.elideStaleResults', type: 'checkbox' })));
     page.append(group);
 };
 const renderProvidersTab = async (page, sheet) => {    // Who answers the run: the built-in AiPASS provider (the local bridge
@@ -1138,11 +1139,15 @@ async function openSettings(pageId = null) {
     return r;
   };
 
-  const details = await rpc('plugins.list').catch(() => null);
+  // The two answers the tab list needs ride together — each was a round trip
+  // before the sheet could open at all.
+  const [details, mcpList] = await Promise.all([
+    rpc('plugins.list').catch(() => null),
+    rpc('mcp.list').catch(() => null),
+  ]);
   // The MCP section is live connection state, not a file — it only means
   // something when the backend answers mcp.list with rows (an older backend,
   // or a test stub, answers nothing useful and gets no section).
-  const mcpList = await rpc('mcp.list').catch(() => null);
   const mcpReady = mcpList && Array.isArray(mcpList.servers) ? mcpList : null;
   // The sheet every tab draws into: the draft the edits land in, the helpers
   // that read and write it, and the two answers only the backend has. The
@@ -1164,6 +1169,10 @@ async function openSettings(pageId = null) {
 
 
 
+  // The live tabs render in parallel and the sheet does not wait for them:
+  // awaiting each in turn kept the open behind the slowest answer (a git
+  // spawn included). Every page fills itself when its backend answers; a
+  // page that fails says so in its own body.
   for (const tab of tabs) {
     const button = el('button');
     button.dataset.cat = tab.id;
@@ -1177,7 +1186,12 @@ async function openSettings(pageId = null) {
     page.append(el('p', 'settings-page-sub', tab.sub));
     pages.append(page);
 
-    if (tab.custom) { await tab.render(page, sheet); continue; }
+    if (tab.custom) {
+      void tab.render(page, sheet).catch(() => {
+        page.append(el('p', 'settings-page-sub', 'โหลดไม่สำเร็จ — ลองเปิดแท็บนี้อีกครั้ง'));
+      });
+      continue;
+    }
     const group = el('div', 'set-group');
     for (const field of tab.fields ?? []) group.append(sheet.row(field.label, field.note, sheet.control(field)));
     page.append(group);

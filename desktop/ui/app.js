@@ -11,6 +11,7 @@ import { createTranscript } from './transcript.js';
 import { createFilesPanel } from './panels/files.js';
 import { createSessionsPanel } from './panels/sessions.js';
 import { createContextPanel } from './panels/context.js';
+import { createHelpersPanel } from './panels/helpers.js';
 import { createWorktrees } from './features/worktrees.js';
 import { createGitSchedule } from './features/git-schedule.js';
 import { createMedia } from './features/media.js';
@@ -324,6 +325,9 @@ Object.assign(ctx, worktrees);
 const contextPanel = createContextPanel(ctx);
 const { refresh: refreshContextPanel } = contextPanel;
 ctx.refreshContextPanel = refreshContextPanel;
+const helpersPanel = createHelpersPanel(ctx);
+const { addHelper, updateHelper, addJob, updateJob } = helpersPanel;
+ctx.helpersPanel = helpersPanel;
 // Exposed for the test harness (ui.test.mjs drives the panel directly).
 globalThis.__ctx = ctx;
 
@@ -758,8 +762,15 @@ async function restoreFromSnapshot() {
   if (painted) { renderPending(snap.pending); refreshMeter(); ctx.refreshContextPanel?.(); restoreAsks(snap.asks ?? {}); return; }
   // The card comes off only when there is a conversation to put in its place:
   // an idle window keeps the note that says what this is.
+  //
+  // Rows are the view, not the record (transcript.js caps the log at 300),
+  // so only the tail is parsed — a long session rendered in full paid a
+  // markdown pass over everything and then threw most of it away.
+  const REPLAY_TAIL = 300;
+  const skipped = Math.max(0, entries.length - REPLAY_TAIL);
+  if (skipped) addNote(`ย้อนหลังแค่ ${REPLAY_TAIL} แถวล่าสุด — ข้ามไป ${skipped} แถวแรก (ไฟล์ session เก็บครบ)`);
   if (entries.length) hideWelcome();
-  for (const entry of entries) {
+  for (const entry of entries.slice(skipped)) {
     if (entry.type === 'task') addTask(entry.text);
     else if (entry.type === 'assistant') replayAssistant(entry.text ?? '');
     // A tool entry is the replay's step boundary: the reply above it is done
@@ -994,6 +1005,7 @@ const STOP_REASON = {
 };
 
 onRun('task_start', (data) => {
+  if (data?.helper) return; // helper frames must not collapse the parent's turn
   // The run has started: the transcript is busy, so the live region keeps
   // its announcements until the run ends instead of reading the answer's
   // half-written tail over and over.
@@ -1046,9 +1058,10 @@ onAny('fell_behind', (data) => {
   if (!dropped) return;
   addNote(`ตกหล่น ${dropped} ข้อความจาก backend (หน้าต่างไม่ได้อ่านเร็วพอ) — บทสนทนาที่เหลืออาจไม่ครบ`);
 });
-onRun('assistant_delta', (data) => assistantText(data.text));
-onRun('reasoning_delta', (data) => thinkingText(data.text));
+onRun('assistant_delta', (data) => { if (data?.helper) return; assistantText(data.text); });
+onRun('reasoning_delta', (data) => { if (data?.helper) return; thinkingText(data.text); });
 onRun('step', (data) => {
+  if (data?.helper) return;
   const { step, maxSteps, elapsed } = data;
   // A step is a boundary: the reply that just streamed is finished and its
   // tools are about to land, so its bubble and reasoning fold close here.
@@ -1092,8 +1105,8 @@ onRun('thinking', (data) => {
 onRun('tool', (data) => addTool({ ...data, kind: toolKind(data.kind) }));
 onRun('note', (data) => addNote(data.text));
 onRun('firewall_note', (data) => addNote(data.text));
-onRun('nudge', (data) => addNote(`no marker in that reply — nudging (${data.n}/2)`));
-onRun('give_up', () => addNote('no marker after three replies — stopping.'));
+onRun('nudge', (data) => { if (data?.helper) return; addNote(`no marker in that reply — nudging (${data.n}/2)`); });
+onRun('give_up', (data) => { if (data?.helper) return; addNote('no marker after three replies — stopping.'); });
 onRun('ignore_done', () => addNote('(ignoring DONE — it came before the results it asked for)'));
 onRun('stagnation', (data) => {
   const { action, pattern } = data;
@@ -1140,7 +1153,7 @@ onRun('budget', (data) => {
   addNote(`budget spent (${used}) — stopping`);
   offerCarryOn(`หยุดเพราะครบ budget (${used}) — `);
 });
-onRun('error', (data) => addNote(`error: ${friendly(data.message)}`));
+onRun('error', (data) => { if (data?.helper) return; addNote(`error: ${friendly(data.message)}`); });
 onRun('todo', (data) => renderTodo(data.items));
 onRun('diff_update', (data) => renderPending(data.changes));
 // The questions show regardless of project: dropping one would leave that run
@@ -1162,12 +1175,18 @@ onRun('compacted', (data) => {
   }
   scrollDown();
 });
-onRun('helper_start', (data) => addNote(`helper started: ${data.task}`));
+onRun('helper_start', (data) => { addHelper(data); addNote(`helper started: ${data.task}`); });
 onRun('helper_end', (data) => {
   const { summary, prepared, skipped } = data;
+  updateHelper(data);
   addNote(`helper finished${prepared?.length ? `, prepared ${prepared.length} file(s) for approval` : ''}${skipped?.length ? `, left ${skipped.length} file(s) alone (a newer version was already staged)` : ''}: ${summary}`);
 });
+onRun('subagent_start', (data) => { if (data?.background) addHelper(data); addNote(`subagent started: ${data?.task}`); });
+onRun('subagent_end', (data) => { if (data?.background) updateHelper(data); addNote(`subagent finished: ${data?.out ?? data?.summary ?? ''}`); });
+onRun('job_start', (data) => { addJob(data); addNote(`background job ${data?.id ?? ''} started: ${data?.command ?? ''}`); });
+onRun('job_end', (data) => { updateJob(data); addNote(`background job ${data?.id ?? ''} finished (exit ${data?.code ?? '?'})`); });
 onRun('done_line', (data) => {
+  if (data?.helper) return;
   const { text, extra } = data;
   assistantSummary(text || 'done');
   if (extra) assistantSummary(extra);
@@ -1191,6 +1210,7 @@ onRun('cancelled', (data) => {
   addNote('รับคำสั่งหยุดแล้ว — กำลังจบงานที่กำลังทำอยู่');
 });
 onRun('finished', async (data) => {
+  if (data?.helper) return;
   const { summary, stopReason, spent, credits, check, todo } = data;
   // The run's verdict rides the pending panel: the badge under the change
   // list says whether Apply is about to write something a check passed.
@@ -1243,7 +1263,7 @@ onRun('applied', (data) => {
   // that just landed on disk stays invisible until a reload.
   void refreshFiles();
 });
-onRun('discarded', () => { renderPending([]); addNote('discarded.'); });
+onRun('discarded', (data) => { renderPending([]); addNote(`discarded ${data?.files ?? 0} pending change(s).`); });
 onRun('session', (data) => {
   const s = data;
   state.sessionId = s.id;
@@ -1275,10 +1295,34 @@ const DRAFT_KEY = 'aipass.draft';
 const loadDraft = () => {
   try { return localStorage.getItem(DRAFT_KEY) ?? ''; } catch { return ''; }
 };
+// A keystroke is not worth a synchronous write to storage every time, but
+// the first one after a quiet moment lands at once: a reload that comes
+// right behind it still finds the paragraph. A burst after it coalesces
+// into one trailing write every 150 ms, and pagehide flushes the rest.
+let draftTimer = null;
+let draftStamp = 0;
 const saveDraft = () => {
+  clearTimeout(draftTimer);
+  draftTimer = null;
+  draftStamp = Date.now();
   try { localStorage.setItem(DRAFT_KEY, $('task').value); } catch { /* storage off */ }
 };
-$('task').addEventListener('input', saveDraft);
+const saveDraftLater = () => {
+  if (draftTimer) return;
+  const now = Date.now();
+  if (now - draftStamp >= 150) {
+    draftStamp = now;
+    saveDraft();
+    return;
+  }
+  draftTimer = setTimeout(() => {
+    draftTimer = null;
+    draftStamp = Date.now();
+    try { localStorage.setItem(DRAFT_KEY, $('task').value); } catch { /* storage off */ }
+  }, 150 - (now - draftStamp));
+};
+$('task').addEventListener('input', saveDraftLater);
+if (typeof window.addEventListener === 'function') window.addEventListener('pagehide', saveDraft);
 $('task').value = loadDraft();
 // The modules that fill the composer for the reader (a playbook's "ใช้", the
 // /skill command) save the draft through this — an assignment fires no input
@@ -1980,6 +2024,9 @@ $('panel-btn')?.addEventListener?.('click', () => {
   const box = $('panel-toggle');
   if (!box) return;
   box.checked = !box.checked;
+  // A hidden panel costs no RPCs (context.js), so the opening click is what
+  // refills it — the rows must not go stale behind the fold.
+  if (!box.checked) ctx.refreshContextPanel?.();
   try { localStorage.setItem('aipass.panel.open', String(!box.checked)); } catch {}
   if (isNarrow()) try { sessionStorage.setItem('aipass.panel.narrow', box.checked ? 'closed' : 'open'); } catch {}
   syncPanelState();
@@ -2036,9 +2083,9 @@ document.addEventListener('click', (e) => {
   document.addEventListener('mousemove', (e) => {
     if (!dragging) return;
     if (window.innerWidth <= 960) return;
-    const rect = document.documentElement.getBoundingClientRect();
-    let w = e.clientX - rect.left;
-    w = Math.max(200, Math.min(500, w));
+    // The sidebar is the <html> box's left edge at x=0; a layout read per
+    // mousemove buys nothing the event does not carry.
+    let w = Math.max(200, Math.min(500, e.clientX));
     document.documentElement.style.setProperty('--side-w', w + 'px');
   });
   document.addEventListener('mouseup', () => {
@@ -2757,26 +2804,33 @@ function applyTheme(theme) {
 }
 
 (async function boot() {
-  // The wire spellings first: the model writes a URL as HTTPS-URL…, and the
-  // reader must see the address itself. The table comes from the backend
-  // that owns it, so the window never keeps a copy of the rules.
-  const table = await rpc('waf.table').catch(() => null);
-  if (Array.isArray(table?.pairs)) setRestoreTable(table.pairs);
-  // The provider switch comes first: the model list belongs to a provider,
-  // so the picker has to know which one is in use before the models are read.
-  await fillProviders();
-  await refreshHeader();
+  // The reader must see the wire spellings as addresses, and the table comes
+  // from the backend that owns it — the window never keeps a copy of the
+  // rules. Everything the boot needs flies at once — the bridge serializes
+  // nothing, so awaiting the calls one by one only added their round trips
+  // together. allSettled is attached at creation: one failed refresh must not
+  // abort the rest of the boot, and it must not surface as an unhandled
+  // rejection either — it simply does not paint.
+  const settled = Promise.allSettled([
+    // The table feeds the wire-spelling rules the reader sees; the picker
+    // and the models ride providers.list, not this array's order.
+    rpc('waf.table').catch(() => null)
+      .then((table) => { if (Array.isArray(table?.pairs)) setRestoreTable(table.pairs); }),
+    fillProviders(),
+    refreshHeader(),
+    refreshReadiness(),
+    rpc('status').catch(() => null).then((s) => refreshProjects(s?.projects)),
+    refreshSessions(),
+    refreshFiles(),
+    refreshSkills(),
+    refreshPanels(),
+    refreshPending(),
+    refreshCheckpoints(),
+  ]);
   state.settings = await rpc('settings.get').catch(() => null);
   // A reloaded window has to look like the saved theme, not like the default.
   applyTheme(state.settings?.theme ?? 'dark');
-  await refreshReadiness();
-  await refreshProjects((await rpc('status').catch(() => null))?.projects);
-  await refreshSessions();
-  await refreshFiles();
-  await refreshSkills();
-  await refreshPanels();
-  await refreshPending();
-  await refreshCheckpoints();
+  await settled;
   applySettingsToUi(state.settings);
   // The update check runs after the window is up and never before it: it is
   // one GET of a static file, and the app must not wait for it.

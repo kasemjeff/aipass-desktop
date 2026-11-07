@@ -8,7 +8,7 @@
 > community bridge that reaches the site through your own logged-in browser tab.
 
 <p align="left">
-  <img src="https://img.shields.io/badge/node-%E2%89%A520-blue?logo=node.js&style=flat-square" alt="Node >= 20" />
+  <img src="https://img.shields.io/badge/node-%E2%89%A524-blue?logo=node.js&style=flat-square" alt="Node >= 24" />
   <img src="https://img.shields.io/badge/dependencies-zero-success?style=flat-square" alt="Zero Dependencies" />
   <img src="https://img.shields.io/badge/tests-npm%20test-blue?style=flat-square" alt="Tests: run npm test" />
   <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgray?style=flat-square" alt="Platforms" />
@@ -125,7 +125,7 @@ is demoted, not quietly kept.
 window, nothing to install to run it. The suite is plain `node --test` and it
 drives the real bridge as a subprocess with a scriptable stand-in for the
 extension, so a green run means the HTTP surface works, not that a mock was
-happy. CI runs Windows, macOS and Linux on Node 20, 22 and 24.
+happy. CI runs Windows, macOS and Linux on Node 24.
 
 **Thai-first, and it says so.** The reply-language policy, the Thai/English
 eval pairs and a window written in Thai first — not translated into it.
@@ -163,7 +163,7 @@ or build from source below.
 
 | you need | why |
 |---|---|
-| **Node ≥ 20** | the only requirement to run it — the app imports `node:*` builtins and nothing else |
+| **Node ≥ 24** | the only requirement to run it — the app imports `node:*` builtins and nothing else |
 | **Chrome** (or Chromium) | the extension is the only thing that ever touches your session |
 | **A de.aipass.net account** | the site the window talks to; your logged-in browser tab *is* the credential |
 | **Nothing else** | no `npm install` to run it, no build step, no database, no API key |

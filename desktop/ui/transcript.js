@@ -70,9 +70,9 @@ let trimMarker = null;
  * — otherwise the fold at the end of a run would close over the wrong rows.
  */
 function boundLog() {
-  const rows = [...log.children];
-  const extra = rows.length - MAX_LOG_ROWS;
+  const extra = log.children.length - MAX_LOG_ROWS;
   if (extra <= 0) return;
+  const rows = [...log.children];
   let removed = 0;
   for (const row of rows) {
     if (removed >= extra) break;

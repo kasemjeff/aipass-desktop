@@ -14,6 +14,7 @@
     "dev": "node aipass-bridge/bridge/server.mjs",
     "test": "node scripts/test.mjs",
     "agents:lint": "node scripts/agents-lint.mjs",
+    "node-floor:check": "node scripts/check-node-floor.mjs",
     "typecheck": "tsc -p aipass-bridge/jsconfig.json",
     "coverage": "node scripts/test.mjs --coverage",
     "coverage:gate": "node scripts/coverage-gate.mjs",
@@ -21,7 +22,7 @@
     "smoke:e2e": "node scripts/smoke-e2e.mjs",
     "qa": "node scripts/qa-loop.mjs",
     "qa:loop": "node scripts/qa-loop.mjs",
-    "check": "node scripts/agents-lint.mjs && node scripts/test.mjs && node scripts/qa-loop.mjs && node scripts/coverage-gate.mjs",
+    "check": "node scripts/agents-lint.mjs && node scripts/check-node-floor.mjs && node scripts/test.mjs && node scripts/qa-loop.mjs && node scripts/coverage-gate.mjs",
     "chat": "node aipass-bridge/chat.mjs",
     "agent": "node aipass-bridge/agent.mjs",
     "models": "node aipass-bridge/list.mjs models",
@@ -53,10 +54,10 @@
     "tauri:build:linux": "tauri build --config desktop/src-tauri/tauri.conf.json --bundles deb,appimage"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=24"
   },
   "devDependencies": {
-    "@types/node": "^26.6.5",
+    "@types/node": "^24.19.2",
     "typescript": "^7.0.2"
   }
 }

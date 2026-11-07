@@ -23,13 +23,35 @@ export function createContextPanel(ctx) {
 
   const section = (title) => el('div', 'cp-section', title);
 
+  // git.status spawns the binary; the panel refreshes on every run boundary,
+  // so a burst of refreshes would spawn a burst of gits. A short TTL keeps
+  // the branch row honest without paying for it per call, and a single
+  // in-flight call is shared by concurrent refreshes.
+  let gitCache = null;
+  let gitAt = 0;
+  let gitInflight = null;
+  const GIT_TTL = 10_000;
+  const gitStatus = () => {
+    if (gitCache && Date.now() - gitAt < GIT_TTL) return Promise.resolve(gitCache);
+    if (gitInflight) return gitInflight;
+    gitInflight = rpc('git.status')
+      .then((out) => { gitCache = out; gitAt = Date.now(); return out; })
+      .catch(() => null)
+      .finally(() => { gitInflight = null; });
+    return gitInflight;
+  };
+
   async function refresh() {
     const panel = $('context-panel');
     if (!panel) return;
+    // The fold is checkbox-driven (#panel-toggle:checked hides the panel):
+    // a hidden panel costs no RPCs, and the toggle button asks again when
+    // the reader opens it.
+    if ($('panel-toggle')?.checked) return;
     const [st, credits, git, wt, mem, skills, mcp] = await Promise.all([
       rpc('status').catch(() => null),
       rpc('credits').catch(() => null),
-      rpc('git.status').catch(() => null),
+      gitStatus(),
       rpc('worktree.status').catch(() => null),
       rpc('memory.list').catch(() => null),
       rpc('skills.list').catch(() => null),

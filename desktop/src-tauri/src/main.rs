@@ -753,6 +753,21 @@ struct Backend {
 
 impl Backend {
     fn spawn(&self) -> std::io::Result<std::process::Child> {
+        // A stale sidecar path after a build cleanup must be a named
+        // condition, not a crash loop: an absolute path that is gone will
+        // not come back on its own, so name it with the fix and let the
+        // backoff retry at its slowest rate.
+        {
+            let node = PathBuf::from(&self.node);
+            if node.is_absolute() && !node.exists() {
+                let msg = format!(
+                    "Node runtime not found at {} — reinstall or place Node beside the app, or put Node on PATH",
+                    self.node
+                );
+                note(msg.as_str());
+                return Err(std::io::Error::new(std::io::ErrorKind::NotFound, msg));
+            }
+        }
         // The root is resolved HERE, not once at startup: a content update
         // promotes a new tree, and the backend that runs it has to be
         // started from there.
@@ -1378,18 +1393,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             // scans the bundled node.exe, the disk is still busy, and a backend
             // that needed twenty-five seconds was reported as "never answered"
             // and left the person with no window at all.
-            for _ in 0..240 {
+            for _ in 0..600 {
                 if port_open() {
                     break;
                 }
-                std::thread::sleep(std::time::Duration::from_millis(250));
+                std::thread::sleep(std::time::Duration::from_millis(100));
             }
-            std::thread::sleep(std::time::Duration::from_millis(150));
             // The window navigates only at OUR backend. The TCP loop above is
-            // the cheap wait; the probe — the same question the spawn asked —
-            // is the verdict before the window points anywhere. A port another
-            // program took between the spawn gate and here would otherwise
-            // open the window onto a stranger's server.
+            // the cheap wait — the error here is the no-answer case; the
+            // verdict for who owns the port follows below.
             if !port_open() {
                 alert(
                     "aipass desktop",
@@ -1400,19 +1412,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 );
                 return Err(format!("the backend never answered on port {backend_port}").into());
             }
-            if backend.port_owner() == PortOwner::Stranger {
+            // TCP connectivity is only the readiness check. Always verify the
+            // application identity before navigating, including for a child
+            // this process spawned: a failed child can leave another process
+            // answering on the same port during the boot race.
+            let owner = backend.port_owner_with_deadline();
+            if owner != PortOwner::Ours {
                 alert(
                     "aipass desktop",
                     &format!(
-                        "พอร์ต {backend_port} ถูกโปรแกรมอื่นใช้อยู่ หน้าต่าง aipass จึงเปิดที่นี่ไม่ได้\n\nตั้ง AIPASS_DESKTOP_PORT เป็นพอร์ตว่างแล้วเริ่มใหม่ (log อยู่ที่\n{})",
+                        "ยืนยัน backend ของ aipass บนพอร์ต {backend_port} ไม่ได้ (สถานะ: {owner:?}) หน้าต่างจึงเปิดที่นี่ไม่ได้\n\nตรวจ log ได้ที่\n{}",
                         backend_log_path().display()
                     ),
                 );
-                return Err(format!("port {backend_port} is not the aipass backend").into());
+                return Err(format!("port {backend_port} is not a verified aipass backend").into());
             }
-            // `Unknown` passes: the spawn gate above already demanded a real
-            // "ours" before starting one, and a probe that cannot answer does
-            // not get to invent a verdict the window is blocked on.
 
             let window = tauri::WebviewWindowBuilder::new(
                 app,

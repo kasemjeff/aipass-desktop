@@ -44,6 +44,7 @@ import { runHooks, hookSaid } from './hooks.mjs';
 import { RunContext } from './run/context.mjs';
 import { createBudgets } from './run/budgets.mjs';
 import { createDoneGates } from './run/gates.mjs';
+import { checkModel } from './run/preflight.mjs';
 import { createSender } from './run/send.mjs';
 
 // The option sheet lives in its own module so the context can read it without
@@ -222,16 +223,49 @@ export async function runTask(taskText, ctx = {}) {
   const gates = createDoneGates(run);
   const sender = createSender(run);
 
+  // (preflight) The catalog check runs first — before overlay.clear, the task
+  // entry and any setup — so a run that cannot run (model gone) leaves no task
+  // entry behind and does not wipe the pending work. `Harness.run` does this
+  // even earlier (before compaction) and passes the verdict in via ctx; direct
+  // callers (CLI/agent/tests) get it here.
+  let blocked = false;
+  if (ctx.preflightGone) {
+    blocked = true;
+    run.summary = ctx.preflightGone;
+    run.stopReason = 'error';
+    session?.append('note', { text: `catalog check: ${run.summary}` });
+    events?.emit('error', { message: run.summary });
+  } else if (!ctx.skipModelCheck) {
+    const pre = await checkModel(bridge, model);
+    if (pre.gone) {
+      blocked = true;
+      run.summary = pre.summary;
+      run.stopReason = 'error';
+      session?.append('note', { text: `catalog check: ${run.summary}` });
+      events?.emit('error', { message: run.summary });
+    }
+  }
+
   // A review reads the staged tree, so it must not clear it first. The brief
   // is built before anything else touches the overlay: the diff it carries is
   // the change under review.
-  const reviewText = run.options.review
+  const reviewText = !blocked && run.options.review
     ? reviewBrief(taskText, { overlay, base: run.options.reviewBase ?? null })
     : null;
-  if (!run.options.review) overlay.clear();
-
-  session?.append('task', { text: taskText });
-  events?.emit('task_start', { task: taskText, maxSteps: maxStepsWire });
+  if (!run.options.review && !blocked && overlay.size && !ctx.retry) {
+    const n = overlay.size;
+    blocked = true;
+    run.summary = `there are ${n} pending change(s) from the previous run — apply or discard them before starting a new run`;
+    run.stopReason = 'error';
+    session?.append('note', { text: run.summary });
+    events?.emit('error', { message: run.summary });
+  } else if (!run.options.review && !blocked) {
+    overlay.clear();
+  }
+  if (!blocked) {
+    session?.append('task', { text: taskText });
+    events?.emit('task_start', { task: taskText, maxSteps: maxStepsWire });
+  }
 
   // The pre-run quota reading: the baseline the optional credit cap is
   // measured against, and the "what did this run cost" number at the end.
@@ -280,7 +314,13 @@ export async function runTask(taskText, ctx = {}) {
   // or its CLAUDE.md / GEMINI.md ancestor) rides turn 1, so a run starts with
   // the conventions the person already wrote down instead of spending a NEED
   // on them. Bounded by harness/instructions.mjs; a missing file is no bytes.
-  const projectInstructions = loadProjectInstructions(overlay.root);
+  // Helpers pass `instructions: false` in their options: the parent already
+  // carried the project's conventions, and re-pasting up to 8 KB per helper
+  // is the single biggest avoidable cost of a SUBAGENT. The helper gets a
+  // one-line pointer (in harness.mjs) and reads the file itself if it needs it.
+  const projectInstructions = run.options?.instructions === false
+    ? null
+    : loadProjectInstructions(overlay.root);
 
   const pre = buildPreamble({
     allowRun: Boolean(run.options.allowRun),
@@ -318,7 +358,12 @@ export async function runTask(taskText, ctx = {}) {
   // must not read as an instruction the project wrote. A helper and the
   // checker opt out (`lifecycleHooks: false`): a sub-run is not a session.
   let lifecycleNote = '';
-  if (run.options.lifecycleHooks !== false) {
+  // A run that never started (model gone, or pending changes in the way) must not
+  // fire `sessionStart`/`promptSubmit` hooks — those are "before you start"
+  // hooks, and running them for a run that sent nothing is a side effect with
+  // no run behind it. The `stop` hook at the end still fires (the run did end
+  // in `error`), which is what a person's end-of-run command expects.
+  if (run.options.lifecycleHooks !== false && !blocked) {
     const hookOpts = {
       root: overlay.root,
       hooks: run.options.hooks ?? null,
@@ -377,36 +422,8 @@ export async function runTask(taskText, ctx = {}) {
     run.stopReason = 'ask';
   };
 
-  // (stability, the live stall of Oct 2026) A saved model the site no longer
-  // offers used to be found out mid-run, when the site swapped the
-  // conversation to a substitute and the transcript never said so. The
-  // catalog is the judge now: when the bridge serves a live list and the
-  // chosen model is not on it, the run fails here, by name, before any send.
-  // A missing or fallback list skips the check — it may never block a run it
-  // cannot judge — and `auto` is never judged: it delegates the pick to the
-  // site by design.
-  const chosenModel = String(model ?? bridge?.model ?? '').trim();
-  let modelGone = false;
-  if (chosenModel && chosenModel !== 'auto' && typeof bridge?.models === 'function') {
-    const catalog = await bridge.models().catch(() => null);
-    const ids = Array.isArray(catalog?.data) ? catalog.data.map((m) => m?.id).filter(Boolean) : [];
-    if (catalog?.source === 'live' && ids.length
-        && !ids.includes(chosenModel.replace(/^aipass\//, ''))) {
-      modelGone = true;
-      // The site swaps a model it no longer offers for a substitute mid-run
-      // and never says so; a provider answers with a plain 404 instead. The
-      // check is the same, but the promise behind it is not, so the wording
-      // names the provider that refused.
-      const providerId = bridge?.providerId ?? 'aipass';
-      run.summary = providerId === 'aipass'
-        ? `the model "${chosenModel}" is not in the model catalog anymore — the site would have swapped it for a substitute mid-run without saying so. Pick a current model in Settings and start the run again.`
-        : `the model "${chosenModel}" is not in ${providerId}'s model list — that provider would refuse the request. Pick a current model in Settings and start the run again.`;
-      run.stopReason = 'error';
-      session?.append('note', { text: `catalog check: ${run.summary}` });
-      events?.emit('error', { message: run.summary });
-    }
-  }
-
+  // (preflight) The catalog check moved to the top of runTask (see above).
+  // `blocked` is already set there when the model is gone.
   /**
    * Summarise the conversation and rotate to a fresh one, carrying the seed.
    * The one context-repair move this harness has, called from two places: the
@@ -474,7 +491,7 @@ export async function runTask(taskText, ctx = {}) {
     }
   };
 
-  for (let step = 1; !modelGone && step <= maxSteps; step++) {
+  for (let step = 1; !blocked && step <= maxSteps; step++) {
     // A stop ends the run here, before the next reply: the tools of the last
     // reply are done, and nothing new goes out.
     if (run.stopped()) { run.stopReason = 'cancelled'; break; }
@@ -993,8 +1010,10 @@ export async function runTask(taskText, ctx = {}) {
       break;
     }
 
-    // A plan the human has not signed off on stops the run here: the point of
-    // plan mode is that the work does not start until it is read.
+    // A plan the human has not signed off on stops the run here. Note: reads and
+    // RUN (in the projection) in the same reply already executed above; plan
+    // mode stages writes but does not apply them — "staging is not applying"
+    // (docs/LOOP_DESIGN.md). Only the next step is gated.
     if (calls.some((c) => c.kind === 'plan') && !run.planApproved) {
       const ok = approvePlan ? await approvePlan() : true;
       if (!ok) {
@@ -1050,16 +1069,32 @@ export async function runTask(taskText, ctx = {}) {
       // when no step is left to carry the failure report, the DONE must not be
       // accepted just because the continuation had nowhere to go.
       if (!(checkMsg && step < maxSteps) && gates.refuseUnverifiedDone()) break;
+      // The check rides a step when one is left; otherwise the gates below
+      // get their turn, in the same order as the no-work DONE path, so a
+      // stage-and-DONE cannot skip the jobs or review gates.
+      const checkRides = Boolean(checkMsg && step < maxSteps);
+      const jobsGate = !checkRides ? gates.jobsGate(step < maxSteps) : { stop: false, msg: null };
+      if (jobsGate.stop) break;
+      // `gates.reviewMsg()` is only meaningful when no earlier gate already won:
+      // calling it anyway would spend its one nudge (and set `reviewPrompted`)
+      // while the jobs nudge rides the reply instead. Review runs cannot start
+      // background jobs today, so the jobs gate never wins for them — but the
+      // gating keeps the landmine closed if that ever changes.
+      const reviewNudge = (!checkRides && !jobsGate.msg && step < maxSteps) ? gates.reviewMsg() : null;
       // The goal gate: a plain DONE while the person's goal is active buys
       // another round, or stops the run when the goal's own cap is spent. A
       // check that still has a step to ride is answered first, so the round is
       // spent on goal work, not on a fix the DONE never survived.
-      const goalGate = !checkMsg && step < maxSteps ? gates.goalGate() : null;
+      const goalGate = (!checkRides && !jobsGate.msg && !reviewNudge && step < maxSteps) ? gates.goalGate() : null;
       if (goalGate?.stop) break;
-      const todoMsg = !checkMsg && !goalGate?.msg && step < maxSteps ? gates.openTodoMsg() : null;
-      const langMsg = (checkMsg || todoMsg || goalGate?.msg) ? null : gates.replyLangMsg(proseText, run.summary, work.length === 0);
-      if (checkMsg && step < maxSteps) {
+      const todoMsg = (!checkRides && !jobsGate.msg && !reviewNudge && !goalGate?.msg && step < maxSteps) ? gates.openTodoMsg() : null;
+      const langMsg = (checkMsg || jobsGate.msg || reviewNudge || todoMsg || goalGate?.msg) ? null : gates.replyLangMsg(proseText, run.summary, work.length === 0);
+      if (checkRides) {
         run.next = `${results.join('\n\n')}\n\n${reminder}\n\n${checkMsg}`;
+      } else if (jobsGate.msg && step < maxSteps) {
+        run.next = `${results.join('\n\n')}\n\n${reminder}\n\n${jobsGate.msg}`;
+      } else if (reviewNudge && step < maxSteps) {
+        run.next = `${results.join('\n\n')}\n\n${reminder}\n\n${reviewNudge}`;
       } else if (goalGate?.msg && step < maxSteps) {
         run.next = `${results.join('\n\n')}\n\n${reminder}\n\n${goalGate.msg}`;
       } else if (todoMsg && step < maxSteps) {
@@ -1178,10 +1213,11 @@ export async function runTask(taskText, ctx = {}) {
 
   // A background command is the run's own child: a clean DONE already waited
   // for it (the jobs gate), so one still alive here belongs to a run that was
-  // stopped, capped or failed. Leaving it behind would keep a server on a
-  // port and a folder locked after the person ended the work. It is stopped
-  // whole, and the output file stays where it is — the job's last line is
-  // still readable.
+  // stopped, capped, failed — or ended as `jobs-running`, in which case the
+  // person was told the command was still running and the summary names its
+  // output file. Leaving it behind would keep a server on a port and a folder
+  // locked after the person ended the work. It is stopped whole, and the
+  // output file stays where it is — the job's last line is still readable.
   for (const [id, job] of run.backgroundJobs) {
     if (job.kind !== 'run' || job.status !== 'running' || !job.stop) continue;
     job.status = 'stopped';
@@ -1256,6 +1292,7 @@ export async function runTask(taskText, ctx = {}) {
     // rotation uses, so per-run and per-success rates compare like with like.
     estTokens: compactor && session ? compactor.estimate(session) : null,
     stepMs: run.stepMs,
+    durationMs: Date.now() - run.runStart,
     spent,
   };
   session?.append('run_stats', runStats);
@@ -1453,9 +1490,9 @@ async function execute(call, run) {
       const job = { id, task, role: role || null, status: 'running', result: null };
       backgroundJobs.set(id, job);
       const promise = (async () => {
-        events?.emit('subagent_start', { task, role: role || null, background: true });
+        events?.emit('subagent_start', { id, task, role: role || null, background: true });
         try {
-          const out = await subagent(task, role || null);
+          const out = await subagent(task, role || null, id);
           job.status = 'done';
           job.result = String(out ?? '');
           events?.emit('subagent_end', { task, role: role || null, out: job.result, background: true });
@@ -1468,9 +1505,11 @@ async function execute(call, run) {
       job.promise = promise;
       return `started background job ${id} — poll with JOBS`;
     }
-    events?.emit('subagent_start', { task, role: role || null });
-    const out = await subagent(task, role || null);
-    events?.emit('subagent_end', { task, role: role || null, out });
+    if (run.helperSeq == null) run.helperSeq = 0;
+const helperId = `h${++run.helperSeq}`;
+events?.emit('subagent_start', { id: helperId, task, role: role || null });
+    const out = await subagent(task, role || null, helperId);
+    events?.emit('subagent_end', { id: helperId, task, role: role || null, out });
     session?.append('note', { text: `helper${role ? ` (${role})` : ''}: ${task}\n${String(out).slice(0, 2000)}` });
     return out;
   }

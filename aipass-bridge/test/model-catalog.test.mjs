@@ -12,7 +12,10 @@ import { EventEmitter } from 'node:events';
 import { runTask } from '../harness/loop.mjs';
 import { createTools } from '../harness/tools.mjs';
 import { Overlay } from '../harness/overlay.mjs';
+import { Emitter } from '../harness/events.mjs';
 import { tempDir } from './harness.mjs';
+import path from 'node:path';
+import { SessionStore } from '../harness/session.mjs';
 
 const live = (ids) => ({ object: 'list', source: 'live', data: ids.map((id) => ({ id })) });
 
@@ -152,4 +155,57 @@ test('auto delegates the pick to the site and is never judged', async () => {
 
   assert.equal(result.stopReason, 'done');
   assert.equal(sends.length, 1);
+});
+
+test('a gone model leaves no task entry, so the next run is still the first', async () => {
+  const dir = tempDir();
+  const store = new SessionStore(path.join(dir, 'sessions'));
+  const session = store.create({ root: dir, model: 'gone-model' });
+  const bridge = {
+    model: null,
+    async models() { return live(['gemini-3.1-flash-lite']); },
+    async chat() { throw new Error('nothing should be sent'); },
+    async quota() { return null; },
+  };
+  const result = await runTask('do the thing', {
+    bridge,
+    tools: createTools({ root: dir, overlay: new Overlay(dir) }),
+    overlay: new Overlay(dir),
+    session,
+    options: { model: 'gone-model', maxSteps: 2 },
+    first: true,
+  });
+  assert.equal(result.stopReason, 'error');
+  const taskEntries = session.entries.filter((e) => e.type === 'task');
+  assert.equal(taskEntries.length, 0, 'a failed preflight must not append a task entry');
+});
+
+
+test('a new run with pending changes is blocked until the person decides', async () => {
+  const dir = tempDir({ 'a.txt': 'hello\n' });
+  const overlay = new Overlay(dir);
+  overlay.set(path.join(dir, 'a.txt'), 'staged change\n');
+  assert.equal(overlay.size, 1, 'a change is staged before the run');
+  const events = new Emitter();
+  const discarded = [];
+  const taskStarts = [];
+  events.on('discarded', (d) => discarded.push(d));
+  events.on('task_start', (d) => taskStarts.push(d));
+  const bridge = {
+    async chat() { return { text: 'DONE ok', reasoning: '' }; },
+    async quota() { return { available: 1 }; },
+  };
+  const result = await runTask('do the thing', {
+    bridge,
+    tools: createTools({ root: dir, overlay }),
+    overlay,
+    events,
+    options: { maxSteps: 2 },
+    first: true,
+  });
+  assert.equal(result.stopReason, 'error');
+  assert.equal(overlay.size, 1, 'pending changes remain available for Apply or Discard');
+  assert.equal(discarded.length, 0, 'the run must not discard without consent');
+  assert.equal(taskStarts.length, 0, 'the blocked run must not start');
+  assert.match(result.summary, /apply or discard/i);
 });

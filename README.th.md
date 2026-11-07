@@ -13,11 +13,10 @@
 
 - เวอร์ชัน **pre-1.0** และยังไม่มี installer/GitHub Release ที่เผยแพร่ — ติดตั้งจาก source
   ตามด้านล่าง
-- CI รันชุดทดสอบบน Ubuntu, macOS และ Windows ด้วย Node 20, 22 และ 24
+- CI รันชุดทดสอบบน Ubuntu, macOS และ Windows ด้วย Node 24
 - Rust shell มี unit test บน Ubuntu และ Windows, coverage floor, docs link check,
   eval-set lint และ CodeQL ผ่าน
-- Node 20 หมดอายุการสนับสนุน (EOL) แล้ว แต่ยังอยู่ใน CI เพื่อความเข้ากันได้กับ
-  `engines: >=20`; แนะนำ Node 22 หรือ 24 สำหรับการพัฒนา
+- Node floor คือ 24 (ตรงกับ `.nvmrc` และ sidecar); Node 20/22 ไม่รองรับอีกต่อไป
 - สิ่งที่ยังไม่พร้อมอยู่ใน [ROADMAP.md](./ROADMAP.md) และข้อจำกัดที่รู้อยู่แล้วอยู่ใน
   [SECURITY.md](./SECURITY.md) กับ [docs/MATURITY.md](./docs/MATURITY.md)
 
@@ -39,7 +38,7 @@
 
 | สิ่งที่ต้องมี | เหตุผล |
 |---|---|
-| **Node ≥ 20** (แนะนำ 22/24) | ใช้ `node:*` builtins เท่านั้น ไม่ต้องติดตั้ง dependency |
+| **Node ≥ 24** | ใช้ `node:*` builtins เท่านั้น ไม่ต้องติดตั้ง dependency |
 | **Chrome หรือ Chromium** | extension เป็นส่วนเดียวที่แตะ session ของคุณ |
 | **บัญชี de.aipass.net** | แท็บที่ล็อกอินอยู่คือ credential |
 

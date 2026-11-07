@@ -294,6 +294,21 @@ export function createRpc({
   // bounded queue, the oldest go when it overflows, the losses are counted,
   // and the window is told it fell behind.
   const fanout = new EventFanout();
+  // The project header repeats on every call the window makes. A folder
+  // claim is validated once per two seconds, not once per call — the answer
+  // to a stat almost never changes, and the stat is one more syscall on the
+  // loop for every request the window makes.
+  const scopeMemo = new Map();
+  const SCOPE_TTL = 2_000;
+  const scopeOk = async (scope) => {
+    const hit = scopeMemo.get(scope);
+    if (hit && Date.now() - hit.at < SCOPE_TTL) return hit.ok;
+    let ok = false;
+    try { ok = (await fs.promises.stat(scope)).isDirectory(); } catch { ok = false; }
+    if (scopeMemo.size >= 32) scopeMemo.delete(scopeMemo.keys().next().value);
+    scopeMemo.set(scope, { ok, at: Date.now() });
+    return ok;
+  };
   // Every frame carries a monotonic `seq` and an SSE `id:` of the same value,
   // and the last REPLAY_LIMIT of them stay in a buffer. Two things need that:
   //   - a window that reloaded mid-run has an empty DOM and needs the recent
@@ -314,15 +329,16 @@ export function createRpc({
   const emit = (type, payload) => {
     const body = { seq: ++seq, ...(payload ?? {}) };
     const data = JSON.stringify(body);
-    replay.push({ event: type, seq: body.seq, data });
+    const bytes = Buffer.byteLength(data);
+    replay.push({ event: type, seq: body.seq, data, bytes });
     // The budget is in BYTES and the frame is a string: `data.length` counts
     // UTF-16 code units, and Thai text is three bytes a character in UTF-8 —
     // so a "4 MB" buffer really held twelve. The count has to be the one the
-    // limit is written in.
-    const bytes = Buffer.byteLength(data);
+    // limit is written in. The byte count rides with the entry, so an
+    // overflow pays no re-encode per dropped frame.
     replayBytes += bytes;
     while (replay.length > REPLAY_LIMIT || (replayBytes > REPLAY_BYTES && replay.length > 1)) {
-      replayBytes -= Buffer.byteLength(replay.shift().data);
+      replayBytes -= replay.shift().bytes;
     }
     const frame = `event: ${type}\nid: ${seq}\ndata: ${data}\n\n`;
     // The windows, through the fan-out: a subscriber that stops reading must
@@ -438,10 +454,20 @@ export function createRpc({
     const env = bridgeEnv();
     if (!env) return;
     try {
+      // A backend whose own binary was removed after a content cleanup must
+      // not try to spawn from a missing file: spawn's `error` event is async,
+      // the try/catch below cannot see it, and an uncaught ENOENT took the
+      // backend down for every window.
+      if (!fs.existsSync(process.execPath)) return;
       // Size-capped rotation (harness/log-file.mjs): a bridge left running for
       // weeks used to grow bridge.log without bound.
       const log = openLogFile(path.join(aipassHome(), 'logs', 'bridge.log'));
       const child = spawn(process.execPath, [script], { cwd: root, stdio: ['ignore', log, log], detached: true, env });
+      // An ENOENT that slips past the check is the same fact: swallow the
+      // event (the poll below finds no bridge and the run reports offline)
+      // instead of letting it become an uncaught exception in a process the
+      // window is already showing.
+      child.on('error', () => {});
       child.unref();
       fs.closeSync(log);
       for (let i = 0; i < 60 && !(await bridgeUp()); i++) await new Promise((r) => setTimeout(r, 250));
@@ -694,7 +720,7 @@ export function createRpc({
     // CLI. First match wins. The window and the CLI used to disagree about
     // the first slot, so a name in two libraries loaded a different file
     // depending on who asked.
-    const repoDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'skills');
+    const repoDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'skills');
     const { dirs, roles } = skillDirsFor({
       root: abs,
       repoDir,
@@ -1023,6 +1049,9 @@ export function createRpc({
     const hit = indexes.get(base);
     const now = Date.now();
     if (hit && now - hit.at < INDEX_TTL) return hit.entries;
+    // A stale entry is not merely ignored, it is dropped — the map used to
+    // grow by one full tree per project the backend ever served.
+    if (hit) indexes.delete(base);
     const ign = loadGitignore(h.root);
     const entries = [];
     const walk = async (dir) => {
@@ -1053,6 +1082,9 @@ export function createRpc({
       }
     };
     await walk(base);
+    // A backend that serves many projects must not hoard their trees: the
+    // oldest entry goes when the map is full.
+    if (indexes.size >= 8) indexes.delete(indexes.keys().next().value);
     indexes.set(base, { at: now, entries });
     return entries;
   }
@@ -1279,8 +1311,7 @@ export function createRpc({
           // — a relative path (which would resolve against this backend's
           // cwd), a URL, junk — is refused rather than turned into the
           // project the call runs against.
-          const real = path.isAbsolute(scope)
-            && (() => { try { return fs.statSync(scope).isDirectory(); } catch { return false; } })();
+          const real = path.isAbsolute(scope) && await scopeOk(scope);
           if (scope && !real) {
             return json(res, 200, { ok: false, error: `x-aipass-project must name an existing folder — got: ${scope}` });
           }
@@ -1314,15 +1345,33 @@ export function createRpc({
       : target.endsWith('.css') ? 'text/css; charset=utf-8'
         : target.endsWith('.js') ? 'text/javascript; charset=utf-8'
           : 'application/octet-stream';
+    // Revalidate every load (the UI is edited live), but answer 304 with no
+    // body instead of re-sending the bytes — no-cache means "ask again",
+    // not "transfer again". The etag is the (size, mtime) pair, which is all
+    // a static file can change under a running backend.
+    const etag = `W/"${stat.size}-${Math.floor(stat.mtimeMs)}"`;
+    const ifNoneMatch = String(req.headers['if-none-match'] ?? '');
+    if (ifNoneMatch.split(',').some((t) => t.trim() === etag || t.trim() === '*')) {
+      res.writeHead(304, {
+        'etag': etag,
+        'cache-control': 'no-cache',
+        'x-content-type-options': 'nosniff',
+      });
+      res.end();
+      return;
+    }
     // No headers the browser can revalidate with, so a cached copy would be
     // served blind — and this UI is edited live. no-cache forces the request
-    // back to this server every reload; the file is on local disk anyway.
+    // back to this server every reload; the file is on local disk anyway,
+    // and content-length + etag keep the bytes honest and the answer cheap.
     // The CSP rides with it: the window is a page that drives an agent that
     // writes files, and this is the only header that binds on it — the shell's
     // own declaration covers the asset protocol, which this window does not
     // use, because it is loaded from here.
     res.writeHead(200, {
       'content-type': type,
+      'content-length': stat.size,
+      'etag': etag,
       'cache-control': 'no-cache',
       'content-security-policy': WINDOW_CSP_HEADER,
       'x-content-type-options': 'nosniff',
