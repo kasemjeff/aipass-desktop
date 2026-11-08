@@ -4364,6 +4364,51 @@ test('the session panel shows context and credits from the backend', async () =>
   assert.match(panel.textContent, /42/);
 });
 
+test('the session panel shows the injected context manifest the loop reported', async () => {
+  // The `context` run event carries what the model was shown this message
+  // (turn-1/seed/step) and what gave way. The panel has to name every
+  // source, mark the dropped and truncated ones, and sum the CAG pack.
+  const { node, tick } = await bootApp(BACKEND);
+  globalThis.__stream.emit('context', {
+    kind: 'turn-1', step: 3, totalChars: 9000, budgetChars: 12000,
+    sources: [
+      { id: 'protocol', chars: 4000 },
+      { id: 'snapshot', chars: 2000, dropped: true },
+      { id: 'instructions', chars: 1000, truncated: true },
+      { id: 'cag', chars: 500 },
+    ],
+  });
+  await tick(); await tick();
+  const panel = node('context-panel');
+  assert.match(panel.textContent, /Injected/, 'the manifest has its own section');
+  assert.match(panel.textContent, /turn-1/, 'and the assembly kind');
+  assert.match(panel.textContent, /9,000 \/ 12,000/, 'and what it cost against the budget');
+  assert.match(panel.textContent, /snapshot \(dropped\)/, 'a dropped source says so');
+  assert.match(panel.textContent, /instructions \(truncated\)/, 'a truncated one does too');
+  assert.match(panel.textContent, /CAG pack/, 'and the CAG pack is summed on its own row');
+  assert.match(panel.textContent, /500 chars/, 'with its size');
+});
+
+test('the session panel shows no injected section before any context event', async () => {
+  // A manifest with no sources (or none reported yet) is not a section:
+  // the panel must not print an empty "Injected" header on a fresh window.
+  const { node, tick } = await bootApp(BACKEND);
+  await globalThis.__ctx.refreshContextPanel();
+  await tick(); await tick();
+  assert.doesNotMatch(node('context-panel').textContent, /Injected/);
+  globalThis.__stream.emit('context', { kind: 'step', totalChars: 100, sources: [] });
+  await tick(); await tick();
+  assert.doesNotMatch(node('context-panel').textContent, /Injected/, 'an empty manifest stays hidden too');
+  // A bare manifest — no kind, no step, no budget, no CAG pack — still
+  // lists its sources, and invents no step or pack row.
+  globalThis.__stream.emit('context', { totalChars: 100, sources: [{ id: 'protocol', chars: 100 }] });
+  await tick(); await tick();
+  const text = node('context-panel').textContent;
+  assert.match(text, /Injected/, 'a bare manifest still gets its section');
+  assert.match(text, /protocol/, 'and names its source');
+  assert.doesNotMatch(text, /CAG pack/, 'but invents no pack row');
+});
+
 test('the panel toggle flips aria-expanded', async () => {
   const { node } = await bootApp(BACKEND);
   const btn = node('panel-btn');
