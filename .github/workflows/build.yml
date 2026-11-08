@@ -89,9 +89,20 @@ jobs:
       # The one build command: it checks the three versions agree, puts the
       # Node sidecar in place for this machine's triple, asks for this
       # platform's bundles and writes dist/ with SHA256SUMS and the
-      # manifest.
+      # manifest. Retried: the bundler downloads its Linux/Windows tools
+      # (AppRun, linuxdeploy, NSIS) from GitHub Releases at bundle time,
+      # and those downloads 504 often enough that one attempt left the
+      # linux lane red three runs in a row while the code was fine. The
+      # build is idempotent (dist/ is rewritten), so a retry is safe.
       - name: Build the artifact
-        run: npm run desktop:build
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            if npm run desktop:build; then exit 0; fi
+            echo "build attempt $attempt failed — retrying"
+            sleep 20
+          done
+          exit 1
 
       - name: Upload the artifact
         uses: actions/upload-artifact@v4

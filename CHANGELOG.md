@@ -484,7 +484,11 @@ procedure, acceptance criteria and rollback live in [`docs/RELEASE.md`](docs/REL
   so `cargo test` failed to compile off Windows (`E0425`) — the test is
   gated like its siblings. A new `workflows.test.mjs` pins the wiring:
   every `npm run` the workflows call must exist, and the lock's root
-  specifiers must match `package.json`.
+  specifiers must match `package.json`. The artifact build step is
+  retried (3 attempts): the bundler downloads its Linux/Windows
+  tools from GitHub Releases at bundle time and those downloads 504
+  often enough to leave a lane red on healthy code; the build
+  rewrites dist/ idempotently, so retrying it is safe.
 - **Dead background jobs are reported, not lost.** A background helper that threw and a background command that exited non-zero never rode the next turn — only a `done` helper was injected, so the model could say DONE over a failed build without knowing, and the end-of-run sweep said nothing either. The next turn now carries both (`Background helper/command <id> failed`), a done command rides as a pointer to its output file instead of an empty "helper" line, and a helper that fails on the final step is reported as failed after the run. The background `subagent_end` frame now carries the `id` its `subagent_start` had (without it the window painted a second, finished row and left the first running forever) and a dying helper's end frame carries an `error`; the rail says หยุดแล้ว for a stopped job instead of เสร็จ.
 - **DIAGNOSE is dispatchable again.** The preamble taught `DIAGNOSE` and the
   tool existed, but `BUILTIN_KINDS` did not list `diagnose`, so every call
