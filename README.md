@@ -3,7 +3,7 @@
 [English](./README.md) · [ไทย](./README.th.md)
 
 > **AiPASS Desktop** is an open-source, Thai-first AI coding agent for Windows, macOS and Linux —
-> review every diff, approve edits, resume and fork sessions. MIT licensed, zero dependencies.
+> review every diff, approve edits, resume and fork sessions. MIT licensed, with zero npm runtime dependencies.
 >
 > **The desktop window and the agent harness for [de.aipass.net](https://de.aipass.net/chat)** —
 > a file-editing agent you can watch, approve and resume — running on top of the
@@ -18,13 +18,13 @@
 <p align="left">
   <img src="https://img.shields.io/badge/node-%E2%89%A524-blue?logo=node.js&style=flat-square" alt="Node >= 24" />
   <img src="https://img.shields.io/badge/version-0.2.0-blue?style=flat-square" alt="Version 0.2.0" />
-  <img src="https://img.shields.io/badge/dependencies-zero-success?style=flat-square" alt="Zero Dependencies" />
+  <img src="https://img.shields.io/badge/npm%20runtime%20dependencies-zero-success?style=flat-square" alt="Zero npm runtime dependencies" />
   <img src="https://img.shields.io/badge/tests-npm%20test-blue?style=flat-square" alt="Tests: run npm test" />
 </p>
 
 <p align="left">
   🌐 <a href="https://kasemjeff.github.io/aipass-desktop/">Landing page</a> ·
-  📦 <a href="https://github.com/kasemjeff/aipass-desktop/releases/latest">Releases (pre-1.0: source install until first installer is published)</a>
+  📦 <a href="https://github.com/kasemjeff/aipass-desktop/releases/latest">Release v0.2.0 (source install; installers are not published yet)</a>
 </p>
 
 <p align="left">
@@ -36,7 +36,7 @@
 ![AiPASS Desktop window in light theme: sessions and project files on the left, conversation with tool rows in the center, composer with mode, provider, model and effort at the bottom](./public/screenshots/desktop-light.png)
 
 <p align="center">
-  <em>Light theme. Sessions on the left, the project tree under them, the conversation in the middle — every tool call a row you can open. Pending edits appear in a separate panel with per-file checkboxes and diff view (not in this capture — recapturing with a staged diff is TODO; dark capture planned).</em>
+  <em>Light theme. Sessions and the project tree are on the left, the conversation is in the middle, and every tool call is a row you can open. Pending edits appear in a separate panel with per-file checkboxes and diff view.</em>
 </p>
 
 ---
@@ -147,8 +147,9 @@ Thai/English pairs; the experiment queue records what was tried, what it cost
 and what would change a decision. A capability that stops holding its criteria
 is demoted, not quietly kept.
 
-**It runs wherever a Node does.** Zero dependencies, no build step for the
-window, nothing to install to run it. The suite is plain `node --test` and it
+**It runs wherever a Node does.** The core has zero npm runtime dependencies and
+no build step for the browser window. You still need Node 24, Chrome or Chromium,
+and a logged-in de.aipass.net account. The suite is plain `node --test` and it
 drives the real bridge as a subprocess with a scriptable stand-in for the
 extension, so a green run means the HTTP surface works, not that a mock was
 happy. CI runs Windows, macOS and Linux on Node 24.
@@ -182,9 +183,10 @@ below.
 
 ## Installing
 
-No installer is published yet (v0.2.0 is pre-1.0). Install from source below; when
-[Releases](https://github.com/kasemjeff/aipass-desktop/releases/latest) ships installers, they will
-appear there. See [ROADMAP.md](./ROADMAP.md) for the release criteria.
+Release `v0.2.0` is published, but it contains no installer assets yet. Install
+from source below; when installers are published, they will appear on
+[Releases](https://github.com/kasemjeff/aipass-desktop/releases/latest). See
+[ROADMAP.md](./ROADMAP.md) for the release criteria.
 
 ### What you need
 

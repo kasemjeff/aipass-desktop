@@ -45,8 +45,8 @@ npm run desktop   # เปิดหน้าต่างที่ http://127.0.0
 
 ## สถานะ
 
-- เวอร์ชัน **pre-1.0** และยังไม่มี installer/GitHub Release ที่เผยแพร่ — ติดตั้งจาก source
-  ตามด้านล่าง
+- เวอร์ชัน **pre-1.0** มี GitHub Release `v0.2.0` แล้ว แต่ยังไม่มี installer asset
+  ให้ดาวน์โหลด — ตอนนี้ติดตั้งจาก source ตามด้านล่าง
 - CI รันชุดทดสอบบน Ubuntu, macOS และ Windows ด้วย Node 24
 - Rust shell มี unit test บน Ubuntu และ Windows, coverage floor, docs link check,
   eval-set lint และ CodeQL ผ่าน
@@ -110,9 +110,8 @@ npm run tauri:build   # build installer: NSIS / .app/.dmg / deb/appimage
 ```bash
 npm test              # ชุดทดสอบทั้งหมด
 npm run typecheck     # ไฟล์ที่เปิด // @ts-check
-npm run docs:check    # ลิงก์ Markdown ที่เป็น relative
 npm run coverage:gate # coverage floor ต่อไฟล์
-npm run check         # ก่อน push: lint + test + qa + coverage + docs
+npm run check         # ก่อน push: lint + test + Rust tests + QA + coverage
 ```
 
 ## เอกสาร
@@ -152,7 +151,7 @@ npm run check         # ก่อน push: lint + test + qa + coverage + docs
 
 1. อ่าน [CONTRIBUTING.md](./CONTRIBUTING.md) และ [CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md)
 2. ทุก commit ต้องมี `Signed-off-by` — ใช้ `git commit -s`
-3. รัน `npm test`, `npm run typecheck`, `npm run agents:lint` และ `npm run docs:check`
+3. รัน `npm test`, `npm run typecheck` และ `npm run agents:lint`
 4. เพิ่ม test ทุกครั้งที่เปลี่ยนพฤติกรรม และรักษา core ให้ไม่มี runtime dependency
 
 ## ความปลอดภัย
