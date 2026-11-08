@@ -365,6 +365,7 @@ mod tests {
         project
     }
 
+    #[cfg(windows)]
     #[test]
     fn the_tasklist_line_says_whether_the_pid_lives() {
         // The CSV row quotes the pid; the "no tasks" answer does not. A pid

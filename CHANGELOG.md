@@ -473,6 +473,18 @@ procedure, acceptance criteria and rollback live in [`docs/RELEASE.md`](docs/REL
   `desktop/ui/app.js`).
 ### Fixed
 
+- **Every dead CI lane revived.** Three independent causes had main red:
+  `package-lock.json` drifted from `package.json` (`@types/node` 26.6.6 vs
+  a locked 24.19.2), so every `npm ci` step failed at install on all three
+  platforms — the lock is re-synced; the DCO workflow and the documented
+  `node-floor:check` called `npm run` scripts that did not exist in
+  `package.json`, so the DCO lane failed with "Missing script" on every
+  pull request — both scripts are registered now; and the Rust shell's
+  Windows-only `tasklist_says_alive` test was not `#[cfg(windows)]`-gated,
+  so `cargo test` failed to compile off Windows (`E0425`) — the test is
+  gated like its siblings. A new `workflows.test.mjs` pins the wiring:
+  every `npm run` the workflows call must exist, and the lock's root
+  specifiers must match `package.json`.
 - **Dead background jobs are reported, not lost.** A background helper that threw and a background command that exited non-zero never rode the next turn — only a `done` helper was injected, so the model could say DONE over a failed build without knowing, and the end-of-run sweep said nothing either. The next turn now carries both (`Background helper/command <id> failed`), a done command rides as a pointer to its output file instead of an empty "helper" line, and a helper that fails on the final step is reported as failed after the run. The background `subagent_end` frame now carries the `id` its `subagent_start` had (without it the window painted a second, finished row and left the first running forever) and a dying helper's end frame carries an `error`; the rail says หยุดแล้ว for a stopped job instead of เสร็จ.
 - **DIAGNOSE is dispatchable again.** The preamble taught `DIAGNOSE` and the
   tool existed, but `BUILTIN_KINDS` did not list `diagnose`, so every call

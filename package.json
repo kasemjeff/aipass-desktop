@@ -20,6 +20,8 @@
     "qa": "node scripts/qa-loop.mjs",
     "qa:loop": "node scripts/qa-loop.mjs",
     "check": "node scripts/agents-lint.mjs && node scripts/test.mjs && node scripts/qa-loop.mjs && node scripts/coverage-gate.mjs",
+    "dco": "node scripts/dco.mjs",
+    "node-floor:check": "node scripts/check-node-floor.mjs",
     "loadtest": "node scripts/loadtest.mjs",
     "bench": "node scripts/bench.mjs",
     "bench:retrieval": "node scripts/retrieval-bench.mjs",
