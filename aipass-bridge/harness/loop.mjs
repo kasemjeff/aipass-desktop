@@ -1372,6 +1372,7 @@ export async function runTask(taskText, ctx = {}) {
     verifyPrompts: run.verifyPrompts,
     firewallNotes: run.firewallNotes,
     sendRecoveries: run.sendRecoveries,
+    sendWaitMs: run.sendWaitMs ?? 0,
     checks: run.checks,
     checkVerdict: run.checkResult?.verdict ?? null,
     // The exact command that verdict is about: `pass` from a project check and

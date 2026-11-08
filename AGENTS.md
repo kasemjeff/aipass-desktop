@@ -29,7 +29,7 @@
 
 | command | what it does |
 |---|---|
-| `npm test` | full suite (`scripts/test.mjs`) — ~20–30 s. Must end `fail 0`; one skip when git is absent. |
+| `npm test` | full suite (`scripts/test.mjs`) — ~20–30 s. Must end `fail 0`; one skip when git is absent. The Rust half is `npm run test:rust` (`cargo test`; skips, loudly, without cargo). |
 | `node --check <file>` | syntax gate — run on every file you touched before the suite. |
 | `node --test aipass-bridge/test/<name>.test.mjs` | one test file while iterating. |
 | `npm run agents:lint` | checks this guide itself: Verify anchors resolve, shims point at the canon, size budgets hold. |

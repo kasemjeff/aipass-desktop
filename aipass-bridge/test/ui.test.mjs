@@ -2812,6 +2812,49 @@ test('a quiet stream exceeding the 3-minute hard ceiling writes off the stalled 
   assert.ok(sent.some((r) => r.method === 'cancel'), 'cancel is called upstream');
 });
 
+test('sixty seconds of silence warns once and keeps the run', async (t) => {
+  // The first rail of the watchdog: at 60s the window says the stream is
+  // quiet instead of going quiet itself. The run still belongs to the window.
+  const backend = { ...BACKEND, status: () => ({ ...BACKEND.status(), running: true }) };
+  const { node, tick, timers } = await bootApp(backend);
+  const task = node('task');
+  task.value = 'a task that keeps going';
+  task.dispatch('keydown', { key: 'Enter' });
+  await tick();
+
+  t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
+  t.mock.timers.tick(61_000);
+  for (const fn of [...timers.values()]) await fn();
+  await tick();
+
+  assert.equal(node('send').textContent, 'หยุด', 'the run is still the window\'s');
+  assert.equal(node('working').classList.contains('hidden'), false, 'the bar stays up');
+  const once = (node('log').textContent.match(/สตรีมเงียบ 60 วินาที/g) ?? []).length;
+  assert.equal(once, 1, 'the 60-second warning is said once');
+  assert.doesNotMatch(node('log').textContent, /ถือว่าหยุดแล้ว/, 'and nothing was written off');
+});
+
+test('ninety seconds of silence asks, it does not write off', async (t) => {
+  // The second rail: at 90s the window puts the choice in front of the
+  // human — wait, or press stop. The hard ceiling is still the only rail
+  // that ends the run.
+  const backend = { ...BACKEND, status: () => ({ ...BACKEND.status(), running: true }) };
+  const { node, tick, timers } = await bootApp(backend);
+  const task = node('task');
+  task.value = 'a task that keeps going quietly';
+  task.dispatch('keydown', { key: 'Enter' });
+  await tick();
+
+  t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
+  t.mock.timers.tick(91_000);
+  for (const fn of [...timers.values()]) await fn();
+  await tick();
+
+  assert.equal(node('send').textContent, 'หยุด', 'the run is still the window\'s');
+  assert.match(node('log').textContent, /สตรีมเงียบ 90 วินาที/, 'and the choice is put before the human');
+  assert.doesNotMatch(node('log').textContent, /เงียบเกิน 3 นาที/, 'and the hard ceiling has not fired');
+});
+
 test('a reloaded window comes back with its conversation, not the welcome card', async () => {
   // Ctrl+R reloads the window. What came back used to be the welcome card
   // over an empty screen: the boot paints the card, and the card says

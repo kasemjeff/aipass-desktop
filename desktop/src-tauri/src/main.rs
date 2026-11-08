@@ -12,6 +12,7 @@ mod backend;
 mod geometry;
 mod paths;
 mod processes;
+mod shared;
 mod supervisor;
 mod window;
 
@@ -353,7 +354,7 @@ mod tests {
         let n = COUNTER.fetch_add(1, Ordering::Relaxed);
         let dir = std::env::temp_dir().join(format!("aipass-tauri-{}-{}", std::process::id(), n));
         let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(dir.join(".aipass")).expect("scratch home");
+        std::fs::create_dir_all(dir.join(crate::shared::APP_HOME_DIR)).expect("scratch home");
         dir
     }
 
@@ -397,13 +398,13 @@ mod tests {
         // — a migration that replaced the file took all of that with it.
         let home = scratch_home();
         let project = scratch_project(&home);
-        let settings = home.join(".aipass").join("settings.json");
+        let settings = home.join(crate::shared::APP_HOME_DIR).join("settings.json");
         std::fs::write(
             &settings,
             r#"{"mode":"ask","defaultModel":"some-model","compaction":{"contextTokens":24000}}"#,
         )
         .expect("settings");
-        let legacy = home.join(".aipass").join("desktop.json");
+        let legacy = home.join(crate::shared::APP_HOME_DIR).join("desktop.json");
         std::fs::write(
             &legacy,
             serde_json::to_string(&serde_json::json!({ "root": project.to_string_lossy() })).expect("json"),
@@ -430,7 +431,7 @@ mod tests {
     fn the_legacy_migration_creates_a_settings_file_when_there_is_none() {
         let home = scratch_home();
         let project = scratch_project(&home);
-        let legacy = home.join(".aipass").join("desktop.json");
+        let legacy = home.join(crate::shared::APP_HOME_DIR).join("desktop.json");
         std::fs::write(
             &legacy,
             serde_json::to_string(&serde_json::json!({ "root": project.to_string_lossy() })).expect("json"),
@@ -439,7 +440,7 @@ mod tests {
 
         let found = last_root_in(&home);
         assert_eq!(found.as_deref(), Some(project.as_path()));
-        let settings = home.join(".aipass").join("settings.json");
+        let settings = home.join(crate::shared::APP_HOME_DIR).join("settings.json");
         assert!(settings.exists(), "the settings file was written");
         let after: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(&settings).expect("settings")).expect("json");
@@ -452,13 +453,13 @@ mod tests {
         // names a live root is the truth, and the migration does not run.
         let home = scratch_home();
         let project = scratch_project(&home);
-        let settings = home.join(".aipass").join("settings.json");
+        let settings = home.join(crate::shared::APP_HOME_DIR).join("settings.json");
         std::fs::write(
             &settings,
             serde_json::to_string(&serde_json::json!({ "root": project.to_string_lossy(), "mode": "ask" })).expect("json"),
         )
         .expect("settings");
-        let legacy = home.join(".aipass").join("desktop.json");
+        let legacy = home.join(crate::shared::APP_HOME_DIR).join("desktop.json");
         std::fs::write(
             &legacy,
             serde_json::to_string(&serde_json::json!({ "root": home.join("gone").to_string_lossy() })).expect("json"),
@@ -481,7 +482,7 @@ mod tests {
         // environment.
         let home = scratch_home();
         let project = scratch_project(&home);
-        let aipass = home.join(".aipass");
+        let aipass = home.join(crate::shared::APP_HOME_DIR);
         std::fs::write(
             &aipass.join("settings.json"),
             serde_json::to_string(&serde_json::json!({ "root": project.to_string_lossy() })).unwrap_or_default(),
@@ -595,6 +596,24 @@ mod tests {
         // named once, with the fix, and the polite backoff continues — so
         // the port is picked up again if it is freed.
         assert_eq!(busy_outcome(PortOwner::Stranger), BusyOutcome::Name);
+    }
+
+    #[test]
+    fn the_http_fallback_names_our_backend_by_its_own_words() {
+        // The degraded probe ask must agree with backend-probe.mjs:
+        // our backend's own 401 refusal, and its 200 status shape, are
+        // ours; a stranger's 200 carrying neither is not. All three are
+        // answered without a token, the way the probe answers them.
+        assert!(http_probe_identifies_ours(
+            "{\"ok\":false,\"error\":\"unauthorized: missing or wrong loopback bearer token\"}"
+        ));
+        assert!(http_probe_identifies_ours(
+            "{\"ok\":true,\"result\":{\"root\":\"/tmp\",\"extensions\":1}}"
+        ));
+        assert!(!http_probe_identifies_ours(
+            "HTTP/1.1 200 OK\r\n\r\n{\"ok\":true,\"hello\":\"world\"}"
+        ));
+        assert!(!http_probe_identifies_ours("hello"));
     }
 
     #[test]
@@ -843,5 +862,40 @@ mod tests {
         assert!(opaque > total / 10, "the mark is there: {opaque} of {total}");
         assert!(opaque < total * 4 / 5, "it is the mark, not a filled block: {opaque}");
         assert_eq!(TEMPLATE_RGBA[3], 0, "the corner is transparent");
+    }
+
+    #[test]
+    fn the_shell_reads_the_contract_the_node_side_reads() {
+        // build.rs turns `aipass-bridge/harness/desktop-contract.json` into the
+        // constants above. Reading the file here proves the two did not part
+        // ways: a stale generated file, or a contract edited without a rebuild,
+        // is caught before the shell is packaged.
+        let raw = include_str!("../../../aipass-bridge/harness/desktop-contract.json");
+        let contract: serde_json::Value = serde_json::from_str(raw).expect("the contract is JSON");
+        assert_eq!(
+            crate::shared::DEFAULT_DESKTOP_PORT as i64,
+            contract["desktopPort"].as_i64().expect("desktopPort is a number"),
+            "the shell's port is the contract's"
+        );
+        assert_eq!(
+            crate::shared::RESTART_EXIT as i64,
+            contract["restartExit"].as_i64().expect("restartExit is a number"),
+            "the restart code is the contract's"
+        );
+        assert_eq!(
+            crate::shared::PORT_BUSY_EXIT as i64,
+            contract["portBusyExit"].as_i64().expect("portBusyExit is a number"),
+            "the busy-port code is the contract's"
+        );
+        assert_eq!(
+            crate::shared::APP_HOME_DIR,
+            contract["appHomeDir"].as_str().expect("appHomeDir is a string"),
+            "the home directory is the contract's"
+        );
+        assert_eq!(
+            crate::shared::APP_MARKER,
+            contract["appMarker"].as_str().expect("appMarker is a string"),
+            "the root marker is the contract's"
+        );
     }
 }

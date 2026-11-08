@@ -63,5 +63,5 @@ signed and notarized when the release machine has the Apple credentials; see
 ## How can I help?
 
 Read [CONTRIBUTING.md](../CONTRIBUTING.md). Bug reports with a full
-`npm run doctor` output are useful. The [ROADMAP.md](../ROADMAP.md) lists the
+`npm run verify` log tail are useful. The [ROADMAP.md](../ROADMAP.md) lists the
 current gaps.

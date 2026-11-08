@@ -8,38 +8,40 @@ the only honest availability is the chain: account → tab → bridge → backen
 
 | signal | what it is | measured by | target |
 |---|---|---|---|
-| run success | share of runs that end `done` with no guard stop | `npm run stats -- --last 50` (`byStop`, the guard-trip alert) | guard-stop share < 25% · tool refusal rate < 30% |
+| run success | share of runs that end `done` with no guard stop | `npm run evals -- --all --live --attempts 3` (`outcome` + `stop`) | guard-stop share < 25% · tool refusal rate < 30% (read from the eval rows) |
 | local API | p95 latency, failed requests, RSS growth of the backend | `npm run loadtest -- --strict` (400 calls at 25 in flight) | p95 ≤ 250 ms · no failures · RSS +≤ 150 MB |
-| chain availability | bridge up, extension attached, signed in, one round trip | `npm run doctor` (exit 0) · the bridge status line (`extension: 0 connected` means the tab is gone) | doctor green on the release machine |
-| upstream step | seconds per model turn | `stats` `avg step` (from each run's `stepMs`) | reported, not targeted — upstream-controlled |
-| drift | refusal / guard / cost / firewall signals | `npm run stats -- --alerts --strict` | no warnings |
+| chain availability | bridge up, extension attached, signed in, one round trip | `npm run verify` (exit 0) · the bridge status line (`extension: 0 connected` means the tab is gone) · the window banner | verify green on the release machine |
+| upstream step | seconds per model turn | the eval rows' `wallMs`/`stepMs` median (`npm run evals -- --all --live --attempts 3`) | reported, not targeted — upstream-controlled |
+| drift | refusal / guard / cost / firewall signals | `npm run evals:compare` gates on the eval result files (`docs/SPEC_EVALS.md`) | no gate failing |
 | update check | how long the feed check takes, how often it fails, and how old the answer is | the window's update banner; the feed state in `~/.aipass/app/feed-state.json` | the check never blocks startup and never nags; an offline machine gets the cached feed or nothing |
 | model quality | check-scored task outcomes, safety set included | `npm run evals -- --all --live --attempts 3` | read medians; gate list in `docs/SPEC_EVALS.md` |
 
-`stats --json` carries the per-run rows — model, project root, stop reason,
-refusals, spend, `stepMs` — and the `byModel` / `byRoot` groupings, so the
-same report answers "which model drifts" and "which project drifts" instead
+Each eval row carries the per-run signals — model, stop reason,
+refusals, spend, `stepMs` — and the `category` / task groupings, so the
+same report answers "which model drifts" and "which task drifts" instead
 of blending them. A run that predates `run_stats.model` is attributed to the
 model its session recorded; `(unrecorded)` is left for sessions that wrote no
-model at all. `--html FILE` renders the same page.
+model at all. The CLI aggregator (`stats.mjs`) was removed in the desktop-only
+split (2026-11-01) so runs from sibling projects can no
+longer mix into this project's numbers; per-project drift is read from the
+eval results.
 
 ## Error budget
 
-The budget is **zero warned runs at release time**, over the last 50 runs:
+The budget is **zero failing gates at release time**, over the current
+`evals/results/*.jsonl` evidence:
 
-- `npm run stats -- --strict` exits non-zero on any warn — refusal spike,
-  guard-trip share, cost outlier. A warn spends the budget: the release is
-  blocked unless the warning is *named* in the release notes with the plan
-  (`docs/RELEASE.md` acceptance item 4 — this is the rule behind that
-  sentence).
+- `npm run evals:compare` gate failing (success, grounded, safety) is over
+  budget: fix first, ship after, unless the failure is *named* in the release
+  notes with the plan (`docs/RELEASE.md` acceptance item 4).
 - `npm run loadtest -- --strict` breaching p95, RSS growth or a failure is
   over budget: fix first, ship after.
 - `npm run check` or the CI matrix red is over budget: full stop.
 - Info lines (firewall notes) never spend the budget — they are context.
 
 Thresholds are deliberately coarse and live in two places:
-`aipass-bridge/stats.mjs` (`alerts()`) and `scripts/loadtest.mjs`
-(`--p95` / `--rss`). They answer "is this install drifting", not "what did
+`scripts/loadtest.mjs` (`--p95` / `--rss`) and the gates in `docs/SPEC_EVALS.md`.
+They answer "is this install drifting", not "what did
 one run do".
 
 ## Degradation modes
@@ -48,8 +50,8 @@ When a dependency is missing, the harness degrades in a named way — never by
 hanging or guessing. The full playbook is `docs/TROUBLESHOOTING.md`; the
 shapes:
 
-- **No tab / signed out** → the run pauses (`needs_tab`), `doctor` names the
-  fix, nothing is lost, reconnecting continues the run.
+- **No tab / signed out** → the run pauses (`needs_tab`), the window banner
+  names the fix, nothing is lost, reconnecting continues the run.
 - **Rate window (429)** → the client waits it out and retries; a 429 that
   survives the waits gets one more pause from the loop's recovery
   (`sendRecoveries`), and only then ends the run, surfaced — never silent.

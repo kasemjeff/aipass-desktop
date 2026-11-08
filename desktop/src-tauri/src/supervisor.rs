@@ -9,8 +9,9 @@
 ///
 /// The backend promotes a new content tree and exits with this, because the
 /// new tree needs a new process to run it. The supervisor reads it as a
-/// deliberate restart and not as a crash to answer with backoff.
-pub(crate) const RESTART_EXIT: i32 = 42;
+/// deliberate restart and not as a crash to answer with backoff. The number
+/// is the shared contract's (`desktop-contract.json`), not a literal here.
+pub(crate) const RESTART_EXIT: i32 = crate::shared::RESTART_EXIT;
 
 /// The exit code that means "the port was taken".
 ///
@@ -19,7 +20,7 @@ pub(crate) const RESTART_EXIT: i32 = 42;
 /// there means adopt it, something else holding it means restarting cannot
 /// help — and the supervisor can only tell them apart if the backend says
 /// which one it was.
-pub(crate) const PORT_BUSY_EXIT: i32 = 43;
+pub(crate) const PORT_BUSY_EXIT: i32 = crate::shared::PORT_BUSY_EXIT;
 
 /// The exit code Windows reports for a process that a console control event
 /// ended — STATUS_CONTROL_C_EXIT, which is what a Ctrl+C leaves behind.

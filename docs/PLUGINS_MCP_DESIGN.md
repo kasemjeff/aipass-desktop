@@ -325,8 +325,8 @@ token from `~/.aipass/.token`), the CLI *is* a client and calls the RPC — the
 running window updates live and in-memory state cannot go stale. With no
 backend up, the CLI writes the same files directly; the next backend start
 reads them. `--yes` exists so scripts can install without the interactive
-confirm, and it prints the trust sentence either way. `aipass doctor` carries
-both extension channels now: plugins that failed to load (named, with the fix)
+confirm, and it prints the trust sentence either way. The removed `aipass doctor`
+CLI used to carry both extension channels: plugins that failed to load (named, with the fix)
 and MCP servers — live connect state when a desktop backend is running,
 otherwise the enabled-config count marked "not tested" rather than spawned.
 

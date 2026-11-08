@@ -20,6 +20,9 @@ import { authHeaders } from './authtoken.mjs';
 import { backendIsUp as probeBackend } from './backend-probe.mjs';
 import { openLogFile } from './log-file.mjs';
 import { aipassHome } from './settings.mjs';
+// The port default and the shell's exit codes live in one file both halves
+// read (`desktop-contract.json`); this module only applies the rule to it.
+import { DEFAULT_DESKTOP_PORT } from './desktop-contract.mjs';
 // The janitor for the worktrees this house made (harness/worktree.mjs). A
 // worktree is a whole checkout on the person's disk, so a forgotten one is
 // litter — and the sweep is the house's shape for that (harness/sandbox.mjs's
@@ -27,7 +30,7 @@ import { aipassHome } from './settings.mjs';
 import { sweep as sweepWorktrees } from './worktree.mjs';
 
 /** The default port the desktop backend binds. */
-export const DEFAULT_DESKTOP_PORT = 8790;
+export { DEFAULT_DESKTOP_PORT };
 
 /**
  * The port the desktop backend binds.

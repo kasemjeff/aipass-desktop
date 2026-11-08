@@ -30,7 +30,7 @@ the table says so, the same way a renamed test fails the `Verify:` anchors.
 | `ignore_done` | loop | a DONE rode a reply that still had work in it | window, plugins |
 | `error` | loop/send | a failure the run could not heal, with its message | window, CLI |
 | `finished` | loop | the run's ending: summary, stopReason, spend, check, changes, todo | window (folds the trail), plugins |
-| `run_stats` | loop | the one stats line `npm run stats` aggregates | stats, plugins |
+| `run_stats` | loop | the one stats line the eval rows read back | evals, plugins |
 | `cancelled` | harness | a stop arrived: `running` says whether there was a run | window, plugins |
 | `job_start` | loop | a background command started: its id, kind and command | window (job row), plugins |
 | `job_end` | loop | a background command finished: its id, exit code and stopped flag | window (job row), plugins |

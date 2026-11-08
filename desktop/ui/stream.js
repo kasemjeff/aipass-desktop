@@ -32,9 +32,15 @@ export async function createEventStream(ctx) {
   let lastEventAt = Date.now();
   let quietSince = 0;
   let warnedSilence = false;
+  // The silence epoch: when the transport last stopped producing real events.
+  // Unlike `quietSince`, it is cleared only by `beat()` — a backend that stays
+  // alive but stops streaming must still cross the 60s / 90s / 180s rails.
+  let silenceSince = 0;
+  let warnedQuiet60 = false;
+  let askedQuiet90 = false;
   /** Refresh the watchdog clock: any frame — or the run's own first frame —
    *  is proof the transport is alive. */
-  const beat = () => { lastEventAt = Date.now(); quietSince = 0; warnedSilence = false; };
+  const beat = () => { lastEventAt = Date.now(); quietSince = 0; warnedSilence = false; silenceSince = 0; warnedQuiet60 = false; askedQuiet90 = false; };
   stream.addEventListener('open', beat);
   stream.addEventListener('message', beat);
   // rpc.mjs sends a named ping every 15 s precisely so this watchdog reads
@@ -80,6 +86,9 @@ export async function createEventStream(ctx) {
     if (!state.running) {
       quietSince = 0;
       warnedSilence = false;
+      silenceSince = 0;
+      warnedQuiet60 = false;
+      askedQuiet90 = false;
       return;
     }
     const now = Date.now();
@@ -93,10 +102,13 @@ export async function createEventStream(ctx) {
     }
 
     if (!quietSince) quietSince = lastEventAt;
+    if (!silenceSince) silenceSince = lastEventAt;
+    const silentMs = now - silenceSince;
 
-    // Hard ceiling check: if the stream has been continuously silent for over 3 minutes,
-    // do not spin forever even if the backend process answers.
-    if (now - quietSince > HARD_SILENCE_CEILING_MS) {
+    // Hard ceiling: three minutes of continuous silence, even with the
+    // backend answering, means the run is stalled forever — a spinner here
+    // is a lie, and the next submit would only queue behind a ghost run.
+    if (silentMs > HARD_SILENCE_CEILING_MS) {
       state.running = false;
       state.stopping = false;
       setLogBusy(false);
@@ -109,7 +121,26 @@ export async function createEventStream(ctx) {
       ctx.refreshContextPanel?.();
       quietSince = 0;
       warnedSilence = false;
+      silenceSince = 0;
+      warnedQuiet60 = false;
+      askedQuiet90 = false;
       return;
+    }
+
+    // First rail (60s): say it out loud. A long quiet used to read as a dead
+    // composer — the window said nothing for a minute and the human filled
+    // the gap with a second submit. This does not touch the run.
+    if (silentMs > 60_000 && !warnedQuiet60) {
+      warnedQuiet60 = true;
+      addNote('สตรีมเงียบ 60 วินาที — backend ยังตอบอยู่ ไม่ได้เขียน run ทิ้ง · กำลังรอสตรีมกลับมา');
+    }
+    // Second rail (90s): a question, not a cliff. The hard ceiling above is
+    // still what ends it; this just gives the human the choice earlier, and
+    // the stop below it. The stream may still come back on its own.
+    if (silentMs > 90_000 && !askedQuiet90) {
+      askedQuiet90 = true;
+      addNote('สตรีมเงียบ 90 วินาที — backend ยังตอบอยู่ · รอต่อได้ หรือกดหยุดเพื่อหยุด run นี้');
+      setHint('สตรีมเงียบเกิน 90 วินาที — รอต่อได้ หรือกดหยุด run');
     }
 
     // The transport is down but the backend may not be. A reconnecting

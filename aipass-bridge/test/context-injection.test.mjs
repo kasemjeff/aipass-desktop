@@ -62,6 +62,36 @@ test('a project with no nested files takes the root-only path byte-for-byte', ()
   assert.equal(withNested.truncated, withoutNested.truncated);
 });
 
+test('nested instructions stop at a VCS boundary — a sibling project is not a subproject', () => {
+  const dir = tempDir({
+    'AGENTS.md': 'root rules\n',
+    'sub/AGENTS.md': 'sub rules\n',
+    // A sibling project: its own VCS root (worktree-style `.git` file).
+    'other/.git': 'gitdir: ../elsewhere\n',
+    'other/AGENTS.md': 'other project rules\n',
+    'other/deep/AGENTS.md': 'other deep rules\n',
+  });
+  const doc = loadProjectInstructions(dir, { nested: true });
+  assert.ok(doc, 'root exists');
+  assert.match(doc.text, /root rules/);
+  assert.match(doc.text, /sub rules/, 'a plain subproject still rides');
+  assert.doesNotMatch(doc.text, /other project rules/, 'a nested VCS root is never collected');
+  assert.doesNotMatch(doc.text, /other deep rules/, 'and the walk never descends into it');
+  assert.ok(!doc.extras?.some((e) => e.file.startsWith('other/')), 'no extra names the other project');
+});
+
+test('a run root that is itself a VCS root still loads its own instructions', () => {
+  const dir = tempDir({
+    '.git/config': '[core]\n',
+    'AGENTS.md': 'own project rules\n',
+    'sub/AGENTS.md': 'sub rules\n',
+  });
+  const doc = loadProjectInstructions(dir, { nested: true });
+  assert.ok(doc, 'root exists');
+  assert.match(doc.text, /own project rules/, 'the boundary exempts the run root itself');
+  assert.match(doc.text, /sub rules/, 'and its non-VCS subprojects still ride');
+});
+
 test('the nested walk skips tooling output and stays inside the root', () => {
   const dir = tempDir({
     'AGENTS.md': 'root\n',

@@ -2,8 +2,8 @@
 
 The question this document answers: **who decides what about the harness
 changes?** Everything in this repository measures a lot — `npm run evals`
-scores a run with a deterministic check, `npm run stats` watches the alerts,
-`experiments/queue.json` records what to try next — but the last step was
+scores a run with a deterministic check, the eval result rows carry the
+per-run signals, `experiments/queue.json` records what to try next — but the last step was
 always a person: read the numbers, decide what the numbers mean about the
 harness, write the change, measure it again.
 

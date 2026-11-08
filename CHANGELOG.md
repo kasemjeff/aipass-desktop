@@ -39,6 +39,32 @@ procedure, acceptance criteria and rollback live in [`docs/RELEASE.md`](docs/REL
   Rotation seeds truncate the summary and the step results to their share
   instead of pasting the whole step.
 
+### Changed
+
+- **The shell and the backend read one contract.** The desktop port (8790),
+  the two supervisor exit codes (42/43), the app home's directory name and
+  the root marker now live in `aipass-bridge/harness/desktop-contract.json`:
+  the Node side reads it at runtime (`harness/desktop-contract.mjs`; the
+  entry script reads the JSON itself, before it can import anything) and
+  `desktop/src-tauri/build.rs` compiles it into Rust constants, so the
+  window's port, the supervisor's verdicts and the app-root rule can no
+  longer disagree. A literal in either source tree fails the new
+  `test/desktop-contract.test.mjs`. `npm run test:rust` runs the shell's
+  unit tests on the developer's machine (skipping, loudly, where cargo is
+  absent) and `npm run check` includes it. `docs/TECH_STACK.md` now names the
+  real size of the Rust half (~1.7k lines across eight files) and the crate
+  tree (446 crates) instead of calling the shell "a page of code", and the
+  boundary itself is `docs/SHELL_BOUNDARY.md`.
+
+- **Nested instructions stop at a VCS boundary.** `instructions.mjs` no
+  longer collects nested `AGENTS.md` files from (or descends into) a
+  directory that is its own VCS root (`.git`/`.hg`/`.svn`, directory or
+  worktree file): a run rooted at a folder that merely contains several
+  projects no longer silently pastes every sibling project's standing
+  rules into one chat. The run root itself is exempt — opening a project
+  still loads that project's instructions — and plain monorepo
+  subprojects without their own VCS root are unaffected.
+
 ### Removed
 
 - **The external-project eval corpus left the repository.** The eval set

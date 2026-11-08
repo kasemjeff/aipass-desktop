@@ -166,6 +166,13 @@ impl Backend {
             .join("aipass-bridge")
             .join("harness")
             .join("backend-probe.mjs");
+        // The probe is the only implementation of this question — it has an
+        // HTTP client, the shell does not. The fallback below exists for the
+        // one case the probe cannot run in: the probe file itself is gone
+        // (node missing too). See `http_probe_owner`.
+        if !probe.exists() {
+            return http_probe_owner(self.port).unwrap_or(PortOwner::Empty);
+        }
         match Command::new(&self.node)
             .arg(&probe)
             .arg(self.port.to_string())
@@ -185,7 +192,7 @@ impl Backend {
                 // does not know rather than handed a guess.
                 return PortOwner::Unknown;
             }
-            Err(_) => return PortOwner::Unknown,
+            Err(_) => return http_probe_owner(self.port).unwrap_or(PortOwner::Empty),
         }
         // It answered "other": something is there, and it is not ours.
         if std::net::TcpStream::connect(("127.0.0.1", self.port)).is_ok() {
@@ -507,6 +514,57 @@ impl Backend {
 /// The backend port, shared with the JS side: `AIPASS_DESKTOP_PORT` wins, the
 /// loopback default is 8790. A value that is not a port is refused rather than
 /// guessed — the window must look at the same port the backend is on.
+/// Does a token-less POST /rpc answer carry our backend's own words?
+///
+/// Pure twin of `backendIsUp()` in `harness/backend-probe.mjs`: a 200 is
+/// not enough (a stranger can answer 200 to anything), so the answer must
+/// carry our shape — the status the backend answers with — or the backend's
+/// own refusal, which a token-less probe gets from OUR backend when the
+/// token on disk differs from the one it minted.
+pub(crate) fn http_probe_identifies_ours(body: &str) -> bool {
+    body.contains("unauthorized: missing or wrong loopback bearer token")
+        || (body.contains("\"ok\":true")
+            && body.contains("\"root\"")
+            && body.contains("\"extensions\""))
+}
+
+/// The degraded port ask: when the probe cannot run (the probe file is gone,
+/// or node cannot be started), ask the port over raw HTTP ourselves instead
+/// of answering Unknown forever and never noticing the port is really ours.
+/// This is the fallback, not the probe — the probe still writes the answer
+/// when it can. A port with nothing answering returns None and the caller
+/// reads that as Empty; a port that answers but is not ours is Stranger.
+fn http_probe_owner(port: u16) -> Option<PortOwner> {
+    use std::io::{Read, Write};
+    let mut stream = std::net::TcpStream::connect(("127.0.0.1", port)).ok()?;
+    stream
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .ok()?;
+    stream
+        .set_write_timeout(Some(Duration::from_secs(2)))
+        .ok()?;
+    stream
+        .write_all(b"POST /rpc HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nContent-Length: 19\r\nConnection: close\r\n\r\n{\"method\":\"status\"}")
+        .ok()?;
+    let mut buf = vec![0u8; 65_536];
+    let mut body = String::new();
+    loop {
+        let n = stream.read(&mut buf).ok()?;
+        if n == 0 {
+            break;
+        }
+        body.push_str(&String::from_utf8_lossy(&buf[..n]));
+        if body.len() > 32_768 {
+            break;
+        }
+    }
+    if http_probe_identifies_ours(&body) {
+        Some(PortOwner::Ours)
+    } else {
+        Some(PortOwner::Stranger)
+    }
+}
+
 pub(crate) fn backend_port() -> Result<u16, Box<dyn std::error::Error>> {
     match std::env::var("AIPASS_DESKTOP_PORT") {
         Ok(raw) if !raw.trim().is_empty() => {
@@ -524,7 +582,7 @@ pub(crate) fn backend_port() -> Result<u16, Box<dyn std::error::Error>> {
             }
             Ok(port)
         }
-        _ => Ok(8790),
+        _ => Ok(crate::shared::DEFAULT_DESKTOP_PORT),
     }
 }
 

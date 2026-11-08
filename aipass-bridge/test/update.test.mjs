@@ -130,7 +130,11 @@ function contentFiles() {
       const full = path.join(dir, entry.name);
       const relative = path.posix.join(prefix, entry.name);
       if (entry.isDirectory()) walk(full, relative);
-      else if (entry.name.endsWith('.mjs')) add(`aipass-bridge/harness/${relative}`, fs.readFileSync(full, 'utf8'));
+      // `.json` too: the desktop contract (`desktop-contract.json`) ships
+      // beside the modules and `settings.mjs` reads it at load, so a pack
+      // without it is a tree that cannot import — which is exactly what the
+      // loadability probe is for.
+      else if (entry.name.endsWith('.mjs') || entry.name.endsWith('.json')) add(`aipass-bridge/harness/${relative}`, fs.readFileSync(full, 'utf8'));
     }
   };
   walk(path.join(REPO, 'aipass-bridge', 'harness'), '');

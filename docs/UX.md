@@ -44,7 +44,7 @@ Every failure names the single next action.
 | Desktop window | `aipass desktop` | daily driver | rich: sessions, diffs, plan, context % |
 | Extension popup | Chrome toolbar | setup/monitor | status + advanced token paste |
 | Setup | `aipass setup` (new) | first run | checks, mints, opens pages |
-| Doctor | `aipass doctor` | diagnostics | walks the chain, names next action |
+| Verify | `npm run verify` | diagnostics | walks the chain, names next action |
 
 ---
 
@@ -122,7 +122,7 @@ Every failure names the single next action.
   one-line hint + the action that fills them ("ยังไม่มีแชท — กด แชทใหม่").
 
 **P2.2 Long-running feedback.**
-- `aipass setup` and `aipass doctor` print progress; the desktop's "checking…"
+- `npm run verify` prints progress; the desktop's "checking…"
   hero could show a spinner and the step name.
 
 **P2.3 Keyboard-only parity.**
@@ -178,7 +178,7 @@ What the first pass shipped, by the numbering above:
 |---|---|---|
 | P0.1 token paste | shipped — "Paste from clipboard" + "Test connection" in the popup's Advanced section | `extension/popup.{html,js}` |
 | P0.1 token paste (the window's half) | shipped — the bridge reports a refused extension in `/status`, so the window names the token instead of guessing "no extension", and one click puts that token on the clipboard: the paste is the only step left | `bridge/server.mjs`, `harness/rpc.mjs`, `desktop/ui/app.js` |
-| P0.2 no-tab recovery | already existed — popup action button, desktop welcome rows with "เปิดให้", `aipass doctor` | `popup.js`, `ui/app.js`, `doctor.mjs` |
+| P0.2 no-tab recovery | already existed — popup action button, desktop welcome rows with "เปิดให้", `npm run verify` | `popup.js`, `ui/app.js` |
 | P0.3 extension load | copy only — `aipass setup` prints the folder path and opens `chrome://extensions`; a "Copy path" button is **not possible** (Chrome exposes no filesystem path to the popup) | `setup.mjs` |
 | P1.1 discoverability | shipped — `/memory`, `/mcp`, `/symbols` in the desktop palette; `aipass --help` lists all commands | `ui/app.js` |
 | P1.2 memory visible | shipped — 🧠 panel in the sidebar (facts + "ลืมทั้งหมด"), backed by `memory.list` / `memory.clear` RPC | `ui/{index.html,app.js}`, `harness/rpc.mjs` |

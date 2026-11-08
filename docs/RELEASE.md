@@ -28,12 +28,12 @@ Before `git tag vX.Y.Z`, all of these are true:
    QA loop, including the live backend checks.
 2. **CI matrix** green on both operating systems × Node 24
    (`.github/workflows/test.yml`), plus the parse/shellcheck jobs.
-3. **`npm run doctor`** against a real signed-in tab, on at least one machine
-   (the one the release notes were written on).
-4. **`npm run stats -- --strict`** — no warning fired on this machine's recent
-   runs; if one did, it's named in the release notes. The rule behind that
-   sentence — zero warned runs over the last 50 is the error budget — is
-   `docs/RELIABILITY.md`.
+3. **`npm run verify`** against a real signed-in tab, on at least one machine
+   (the one the release notes were written on) — it tests, smoke-tests and
+   the live chat check.
+4. **Eval gate evidence** — the safety set within 30 days and an
+   `evals:compare` verdict, read as medians (`docs/SPEC_EVALS.md`); if a
+   gate failed, it's named in the release notes.
 5. Advisory, not gating: `npm run evals -- --all --live --advisory --keep
    --pause 10000` (includes the safety set) and `npm run loadtest -- --strict`.
    Paste the `metrics:` line into the release notes when the run happened; say
@@ -64,7 +64,7 @@ Before `git tag vX.Y.Z`, all of these are true:
 
 A single-user desktop has no fleet to canary across, so the canary is staged
 time: tag `vX.Y.Z-rc.1`, install that build on the release machine (the one
-`doctor` ran on) and use it for a day before tagging `vX.Y.Z`. The rc gets no
+`verify` ran on) and use it for a day before tagging `vX.Y.Z`. The rc gets no
 installers attached; the final tag gets them. The previous release's
 installers stay downloadable — that is the rollback target below.
 
@@ -74,8 +74,8 @@ What to attach to the tag (or paste into the release issue) so a reviewer who
 was not present can re-read every claim:
 
 1. the CI run URL for the release commit, plus the tail of `npm run check`;
-2. `npm run doctor -- --json` from the release machine;
-3. the canary day's `npm run stats -- --json` (or the `--html` file);
+2. `npm run verify` log from the release machine;
+3. the canary day's eval `metrics:` line (or the `evals/results/*.jsonl` file);
 4. eval artifacts when they were produced: the `metrics:` line and the
    `evals/results/*.jsonl` file(s); with `--keep`, the attempt sessions ride
    along and `session.kept` in each row names them;
@@ -91,8 +91,8 @@ audit remains future work.
 Install the new build over the old one. `~/.aipass/` is not touched by an
 install or uninstall: settings, sessions, the token and the logs stay exactly
 where they are, and the new build reads them with the same merge rules the
-old one did. After upgrading, run `npm run doctor` once — it is the one
-command that proves the chain end to end.
+old one did. After upgrading, run `npm run verify` once — it is the one
+command that proves the chain end to end (test, smoke, chat).
 
 There is no shell self-updater, deliberately (Tauri's updater is not wired):
 the app never replaces its own binary in the background, so "which build is
@@ -146,9 +146,9 @@ the path. Nothing else changes.
   once per release by hand is still the human's job — the script makes that
   job repeatable, not automatic.
 
-**When and who.** The canary day is the trigger window: `doctor` red on a
-clean install of the tag, `stats --alerts` warning on the new build's first
-day, a data regression on a real `~/.aipass` (the data-integrity suite), a
+**When and who.** The canary day is the trigger window: `verify` red on a
+clean install of the tag, an `evals` gate failing on the new build,
+a data regression on a real `~/.aipass` (the data-integrity suite), a
 safety eval failing on the new build's model, or a supervisor restart loop in
 the log — any one of these starts the rollback, debugging comes after. The
 approver is the maintainer who tagged: one person, stated plainly, with the

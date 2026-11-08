@@ -56,7 +56,8 @@ evals/results/      one JSONL per run (§2)
 
 ## 2. Runner
 
-`scripts/evals.mjs` — main-guarded with exported helpers, like `stats.mjs`, so
+`scripts/evals.mjs` — main-guarded with exported helpers, like the
+retired `stats.mjs` was, so
 the suite can import it. It drives **the `Harness` facade in-process**, not
 `agent.mjs` (terminal rendering, the apply prompt, flag re-derivation) and not
 `runTask` directly (`runTask` is one layer down; tests use it, but sessions,
@@ -111,8 +112,8 @@ Writes:
 
 ## 3. Metrics
 
-Mapped onto what runs already record (`run_stats` in `harness/loop.mjs`; shaped
-by `stats.mjs` `collectRuns`; the raw JSONL under
+Mapped onto what runs already record (`run_stats` in `harness/loop.mjs`, read
+back by the eval runner; the raw JSONL under
 `<AIPASS_HOME>/sessions/<slug(root)>/session-*.jsonl` is the source of truth):
 
 | metric | field | notes |
@@ -377,7 +378,7 @@ window's picker) is an audited change — the suite exists to make it one:
    default moved anyway.
 5. **Latency is read from the rows** — `wallMs` (run + apply) and the
    `stepMs[]` trail, median over the set (the summary now prints
-   `wall median`); `stats`' `avg step` tracks the same number day to day.
+   `wall median`); the eval rows' `wallMs` median tracks the same number day to day.
    There is no latency gate — upstream lag is not ours — but a candidate
    that doubles wall time at equal cost is visible in the artifacts above.
 
@@ -404,7 +405,7 @@ having passed.
   retries or errors — it never silently swaps, so "which model wrote this"
   is always a fact (the session header, `run_stats.model`, and every eval
   row record it). `AIPASS_MODELS` only fills the model listing when no tab
-  is attached; `doctor` reports a fallback-only list as a login problem.
+  is attached; a fallback-only list is reported in the window as a login problem.
 - **When the information is not enough, nothing is guessed:** a bare live
   invocation refuses (exit 2) rather than picking a mode; an unknown flag is a
   named error; a transcript that no longer matches marks rows `stale` instead

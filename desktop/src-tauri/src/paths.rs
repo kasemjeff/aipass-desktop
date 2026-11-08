@@ -13,7 +13,7 @@ use tauri::Manager;
 
 use crate::processes::note;
 
-pub(crate) const MARKER: &str = "aipass-bridge/bridge/server.mjs";
+pub(crate) const MARKER: &str = crate::shared::APP_MARKER;
 
 /// The command the backend leaves for the shell.
 ///
@@ -255,7 +255,7 @@ pub(crate) fn find_node(exe_dir: &std::path::Path, resource_dir: Option<&std::pa
 pub(crate) fn aipass_home() -> PathBuf {
     match std::env::var("AIPASS_HOME") {
         Ok(dir) if !dir.trim().is_empty() => PathBuf::from(dir),
-        _ => home_dir().join(".aipass"),
+        _ => home_dir().join(crate::shared::APP_HOME_DIR),
     }
 }
 
@@ -274,7 +274,7 @@ pub(crate) fn last_root() -> Option<PathBuf> {
 /// The same lookup, against a named home — so the migration can be tested
 /// without touching the real one.
 pub(crate) fn last_root_in(dir: &std::path::Path) -> Option<PathBuf> {
-    last_root_in_aipass(&dir.join(".aipass"))
+    last_root_in_aipass(&dir.join(crate::shared::APP_HOME_DIR))
 }
 
 /// The same lookup, against the `.aipass` directory itself — the shape the

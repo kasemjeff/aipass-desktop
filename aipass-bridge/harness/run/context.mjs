@@ -107,6 +107,7 @@ export class RunContext {
     this.sends = 0;
     this.firewallNotes = 0;
     this.sendRecoveries = 0;
+    this.sendWaitMs = 0; // time spent in recovery waits — the send-timeout budget
 
     /* --- the work ---------------------------------------------------------- */
     this.toolsRun = 0;

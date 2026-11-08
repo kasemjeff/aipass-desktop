@@ -202,6 +202,7 @@ export function createSender(run) {
         if (attempt < recover.length && sendRecoverable(why)) {
           const pause = jitterWait(recover[attempt]);
           run.sendRecoveries += 1;
+          run.sendWaitMs += pause;
           const line = `the send was refused — waiting ${waitLabel(pause)}, then sending it again (recovery ${attempt + 1}/${recover.length})`;
           run.note(line);
           run.emit('firewall_note', { text: line });
@@ -223,7 +224,12 @@ export function createSender(run) {
         if (/no extension connected|no de\.aipass\.net tab is open/i.test(why.message)) {
           run.emit('needs_tab', { url: run.options.chatUrl ?? 'https://de.aipass.net/chat', reason: why.message });
         }
-        return { reply: null, stopReason: 'error' };
+        // The waits are spent and the refusal is still the heal-by-waiting
+        // shape: this is the send-timeout ending — not a generic error, and
+        // not a mystery after the run waited. The cause is still recorded
+        // (sendError + the note), and the stopReason carries the precision.
+        const exhausted = attempt >= recover.length && sendRecoverable(why);
+        return { reply: null, stopReason: exhausted ? 'send-timeout' : 'error' };
       }
     }
   };

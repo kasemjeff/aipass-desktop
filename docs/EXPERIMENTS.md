@@ -1,7 +1,7 @@
 # Experiments
 
 The queue the 2026-10-17 audit asked for: this project measures a lot
-(`npm run evals`, `npm run stats -- --alerts`) but deciding *what to try next*
+(`npm run evals`) but deciding *what to try next*
 was conversation, not record. An experiment here is a bounded change with a
 hypothesis, a baseline, success criteria, a budget and a stop rule — and an
 end. The machine-readable half is `experiments/queue.json`; the validator and
@@ -14,7 +14,7 @@ found these are the only honest ones this project has:
 
 | source | shape | example |
 |---|---|---|
-| an alert | `alert:<metric>` | `alert:guard-stop-share` — `stats --alerts` crossed a threshold |
+| an alert | `alert:<metric>` | `alert:guard-stop-share` — the eval rows crossed a threshold |
 | a regression | `regression:<task-id>` | `regression:fix-year` — a task that solved stopped solving |
 | research | `research:<ref>` | `research:docs/HARNESS_DESIGN.md` — a design-note item |
 | an audit | `audit:<date>` | `audit:2026-10-17` — a gap a review round found |

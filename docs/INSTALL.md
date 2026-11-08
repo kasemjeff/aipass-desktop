@@ -288,7 +288,7 @@ the tab, load the extension) instead of failing quietly.
 
 ```powershell
 npm run desktop:build     # the artifact, its checksum and its manifest
-npm run doctor            # the chain, end to end, on the machine it runs on
+npm run verify          # the chain, end to end, on the machine it runs on
 npm run desktop:install-ladder -- --new dist/aipass-desktop-0.2.0-windows-x64-setup.exe
 ```
 

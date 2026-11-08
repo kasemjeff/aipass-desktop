@@ -20,6 +20,26 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
+// The two facts this file needs before it can import the module that owns
+// them — the app home's name and the marker that says "this is an app root" —
+// live in `desktop-contract.json`, the same file the harness reads and
+// `src-tauri/build.rs` compiles into the shell. Reading it here, in plain fs,
+// is the price of being the entry script: `harness/desktop-contract.mjs`
+// cannot be imported until this file knows where the harness is.
+//
+// Two layouts ship the file: beside `aipass-bridge/` in a bundle, and one
+// level above `desktop/` in a checkout. A missing copy is a broken install,
+// not a reason to guess a marker, so the error names both tries.
+const contract = (() => {
+  const candidates = [
+    path.join(HERE, 'aipass-bridge', 'harness', 'desktop-contract.json'),
+    path.resolve(HERE, '..', 'aipass-bridge', 'harness', 'desktop-contract.json'),
+  ];
+  const file = candidates.find((candidate) => fs.existsSync(candidate));
+  if (!file) throw new Error(`desktop-contract.json is missing; looked in ${candidates.join(' and ')}`);
+  return JSON.parse(fs.readFileSync(file, 'utf8'));
+})();
+
 /**
  * The content overlay: a promoted content tree, put there by the update
  * system from a pack whose hash is in a signed feed.
@@ -27,7 +47,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
  * It wins over the bundle and over the checkout — it is the newest thing a
  * person deliberately chose, and the only one of the three that was checked
  * against a signature. The rule is the harness's (`harness/app-root.mjs`);
- * the shell has its own copy (`src-tauri/src/main.rs`), and a test says the
+ * the shell has its own copy (`src-tauri/src/paths.rs`), and a test says the
  * two agree.
  *
  * The lookup is here, in plain fs, because this file has to know where the
@@ -35,11 +55,11 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
  */
 const overlayRoot = () => {
   try {
-    const home = process.env.AIPASS_HOME?.trim() || path.join(os.homedir(), '.aipass');
+    const home = process.env.AIPASS_HOME?.trim() || path.join(os.homedir(), contract.appHomeDir);
     const active = JSON.parse(fs.readFileSync(path.join(home, 'app', 'active.json'), 'utf8'));
     const root = active?.current?.root;
     if (!root) return null;
-    return fs.existsSync(path.join(root, 'aipass-bridge', 'bridge', 'server.mjs')) ? root : null;
+    return fs.existsSync(path.join(root, contract.appMarker)) ? root : null;
   } catch {
     return null;
   }
@@ -50,7 +70,7 @@ const overlayRoot = () => {
 const REPO = (() => {
   const overlay = overlayRoot();
   if (overlay) return overlay;
-  return fs.existsSync(path.join(HERE, 'aipass-bridge', 'bridge', 'server.mjs')) ? HERE : path.resolve(HERE, '..');
+  return fs.existsSync(path.join(HERE, contract.appMarker)) ? HERE : path.resolve(HERE, '..');
 })();
 // A static relative import can only ever see one of the two layouts, so resolve
 // the backend from REPO — `node main.mjs` then works from both.

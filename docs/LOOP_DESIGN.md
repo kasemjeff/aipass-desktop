@@ -121,7 +121,7 @@ The run then records a `run_stats` line into the session, and emits
 no plan was written — so the window can re-tally the plan card without
 replaying the run's todo events). `run_stats` carries `spent` alone;
 `finished` carries both `credits` and `spent`.
-`npm run stats` aggregates those lines: refusal rates, nudges, stagnation
+The eval rows read those lines back: refusal rates, nudges, stagnation
 corrections, err-loop corrections, chain skips, verification nudges, firewall
 notes, the closing context estimate (`estTokens`), step timings, credit spend.
 
@@ -603,7 +603,6 @@ preset can narrow the parent's powers, never widen them.
 | `test/compact.test.mjs` | rotation mid-run; the estimate's script-aware divisor |
 | `test/protocol.test.mjs` | markers, fences, the preamble |
 | `test/plan.test.mjs` | tick forms (`- [x]`, `* [x]`, bare `[x]`), the once-per-run DONE checkpoint, `mergeTodo`'s one-row-per-text dedupe, and `finished.todo` |
-| `test/stats.test.mjs` | `run_stats` and its aggregation |
 | `test/inject.test.mjs` | the mid-run message: rides the next paste, never the first; refused with no run; orphaned texts go back; the queue capped at twenty |
 | `test/interrupted-anchor.test.mjs` | a stream that died mid-answer: the message and the delivered prefix recorded, marked interrupted; nothing delivered records nothing |
 | `test/preamble-sections.test.mjs` | a plugin's preamble section: attributed, load order, empty/failing dropped, taken name fails at load, byte-identical when none |

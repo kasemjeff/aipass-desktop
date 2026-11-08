@@ -447,6 +447,39 @@ test('a send that failed outright records why it died (note + run_stats.sendErro
 
 /* H7 â€” the stagnation guard ------------------------------------------------ */
 
+test('a heal-by-waiting refusal that outlasts every recovery wait ends as send-timeout', async () => {
+  // A 429 is waited out, not fought: the in-place retries and the loop-level
+  // recovery waits are spent on the same refusal. The ending is named for
+  // what happened — send-timeout — while run_stats still carries the cause
+  // and the waited time. A non-recoverable send keeps the plain 'error'.
+  const saved = process.env.AIPASS_RECOVER_WAITS_MS;
+  process.env.AIPASS_RECOVER_WAITS_MS = '0,0';
+  try {
+    const dir = tempDir({ 'a.txt': 'hello\n' });
+    const store = new SessionStore(path.join(dir, 'sessions'));
+    const session = store.create({ root: dir });
+    const tools = createTools({ root: dir, overlay: new Overlay(dir) });
+    const result = await runTask('read the project', {
+      bridge: {
+        async chat() { throw new Error('aipass returned 429 Too Many Requests'); },
+        async quota() { return { available: 1 }; },
+      },
+      tools, overlay: new Overlay(dir), session,
+      options: { maxSteps: 2 }, first: true,
+    });
+    assert.equal(result.stopReason, 'send-timeout');
+    assert.equal(session.entries.filter((e) => e.type === 'user').length, 0,
+      'every attempt failed, so nothing may look received');
+    const stats = session.entries.find((e) => e.type === 'run_stats');
+    assert.equal(stats.stopReason, 'send-timeout');
+    assert.ok(stats.sendRecoveries >= 2, `both recovery waits were spent (${stats.sendRecoveries})`);
+    assert.ok(stats.sendWaitMs >= 0, 'the waited time is carried');
+  } finally {
+    if (saved === undefined) delete process.env.AIPASS_RECOVER_WAITS_MS;
+    else process.env.AIPASS_RECOVER_WAITS_MS = saved;
+  }
+});
+
 /** A bridge that answers a fixed list of turns and records what was sent. */
 function scriptedLoop(replies) {
   const received = [];

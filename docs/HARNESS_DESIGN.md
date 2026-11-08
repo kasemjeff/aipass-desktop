@@ -124,7 +124,7 @@ event — is in [`LOOP_DESIGN.md`](LOOP_DESIGN.md).
 | `session.mjs` | JSONL append with a forkable tree | a session opened next week reads as one continuous piece of work |
 | `skills.mjs` | plain markdown, configured → project → user → repo; `installSkill`/`removeSkill` write the two libraries a person owns (user, project) | the library grows without code changes, and one order serves the window and the CLI alike — install and remove are the person's acts on their own libraries, never on a configured folder or the repo |
 | `plugins.mjs` | `setup(ctx)` in-process: markers, rpc, panels, settings, events, preamble sections; `apiVersion` checked against `PLUGIN_API` (1) | plugins are code you chose to install — not sandboxed, and it says so |
-| `stats.mjs` | the `run_stats` lines, rolled up | a run's refusals, nudges, stalls and checks are numbers, not an argument |
+| `evals.mjs` runner | the `run_stats` lines, read back per eval attempt | a run's refusals, nudges, stalls and checks are numbers, not an argument |
 
 What is already right and should not be "improved" away: unique-match REPLACE
 (refuses when FIND matches twice), binary detection by magic signature before
@@ -312,7 +312,7 @@ engine does not change — only where `rules` and `grants` are seeded from.
 **D. Run metrics, and the reader that rolls them up.** Every run appends one
 `run_stats` line — stop reason, per-tool counts and latency, nudges,
 stagnations, verify prompts, firewall notes, step timings, credits spent — and
-`npm run stats` aggregates them. The counters grew with the harness
+the eval runner reads them back. The counters grew with the harness
 (`repeatBlocks`, `langPrompts`, `novelResults`, `repeatedResults`,
 `checks`/`checkVerdict`, `doneUnverified`, `commitBlocks`), so F10-style
 protocol drift is caught as a number instead of guessed at.
@@ -405,7 +405,7 @@ What each pass changed, briefly:
   behind the `--attach` preamble flag (A); permission rules and "always"
   grants persist per project in `~/.aipass/rules.json` and survive a restart,
   with repeatable `--rule "pattern=decision"` on top (C); every run appends a
-  `run_stats` line and `npm run stats` aggregates refusal rates, nudges,
+  `run_stats` line that the eval runner reads back for refusal rates, nudges,
   firewall notes, step timings and credits (D); the bridge accepts a
   `conversation` per request and `createConversation` can mint one without
   adopting it, so helpers keep their own conversation — no save/restore dance
@@ -473,7 +473,7 @@ channel.
 and weak ones under-verify; the cheap correction is one nudge. After the
 first staged code change, the next message asks for a test run, a read-back,
 or an explicit "nothing can be run here" - once per run, never blocking.
-`run_stats` counts it (`verifyPrompts`) so the trend shows in `npm run stats`;
+`run_stats` counts it (`verifyPrompts`) so the trend shows in the eval rows;
 its first live firing was the smoke re-run below.
 
 **Shipped since (Oct 2026):** per-run tool-call and wall-clock budgets
@@ -880,7 +880,7 @@ defaults — it does now. The map, then what each gap was worth:
 | PreToolUse — validate the shape, deny with a reason | Action validator | one `validateCall()` before dispatch (`harness/validate.mjs`) checks every built-in, plugin and MCP call for the same shape contract, so an empty `RUN`, a blank `NEED`/`SEARCH` or an uninstalled marker answers with one `err: …` sentence before any implementation sees it; fenced protocol text never executes (F1); `node --check` on staged JS and `JSON.parse` on staged JSON (R2); permission denials carry the rule name; a plugin marker rides the permission engine like a built-in — the risk it declared, or a write when it declared none (`permissions.mjs#classifyPlugin`) — and the person's own path rules and the secret floor reach it through the marker's argument | done — shapes are central, and the gate reaches every marker |
 | PostToolUse — compact an oversized result | Observation compressor | clip at `maxResult` + spill file with a `NEED` locator (`tools.mjs`) — reads keep the head, `RUN` keeps head+tail (ACI round); the summary transcript elides stale bulk (opt-in) and the rotation's seed pins the memory facts; conversation summarise→rotate at the budget (`compact.mjs`) | done, three tiers — clip + spill, elision (opt-in), rotate; the elided middle of a command sits on disk, not lost |
 | Stop — tests fail, keep working | Verify | R4's one soft nudge (`verifyPrompts`); the checker at DONE — a read-only child runs the project's own check, the verdict computed from what it ran, one continuation on fail (`loop.mjs`, `harness.mjs#makeChecker`); `verifyCommand` names that check for a run without `.aipass/check.txt`; `requireCheck` refuses a later DONE over a failing verdict as `done-unverified` | done — advisory by default, strict gate opt-in; `checks`/`checkVerdict`/`checkCommand` and `doneUnverified` recorded |
-| PreToolUse — count calls, log every event | Budget + trace | one `run_stats` line per run + one session JSONL entry per tool call, 20 000-char result and all; `run_stats.tools` carries `{n, fail, ms}` per kind and `stats` prints the mean latency | done — a hard per-run cap is still not recorded (the budget stops a run with its reason instead) |
+| PreToolUse — count calls, log every event | Budget + trace | one `run_stats` line per run + one session JSONL entry per tool call, 20 000-char result and all; `run_stats.tools` carries `{n, fail, ms}` per kind and the eval rows print the mean latency | done — a hard per-run cap is still not recorded (the budget stops a run with its reason instead) |
 | PreToolUse — destructive commands, config files, red-test commits | Safety gates | modes + the H9 rule engine: path rules outrank the mode, reads included; no listener means deny; `classifyRun` asks about hazardous `RUN` bodies in every mode, ahead of grants; `SAFETY_RULES` ask about config/lockfile mutations (`permissions.mjs`, `settings.mjs`); the declared check (`.aipass/check.txt`, or `verifyCommand` when set) arms the red-test commit gate: a `git commit` RUN is refused until it passed at the current tree state, and `run_stats.commitBlocks` counts the refusals | done — the gate names the command and its source (`--verify-command` or `.aipass/check.txt`) |
 | the person's own commands — `sessionStart`, `promptSubmit`, `beforeTool`, `afterTool`, `afterWrite`, `beforeCommit`, `preCompact`, `done`, `stop` | the lifetime of a session, a task and a call; the stop | command lines the person wrote (`settings.json` → `hooks`): an argv array (never a shell string), the run's root as cwd, a 30 s timeout, the output screened for secrets, and the moment plus the call in the environment. The verdict comes back to the model around a tool call and to the person as a note when the run ends; a failing hook is reported and the run continues, except a failing `beforeCommit` (the commit is refused) and a failing `beforeTool` (that call is refused) (`harness/hooks.mjs`, `harness/loop.mjs`, `harness/tools.mjs`) | done — the person's command, so it asks nobody for permission; the secret floor still refuses a command that names a secret file |
 
@@ -932,7 +932,7 @@ and each entry says when:
    opt-in so its tuned bytes stay identical (`loop.mjs`, `rpc.mjs`,
    `test/desktop.test.mjs`, `agent.test.mjs`).
 5. **Per-tool latency — shipped 2026-10-17**: one `ms` field in `toolStats`,
-   aggregated in `stats.mjs` and printed per kind (`stats.test.mjs`). A hard
+   aggregated per kind in the eval rows. A hard
    per-run cap is still not recorded: the soft budget stops a run with a
    reason, which the recorded end already names.
 6. **The plugin markers behind the gate — shipped 2026-10-20**. A marker a
@@ -1227,8 +1227,8 @@ are pinned by `test/lang.test.mjs`; the loop wiring is pinned by
    conversation, so the model sees its own failure.
 7. **Counters, the summary, and compaction.** `run_stats` gained
    `repeatBlocks`, `langPrompts`, `novelResults` and `repeatedResults` (a
-   result already seen this run is what a loop smells like); `stats.mjs`
-   rolls them up, and the compaction prompt now demands that proper nouns,
+   result already seen this run is what a loop smells like); the eval rows
+   roll them up, and the compaction prompt now demands that proper nouns,
    names, numbers, dates, filenames and quoted strings stay byte-identical —
    Thai stays Thai.
 8. **The marker-attempt guard (H10), and `NEED list`.** A recorded desktop

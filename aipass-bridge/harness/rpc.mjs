@@ -18,6 +18,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Harness } from './harness.mjs';
+// The exit code the supervisor reads is shared with the shell, in one file.
+import { PORT_BUSY_EXIT } from './desktop-contract.mjs';
 // The methods of the backend, one module per domain. They share one context:
 // the harnesses, the settings, the plugins — everything a handler may touch.
 import { createCoreMethods } from './rpc/core.mjs';
@@ -79,10 +81,11 @@ import { check as checkForUpdate } from './update.mjs';
 // The exit code that means "the port was taken". A busy port is not a crash:
 // it is a fact about the machine, and the shell has to be able to tell it
 // apart from a backend that broke, because the two need opposite answers.
-// One of ours is already answering there → adopt it. Something else is
-// holding it → restarting cannot fix that, and a loop that cannot win is
-// what made the app look broken.
-const PORT_BUSY_EXIT = 43;
+// One of ours is already answering there -> adopt it. Something else is
+// holding it -> restarting cannot fix that, and a loop that cannot win is
+// what made the app look broken. The number itself lives in the contract the
+// shell reads too (`desktop-contract.json`).
+export { PORT_BUSY_EXIT };
 
 
 // Re-exported for desktop/main.mjs, whose ensureBridge probe must resolve the

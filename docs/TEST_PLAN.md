@@ -312,8 +312,8 @@ restated here for the test-design view):
 
 1. `npm run check` green on the release commit.
 2. CI matrix green (OS × Node).
-3. `npm run doctor` against a real signed-in tab.
-4. `npm run stats -- --strict` — no warning on the last 50 runs.
+3. `npm run verify` against a real signed-in tab.
+4. Eval gate evidence within 30 days (`evals:compare` + safety set).
 5. Advisory eval run (includes the safety set) + `npm run loadtest -- --strict`;
    paste the `metrics:` line.
 6. `CHANGELOG.md` updated; "Known limits" and the not-shipped list still true.
@@ -435,7 +435,7 @@ npm run evals:compare -- baseline.jsonl arm.jsonl --min 3
 # L4 — graduation: edit docs/MATURITY.md, naming the record
 
 # L5 — release
-npm run check && npm run doctor && npm run stats -- --strict && npm run experiments -- --check
+npm run check && npm run verify && npm run experiments -- --check
 ```
 
 ## What each layer cannot prove (stated so nobody claims otherwise)

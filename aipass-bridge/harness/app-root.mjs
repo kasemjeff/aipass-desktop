@@ -24,9 +24,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { aipassHome } from './settings.mjs';
+import { APP_MARKER } from './desktop-contract.mjs';
 
 /** The file that says "this directory is an app root". */
-export const MARKER = 'aipass-bridge/bridge/server.mjs';
+export const MARKER = APP_MARKER;
 
 /** The directory the app's own state lives in, under the aipass home. */
 export const appDir = (home = aipassHome()) => path.join(home, 'app');

@@ -3,15 +3,14 @@
 The first move is always the same:
 
 ```bash
-npm run doctor             # walks the whole chain, names the one next action
-npm run doctor -- --json   # the same, machine-readable (last line)
+npm run verify           # test + smoke-e2e + chat check, names the next action
 ```
 
-It checks, in order: bridge reachable → extension attached → signed in →
-credits → a conversation to post into → one real round trip. It exits non-zero
-on the first failure, and every failure prints the single next action — fix
-the first one, the rest usually follow. `--no-chat` skips the round trip;
-`--chat` runs it even when no free-credit model exists.
+It checks, in order: the backend and `/status`, one HTTP Round trip, and a
+live chat check. It exits non-zero
+on the first failure, and every failure prints the single next action (check
+the window banner for the same message when the desktop app is running) — fix
+the first one, the rest usually follow.
 
 If you prefer checking by hand: `GET /status` is token-free on purpose, and
 `extensions: 0` there means no tab is attached — the first failure most days.
@@ -30,8 +29,8 @@ If you prefer checking by hand: `GET /status` is token-free on purpose, and
   a tab there carries no extension, so the run stops with "no de.aipass.net
   tab is open". Install Chrome, or load the extension in the browser you
   prefer and open the chat there yourself.
-- **Signed out.** The model list comes back empty or fallback-only; `doctor`
-  reports this as the `login` check. Sign in, then reload the tab.
+- **Signed out.** The model list comes back empty or fallback-only; the window
+  banner reports this as a login problem. Sign in, then reload the tab.
 - **The popup says the bridge needs a token.** The bridge mints a loopback
   token to `~/.aipass/.token` and prints the path when it starts. Open the
   extension popup → **Advanced** → paste the file's contents into
@@ -150,17 +149,16 @@ There is no push alerting and there cannot be — a single-user desktop has no
 daemon to page you. The pull-based version ships:
 
 ```bash
-npm run stats -- --alerts             # refusal spike, guard-trip share, cost outliers, firewall notes
-npm run stats -- --strict             # exit 1 when a warning fired (the scheduled-task shape)
-npm run stats -- --json               # {lifetime, alerts, rows} for anything that wants to graph
-npm run stats -- --html report.html   # a self-contained page, openable offline
-npm run loadtest -- --strict          # concurrent-call latency + memory movement, before a release
+npm run verify                           # test + smoke + chat (the chain)
+npm run loadtest -- --strict          # concurrent-call latency + memory, before a release
+npm run evals -- --all --live --attempts 3 --keep --pause 10000  # task outcomes
 ```
 
-Thresholds are deliberately coarse — 10+ runs before a rate warns, 4× the
-median before a run is "an outlier" — because they answer "is this install
-drifting", not "what is this one run doing". For the latter: the plain
-`npm run stats` table and the session JSONL.
+The eval result rows carry the per-run signals (refusals, stop reasons,
+spend) — read the `metrics:` line and `evals/results/*.jsonl`; the session
+JSONL is the per-run source of truth. (The retired `stats` CLI aggregator
+was removed in the desktop-only split so sibling projects
+cannot blend into this project's numbers.)
 
 ## When something went wrong (incident response)
 
@@ -176,8 +174,8 @@ A local install, so the response is proportional — but the order is fixed:
    in every eval row) holds the whole conversation, every tool call and the
    `run_stats` line; `~/.aipass/logs/` holds the process logs (one rotated
    generation). Copy them before re-running anything.
-3. **Explain it.** `npm run doctor` first (the chain), then
-   `npm run stats -- --alerts` (the pattern). One oversized run misreading a
+3. **Explain it.** `npm run verify` first (the chain), then the recent
+   `evals/results/*.jsonl` `metrics:` summary (the pattern). One oversized run misreading a
    task is one run; the same stop reason across runs is a settings or prompt
    change.
 4. **Roll back if needed.** `docs/RELEASE.md` — for code, check out the
@@ -192,7 +190,7 @@ A local install, so the response is proportional — but the order is fixed:
 
 The channel is an issue — or a line in `docs/WORKLOG.md` for the next
 session — with context: what you asked, what happened, the session file path
-(shown in the window) or a `stats --json` slice, and the `app` version from
+(shown in the window) and the `evals/results/*.jsonl` row for the run, and the `app` version from
 the session header. Feedback is read by a person; nothing parses it into
 settings, prompts or routing automatically. Ground truth stays the
 check-based evals (`docs/SPEC_EVALS.md`) — a task is solved by a passing
@@ -202,6 +200,6 @@ behavior moves.
 
 ## When filing a bug
 
-Include: the `npm run doctor --json` output, `node -v` and your OS, the tail
+Include: the `npm run verify` log tail, `node -v` and your OS, the tail
 of the bridge log, and — for window issues — the browser console. The issue
 template lives in `.github/ISSUE_TEMPLATE/bug_report.md`.

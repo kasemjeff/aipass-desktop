@@ -23,13 +23,15 @@ import {
 import { aipassHome } from '../settings.mjs';
 import { commandsDir, installCommandFile } from '../app-root.mjs';
 import { writeFileAtomic } from '../atomic-write.mjs';
+// The number is the shell's too; it lives in the shared contract.
+import { RESTART_EXIT } from '../desktop-contract.mjs';
 
 /**
  * The exit code that means "restart me on purpose". The shell reads it as a
  * deliberate restart — a new content tree needs a new backend — and not as a
  * crash to answer with backoff.
  */
-export const RESTART_EXIT = 42;
+export { RESTART_EXIT };
 
 /**
  * The update methods of the backend.

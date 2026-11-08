@@ -34,8 +34,9 @@ Four programs, none of which share a runtime:
    already worked. If the desktop app reimplemented the agent, every fix
    would have to land twice. So the harness lives in `aipass-bridge/harness/`
    as plain `.mjs` modules, and both front ends call the same code. The Rust
-   side is deliberately thin for the same reason: it owns the window, the
-   tray and the Node sidecar, and nothing else.
+   side is deliberately thin for the same reason: it owns the window, the tray,
+   and the Node sidecar's life — spawn, restart, rollback — and nothing about
+   the agent.
 3. **Windows-first, but the logic stays portable.** The user runs Windows;
    the packaging (NSIS, WebView2 offline installer, sidecar fetch script) is
    Windows-specific. Everything under `aipass-bridge/` is plain Node that
@@ -52,7 +53,7 @@ Four programs, none of which share a runtime:
 
 | layer | choice | why | rejected |
 |---|---|---|---|
-| window shell | **Tauri 2** (Rust ≥ 1.77) | ~3 MB binary, uses the OS webview, tray + sidecar support built in; the Rust is ~a page of code | Electron (ships a whole Chromium for a page of HTML; ~10× the installer for zero benefit — the heavy part of this app is Node, which we ship anyway) |
+| window shell | **Tauri 2** (Rust ≥ 1.77) | a ~3 MB binary on top of the Node sidecar the app ships anyway (the installer is ~231 MiB, mostly the sidecar and WebView2); the shell is ~1.7k lines across eight files — main, window, supervisor, backend, paths, processes, geometry and the generated contract constants — and it owns the window's life, not the agent's | Electron (ships a whole Chromium for a page of HTML; ~10× the installer for zero benefit — the heavy part of this app is Node, which we ship anyway) |
 | webview | **WebView2** (offline installer) | guaranteed present on Windows 10/11 via the installer; Evergreen updates come from the OS | CEF (another Chromium to ship), Firefox/Gecko (no Windows guarantee) |
 | backend | **Node ≥ 24, zero npm deps** | the CLI is the same code; `node:http`, SSE, `node:crypto` and `fetch` cover every need; nothing to audit, nothing to break | Express/Fastify (a dependency for a router we don't need — the surface is two endpoints), Bun/Deno (the bridge predates them and the sidecar fetch story is Node's) |
 | wire protocol | **POST `/rpc` + GET `/events` (SSE)** | one request/response channel for commands, one push channel for streams; SSE needs no client library and survives WebView2 | WebSockets (a second protocol to implement on both sides for no capability we use — the window never talks to the bridge directly), Tauri IPC commands (would weld the harness to the shell and break `npm run desktop` in a plain browser) |
@@ -72,7 +73,7 @@ Four programs, none of which share a runtime:
 Saying the quiet parts out loud, since a stack is a set of tradeoffs:
 
 - **Vanilla JS has a ceiling, and this app is near it.** `app.js` crossed
-  2,200 lines: still one file a person can hold in their head, but it is the
+  2,500 lines: still one file a person can hold in their head, but it is the
   zone the JSDoc types + `tsc --checkJs` pass exists for — a
   devDependency-only check (nothing ships with it; the runtime stays
   dependency-free), run wherever there is a `node_modules`. esbuild after
@@ -81,6 +82,17 @@ Saying the quiet parts out loud, since a stack is a set of tradeoffs:
   `ui/commands.js`, `ui/panels/`) — the ceiling moved down, not up.
 - **The sidecar must match the platform.** `fetch-node.mjs` pins a Node
   build per release; a macOS/Linux port needs the same for each target.
+- **Two runtimes, one contract.** The shell is Rust and the backend is Node,
+  so the facts they must agree on — the desktop port, the two supervisor exit
+  codes, the app home's name, the root marker — live in one file,
+  `aipass-bridge/harness/desktop-contract.json`: the Node side reads it at
+  runtime and `desktop/src-tauri/build.rs` compiles it in. The root
+  *candidates* are still implemented twice (Rust and `harness/app-root.mjs`)
+  because they are platform layout, not a value; a fixture test says the two
+  agree, and a new candidate has to be added in both places.
+- **"Zero dependencies" is a statement about npm.** The runtime imports no
+  npm package, but the Tauri crate tree is 446 crates (`Cargo.lock`) — a real
+  supply chain, reviewed by cargo, clippy and CodeQL in CI rather than by eye.
 - **The relay's reliability is Chrome's mood.** An extension page can be
   discarded, an update can reload the tab. The bridge surfaces this
   (`extension: 0 connected`) rather than hiding it, but it is the least
@@ -99,7 +111,7 @@ when they are cut:
 
 - **The signed-in Chrome tab.** No tab, no upstream call: a run pauses with
   `needs_tab` and the bridge says `extension: 0 connected`. Nothing is lost —
-  reconnect and the run continues. The extension popup and `npm run doctor`
+  reconnect and the run continues. The extension popup and the window banner
   are the two places that say so.
 - **The backend process.** One Node process owns the run loop. The desktop
   shell supervises it — a crash is logged as `[supervisor]` lines and
@@ -132,3 +144,6 @@ the whole wire.
 | a real release channel exists | `tauri-plugin-updater` with signed artifacts |
 | the upstream ever offers native tool calls / system prompts | `protocol.mjs` and `waf.mjs` shrink or vanish; the harness gets simpler, not different |
 | sessions grow past "a folder of JSONL" | the format was chosen to be importable; SQLite at that point, not before |
+
+The "which side owns this" rule — and the test to apply to a new piece of
+logic — is [SHELL_BOUNDARY.md](SHELL_BOUNDARY.md).

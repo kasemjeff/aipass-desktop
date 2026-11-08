@@ -1,0 +1,7 @@
+{
+  "desktopPort": 8790,
+  "restartExit": 42,
+  "portBusyExit": 43,
+  "appHomeDir": ".aipass",
+  "appMarker": "aipass-bridge/bridge/server.mjs"
+}

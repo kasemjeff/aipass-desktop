@@ -14,6 +14,15 @@
 // outside-root safe): the root file still wins, nested files ride as labelled
 // extras under the same total budget.
 //
+// A nested directory that is its own VCS root (`.git` / `.hg` / `.svn`,
+// directory or worktree file) is a different project, not a subproject:
+// the walk neither collects its instruction file nor descends into it.
+// Without that boundary, a run rooted at a folder that merely contains
+// several projects (a home directory, a parent folder) would silently
+// paste every sibling project's standing rules into one chat. The run's
+// own root is exempt -- opening a project still loads that project's
+// instructions, which is the feature, not the leak.
+//
 // The text is project content, not a new protocol: the preamble says whose
 // instructions they are and that they lose to the task and the permission
 // rules. The switch is AIPASS_INSTRUCTIONS=off; nested discovery is off with
@@ -97,6 +106,14 @@ const NESTED_MAX_DEPTH = 2;
 const NESTED_MAX_FILES = 8;
 const NESTED_MAX_DIRS = 120;
 
+// Marker names that make a directory its own VCS root. `.git` may be a
+// file (worktree / submodule) as well as a directory, so existence alone
+// is the test -- its contents are never read.
+const VCS_MARKERS = ['.git', '.hg', '.svn'];
+
+/** Is `dir` the root of its own version-controlled project? */
+const isVcsRoot = (dir) => VCS_MARKERS.some((m) => { try { return fs.existsSync(path.join(dir, m)); } catch { return false; } });
+
 /**
  * The nested instruction files under `root`: one per directory, shallow
  * first (a nearer file shadows a deeper one for the same directory), inside
@@ -117,6 +134,9 @@ function discoverNestedInstructions(realRoot, remaining) {
     if (!next) break;
     const { dir, depth } = next;
     if (depth > NESTED_MAX_DEPTH) continue;
+    // A nested VCS root is another project: hard boundary, enforced before
+    // any read or descent. The run root (depth 0) is exempt by construction.
+    if (depth > 0 && isVcsRoot(dir)) continue;
     let entries;
     try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { continue; }
     scanned += 1;

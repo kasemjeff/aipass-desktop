@@ -28,6 +28,9 @@ import {
   runLauncher,
   wantsDetach,
 } from '../harness/launcher.mjs';
+// The number is not the launcher's: it lives in the contract the shell reads
+// too (`desktop-contract.json`), and this asserts the re-export is that one.
+import { DEFAULT_DESKTOP_PORT as CONTRACT_PORT } from '../harness/desktop-contract.mjs';
 import { UNAUTHORIZED } from '../harness/authtoken.mjs';
 import { tryDesktopRpc } from '../harness/desktop-rpc.mjs';
 // The real backend factory: the busy-port case has to build a server that
@@ -41,6 +44,7 @@ const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.
 test('the desktop port is a port, on both sides', () => {
   // The rule the shell enforces too (src-tauri/src/main.rs): a value that is
   // not a port is refused, so the two never disagree about what they bound.
+  assert.equal(DEFAULT_DESKTOP_PORT, CONTRACT_PORT, 'the default is the shared contract\'s');
   assert.equal(resolveDesktopPort({}), DEFAULT_DESKTOP_PORT, 'no value is the default');
   assert.equal(resolveDesktopPort({ AIPASS_DESKTOP_PORT: '' }), DEFAULT_DESKTOP_PORT, 'an empty value is the default');
   assert.equal(resolveDesktopPort({ AIPASS_DESKTOP_PORT: '  ' }), DEFAULT_DESKTOP_PORT, 'a blank value is the default');

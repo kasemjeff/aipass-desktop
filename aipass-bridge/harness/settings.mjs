@@ -11,6 +11,8 @@ import os from 'node:os';
 import { DEFAULT_MODEL_BUDGETS } from './compact.mjs';
 import { writeFileAtomic } from './atomic-write.mjs';
 import { formatLogLine } from './log-line.mjs';
+// The home directory's own name is shared with the shell's crate.
+import { APP_HOME_DIR } from './desktop-contract.mjs';
 
 /**
  * Where the app's state lives, whichever surface is asking.
@@ -19,7 +21,7 @@ import { formatLogLine } from './log-line.mjs';
  * not write the user's real settings, sessions or plugins. A suite that resets
  * the live file eats the configuration of whoever is using the app right now.
  */
-export const aipassHome = () => process.env.AIPASS_HOME?.trim() || path.join(os.homedir(), '.aipass');
+export const aipassHome = () => process.env.AIPASS_HOME?.trim() || path.join(os.homedir(), APP_HOME_DIR);
 
 /**
  * The shipped per-run budgets. `loop.mjs` and `harness.mjs` import these for

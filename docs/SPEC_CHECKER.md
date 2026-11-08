@@ -97,8 +97,8 @@ and a window listener (`desktop/ui/app.js:371` is the pattern).
 
 **Budget and stats.** `nudges` stays the no-marker counter; `verifyPrompts`
 stays R4's. `run_stats` gains `checks: 0 | 1` and
-`checkVerdict: 'pass' | 'fail' | 'none'`; `stats.mjs` `collectRuns`/`summarize`
-pass them through and the summary line prints them. The checker's steps and
+`checkVerdict: 'pass' | 'fail' | 'none'`; the eval rows pass them through and
+the summary line prints them. The checker's steps and
 timings live in its session; credits are global, so the parent's `spent`
 (`loop.mjs:367`) already includes the check.
 

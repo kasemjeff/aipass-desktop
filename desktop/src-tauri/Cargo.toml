@@ -11,6 +11,9 @@ rust-version = "1.77"
 # never drift apart.
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
+# build.rs reads the contract the Node side reads too; serde_json is already
+# in the tree as a normal dependency, so this costs no new crate.
+serde_json = "1"
 
 [dependencies]
 tauri = { version = "2", features = ["tray-icon"] }
