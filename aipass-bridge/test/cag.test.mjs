@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { buildPack, ensurePack, clearPack, statusPack, renderPack, packHash } from '../harness/cag.mjs';
+import { createFilesMethods } from '../harness/rpc/files.mjs';
 import { bm25Idf, bm25Term, bm25ScoreAll, tokenize } from '../harness/text.mjs';
 
 const HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'aipass-cag-home-'));
@@ -97,4 +98,28 @@ test('clear + status round-trip', async () => {
 test('tokenize still splits Thai for the shared scorer', () => {
   const toks = tokenize('ระบบค้นคืน');
   assert.ok(toks.includes('ระบบ'));
+});
+
+test('the cag RPC methods report and clear the pack', async () => {
+  // The RPC wrappers (files.mjs) over the pack store: the window asks
+  // cag.status for the pack's size and cag.clear to drop it.
+  const dir = tempDir({ 'AGENTS.md': '# Rules\n' });
+  await ensurePack(dir);
+  const m = createFilesMethods({
+    appSettings: { get: () => 'https://de.aipass.net/chat' },
+    staged: new Map(),
+    targetFor: () => ({ root: dir }),
+    stageAttachment: async () => ({ ok: true }),
+    dropAttachment: () => {},
+    fileIndex: async () => [],
+    dropIndex: () => {},
+    root: dir,
+    model: 'm1',
+  });
+  const st = await m['cag.status']({});
+  assert.equal(st.sources, 1, 'the built pack is reported');
+  assert.ok(st.chars > 0, 'with its size');
+  assert.deepEqual(await m['cag.clear']({}), { cleared: true }, 'clear answers cleared');
+  const empty = await m['cag.status']({});
+  assert.equal(empty.sources, 0, 'and the pack is gone after');
 });
