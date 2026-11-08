@@ -453,7 +453,9 @@ test('a heal-by-waiting refusal that outlasts every recovery wait ends as send-t
   // what happened — send-timeout — while run_stats still carries the cause
   // and the waited time. A non-recoverable send keeps the plain 'error'.
   const saved = process.env.AIPASS_RECOVER_WAITS_MS;
+  const savedRate = process.env.AIPASS_RATE_WAITS_MS;
   process.env.AIPASS_RECOVER_WAITS_MS = '0,0';
+  process.env.AIPASS_RATE_WAITS_MS = '0,0';
   try {
     const dir = tempDir({ 'a.txt': 'hello\n' });
     const store = new SessionStore(path.join(dir, 'sessions'));
@@ -477,6 +479,8 @@ test('a heal-by-waiting refusal that outlasts every recovery wait ends as send-t
   } finally {
     if (saved === undefined) delete process.env.AIPASS_RECOVER_WAITS_MS;
     else process.env.AIPASS_RECOVER_WAITS_MS = saved;
+    if (savedRate === undefined) delete process.env.AIPASS_RATE_WAITS_MS;
+    else process.env.AIPASS_RATE_WAITS_MS = savedRate;
   }
 });
 
