@@ -37,6 +37,10 @@ export function createState() {
     settings: null,
     /** @type {any} */
     lastCheck: null,
+    // The last context assembly the loop reported (turn 1 / seed / step):
+    // what the model was shown, drawn by the context panel.
+    /** @type {any} */
+    lastContext: null,
     // The settings sheet's working draft: rows edit this until save. The
     // sheet owns it; it lives here so every page reads the same object.
     draft: null,

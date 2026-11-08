@@ -292,6 +292,9 @@ function runChild(cmd, args, timeoutMs) {
     const child = spawn(cmd, args, { windowsHide: true });
     let stdout = '';
     let stderr = '';
+    // Decode across chunks, not per chunk (a split Thai byte is mojibake).
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
     child.stdout.on('data', (d) => { stdout += d; });
     child.stderr.on('data', (d) => { stderr += d; });
     child.on('error', (error) => resolve({ error, status: null, stdout, stderr }));
@@ -902,7 +905,7 @@ export function createTools(ctx) {
       for (const [p, value] of stagedRows) {
         if (value === DELETED) continue;
         const relPath = path.relative(abs, p);
-        if (!relPath || relPath.startsWith('..') || path.isAbsolute(relPath)) continue;
+        if (!relPath || relPath === '..' || relPath.startsWith(`..${path.sep}`) || path.isAbsolute(relPath)) continue;
         const parts = relPath.split(path.sep).filter(Boolean);
         if (!parts.length || parts.length > depth) continue;
         let node = treeRoot;

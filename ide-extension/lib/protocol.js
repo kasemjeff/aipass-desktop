@@ -53,6 +53,7 @@ const EVENT_NAMES = Object.freeze([
   'plugin_call', 'ask', 'done_line', 'cancelled', 'finished', 'run_stats',
   'goal_round', 'goal_done', 'goal_blocked',
   'inject_queued', 'injected', 'inject_orphaned',
+  'context',
   // the questions the backend asks the client
   'permission_request', 'plan_request',
   // the machine around the run

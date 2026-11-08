@@ -332,6 +332,8 @@ function run(cmd, args, { cwd } = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(cmd, args, { cwd, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
     let err = '';
+    // Decode across chunks, not per chunk (a split Thai byte is mojibake).
+    child.stderr.setEncoding('utf8');
     child.stderr.on('data', (d) => { err += d; });
     child.on('error', (e) => reject(stageError('fetch', `${cmd} could not run: ${e.message}`)));
     child.on('close', (code) => {
@@ -440,7 +442,7 @@ export async function copyTreeBounded(src, dest, {
     if (st.isSymbolicLink()) {
       const real = await fs.promises.realpath(from);
       const rel = path.relative(boundary, real);
-      if (rel.startsWith('..') || path.isAbsolute(rel)) {
+      if (rel === '..' || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)) {
         throw stageError('fetch', `refusing to copy ${path.basename(from)} — it points outside the fetched source (${real})`);
       }
       if (seen.has(real)) return; // a link back into the tree: already copied

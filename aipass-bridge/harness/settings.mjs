@@ -202,6 +202,22 @@ export const DEFAULTS = {
   webScratch: false,
   retrieve: true,
   diagnose: true,
+  // The bootstrap snapshot (git status + package scripts) riding turn 1.
+  // On by default in the desktop because the window's user pays the same
+  // discovery round trips and never sees the CLI's --snapshot flag.
+  snapshot: true,
+  // The project's standing instructions (AGENTS.md et al) riding turn 1.
+  // The AIPASS_INSTRUCTIONS env is still the terminal override; this is the
+  // window's switch for the same gate.
+  instructions: true,
+  // Capture durable facts from a finished short session that never compacted.
+  // Off by default: it costs one extra model call per DONE, so the person
+  // opts in when cross-session memory matters more than the bill.
+  memoryCapture: false,
+  // Cache-Augmented Generation: the standing pack (AGENTS.md + README.md)
+  // riding turn 1 byte-identically (docs/CAG_DESIGN.md). On in the desktop
+  // like `retrieve`; off in pinned replay fixtures (VERIFY gate).
+  cag: true,
   // A fetch the model chose is a question the person sees — unless the
   // machine has been told to let it through. The window asks (and says
   // where); the CLI's `--allow-fetch` says yes on the command line.
@@ -345,6 +361,14 @@ export const HARNESS_OPTION_DEFAULTS = Object.freeze({
   recall: true,
   // TREE and STAT (and LIST -l): the preamble teaches them when this is on
   explore: true,
+  // Turn-1 context switches (docs/LOOP_DESIGN.md): the bootstrap snapshot
+  // and the project's standing instructions.
+  snapshot: true,
+  instructions: true,
+  // Facts-only extraction after DONE, for sessions that never compacted.
+  memoryCapture: false,
+  // Cache-Augmented Generation: the standing pack on turn 1 (Phase 4).
+  cag: true,
   // the conversation the run sends into
   conversation: null,
   reuse: false,
@@ -647,6 +671,9 @@ export class Settings {
     next.recall = Boolean(next.recall);
     next.retrieve = Boolean(next.retrieve);
     next.diagnose = Boolean(next.diagnose);
+    next.snapshot = Boolean(next.snapshot);
+    next.instructions = Boolean(next.instructions);
+    next.memoryCapture = Boolean(next.memoryCapture);
     next.repeatGuard = Boolean(next.repeatGuard);
     next.repeatGuardMax = num(next.repeatGuardMax, 1, 50, DEFAULTS.repeatGuardMax);
     next.attempts = num(next.attempts, 1, 5, DEFAULTS.attempts);

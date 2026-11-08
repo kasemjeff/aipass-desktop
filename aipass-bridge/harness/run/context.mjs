@@ -51,6 +51,10 @@ export class RunContext {
     this.runPluginTool = ctx.runPluginTool ?? null;
     this.compactor = ctx.compactor ?? null;
     this.rotate = ctx.rotate ?? null;
+    // Facts persisted across sessions (memory-store.mjs). The loop merges
+    // them into every rotation seed, so a fact the session's own summariser
+    // did not re-emit still survives the rotation that first turn carried it.
+    this.crossMemory = Array.isArray(ctx.crossMemory) ? ctx.crossMemory : null;
     this.listingShown = ctx.listingShown ?? null;
     this.onConversationDead = ctx.onConversationDead ?? null;
     this.onConversationSettled = ctx.onConversationSettled ?? null;

@@ -5,6 +5,40 @@ procedure, acceptance criteria and rollback live in [`docs/RELEASE.md`](docs/REL
 
 ## [Unreleased]
 
+### Added
+
+- **Context assembly lives in one module, with a budget and a manifest.**
+  `harness/context-sources.mjs` owns the preamble flag sheet, the turn-1 and
+  seed budgets, and the assembly manifest: the live loop and the three seed
+  builders now derive the same flags (the drift that hid `RETRIEVE` from
+  turn 1 and `sandbox` from everywhere is closed, with a parity test), the
+  first message and every rotation seed are measured against their model's
+  share, and the drop order is snapshot → instructions tail → listing tail
+  (protocol and task never give way). Every assembly fires a `context`
+  event (`docs/EVENTS.md`) shown in the window's context panel ("Injected"),
+  and the settings sheet's context tab gains switches for the reads
+  (`retrieve`/`recall`/`explore`/`diagnose`), the snapshot, the project's
+  instructions, and the new DONE-time fact capture (`memoryCapture`, opt-in,
+  one extra model call per DONE).
+
+- **Nested project instructions.** The root AGENTS.md still wins, but
+  monorepo subprojects keep their own: each subdirectory to depth 2 (skipping
+  `node_modules`, `.git`, etc.) contributes one instruction file under the
+  same total budget, labelled in the paste (`AIPASS_INSTRUCTIONS_NESTED=off`
+  to disable). A project with no nested files pastes exactly the root file,
+  as before.
+
+- **Cross-session memory survives rotation, and ranks like recall.**
+  Rotation seeds now merge persisted cross-session facts with the session's
+  own memory (previously only the session's summariser output survived), so
+  a fact carried on turn 1 is not forgotten at the first rotation. The
+  carry picks facts with BM25 over the shared tokenizer (`text.mjs`) instead
+  of word inclusion, so Thai tasks rank facts the same way they rank
+  passages. A finished short session can also leave facts behind without a
+  compaction (`extractFacts` in `compact.mjs`, gated by `memoryCapture`).
+  Rotation seeds truncate the summary and the step results to their share
+  instead of pasting the whole step.
+
 ### Removed
 
 - **The terminal CLI left the repository.** This repo is the desktop app, and
@@ -439,6 +473,7 @@ procedure, acceptance criteria and rollback live in [`docs/RELEASE.md`](docs/REL
   `desktop/ui/app.js`).
 ### Fixed
 
+- **Dead background jobs are reported, not lost.** A background helper that threw and a background command that exited non-zero never rode the next turn — only a `done` helper was injected, so the model could say DONE over a failed build without knowing, and the end-of-run sweep said nothing either. The next turn now carries both (`Background helper/command <id> failed`), a done command rides as a pointer to its output file instead of an empty "helper" line, and a helper that fails on the final step is reported as failed after the run. The background `subagent_end` frame now carries the `id` its `subagent_start` had (without it the window painted a second, finished row and left the first running forever) and a dying helper's end frame carries an `error`; the rail says หยุดแล้ว for a stopped job instead of เสร็จ.
 - **DIAGNOSE is dispatchable again.** The preamble taught `DIAGNOSE` and the
   tool existed, but `BUILTIN_KINDS` did not list `diagnose`, so every call
   answered `err: unknown marker "diagnose"` (7/7 in the session log). The

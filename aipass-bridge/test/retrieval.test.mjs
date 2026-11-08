@@ -230,3 +230,19 @@ test('spelling variant still matches via trigrams', async () => {
   const res = await retrieve('โปรเจค', { root: dir });
   assert.ok(res.hits.length >= 1, 'a spelling variant should still find the passage');
 });
+
+test('hits carry term coverage; the coverage gate is opt-in (§9.2)', async () => {
+  const dir = tempDir({ 'a.md': '# Guide\n\nalpha beta gamma delta\n' });
+  await buildIndex(dir);
+  const res = await retrieve('alpha zzzqqq', { root: dir });
+  assert.ok(res.hits.length >= 1);
+  assert.equal(typeof res.hits[0].coverage, 'number');
+  process.env.AIPASS_RETRIEVAL_MIN_COVERAGE = '2';
+  try {
+    const gated = await retrieve('alpha zzzqqq', { root: dir });
+    assert.equal(gated.hits.length, 0, 'a one-term match is dropped at coverage 2');
+    assert.ok(gated.stats.droppedByCoverage >= 1);
+    const kept = await retrieve('alpha beta zzzqqq', { root: dir });
+    assert.ok(kept.hits.length >= 1, 'a two-term match survives');
+  } finally { delete process.env.AIPASS_RETRIEVAL_MIN_COVERAGE; }
+});

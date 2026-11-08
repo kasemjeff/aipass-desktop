@@ -364,14 +364,45 @@ ${transcript}`;
    * the fresh conversation does not repeat either by accident, and the
    * merged memory facts — the distilled backbone the narrative is a
    * rephrasing of.
+   *
+   * A seed is a first message with a summary where the listing used to be,
+   * so it carries the same total budget as turn 1. `budgetChars` is that
+   * budget in characters (context-sources seedBudgetChars); summary and
+   * results are truncated head-first (the tail carries what the model must
+   * act on) before anything mandatory gives way — preamble and task never
+   * do. Without a budget the seed is byte-for-byte what it always was.
    */
-  seed({ summary, task, preambleText, results = null, staged = null, lastCheck = null, memory = null, todo = null }) {
-    const tail = results
-      ? `Here are the results of the step just finished:\n${results}\n\nContinue the task from there.`
+  seed({ summary, task, preambleText, results = null, staged = null, lastCheck = null, memory = null, todo = null, budgetChars = null }) {
+    const budget = Number(budgetChars) > 0 ? Math.floor(Number(budgetChars)) : null;
+    const clip = (text, cap) => {
+      const s = String(text ?? '');
+      if (!cap || s.length <= cap) return s;
+      return `${s.slice(0, cap)}\n… [truncated ${s.length - cap} chars of a rotation seed to fit the context budget] …`;
+    };
+    let summaryText = String(summary || '(nothing recorded yet)');
+    let resultsText = results == null ? null : String(results);
+    if (budget) {
+      const fixed = String(preambleText ?? '').length
+        + String(task ?? '').length
+        + String(staged?.length ? staged.join(' ') : '').length
+        + String(lastCheck ? String(lastCheck.text ?? '') : '').length
+        + String(todo?.length ? todo.map((i) => i.text ?? '').join(' ') : '').length
+        + (Array.isArray(memory) ? memory.join(' ').length : 0)
+        + 1_200;
+      const room = Math.max(0, budget - fixed);
+      if (room > 0) {
+        const resultsCap = resultsText ? Math.floor(room * 0.45) : 0;
+        const summaryCap = Math.max(0, room - resultsCap - 400);
+        if (resultsText && resultsText.length > resultsCap) resultsText = clip(resultsText, resultsCap);
+        if (summaryText.length > summaryCap) summaryText = clip(summaryText, summaryCap);
+      }
+    }
+    const tail = resultsText
+      ? `Here are the results of the step just finished:\n${resultsText}\n\nContinue the task from there.`
       : 'What should I open first?';
     const carried = [
       staged?.length
-        ? `\nStaged but not on disk yet (Apply has not happened):\n${staged.map((s) => `- ${s}`).join('\n')}`
+        ? `\nStaged but not on disk yet (Apply has not happened):\n${staged.slice(0, budget ? 12 : 20).map((s) => `- ${s}`).join('\n')}`
         : '',
       lastCheck
         ? (lastCheck.verdict === 'none'
@@ -393,10 +424,34 @@ ${transcript}`;
     return `${preambleText}
 
 Earlier work, already done — do not repeat it, build on it:
-${summary || '(nothing recorded yet)'}${facts}
+${summaryText}${facts}
 
 Task: ${task}${carried}
 
 ${tail}`;
+  }
+
+  /**
+   * The facts-only extraction for a finished short session. Compaction
+   * extracts MEMORY facts on the same call that writes the narrative, so a
+   * session that never fills its budget never feeds the cross-session store
+   * — its durable facts stay in prose nobody reads back. This call asks for
+   * the facts alone (no narrative), so a DONE can leave facts behind without
+   * paying for a summary. Returns the facts, oldest first; the caller merges
+   * them into the store.
+   */
+  async extractFacts(session, { task = '', model = null, conversation = null, temporary = null, signal = null } = {}) {
+    if (!this.carryMemory) return [];
+    const sent = session?.sentMessages?.().slice(-12) ?? [];
+    const transcript = this.transcriptFor(sent);
+    if (!String(transcript ?? '').trim() && !String(task ?? '').trim()) return [];
+    const prompt = `List only durable facts from this finished piece of work that a future conversation must not rediscover: a decision and its reason (prefix "decision:"), a constraint ("constraint:"), a file path and its role ("file:"). Write exactly MEMORY: on its own line, then up to 8 bullet lines ("- " prefix, each under 200 characters). No other bullets; if nothing qualifies, leave the section empty.\n\nTask: ${task || '(none given)'}\n\nWork so far, oldest first:\n${transcript}`;
+    const res = await this.bridge.chat({
+      message: outbound(prompt), model,
+      ...(conversation ? { conversation, temporary } : {}),
+      ...(signal ? { signal } : {}),
+    });
+    const { memory } = this.splitSummary(res?.text ?? '');
+    return memory.slice(0, 8);
   }
 }

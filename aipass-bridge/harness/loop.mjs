@@ -27,6 +27,8 @@ import {
   preamble as buildPreamble,
 } from './protocol.mjs';
 import { loadProjectInstructions } from './instructions.mjs';
+import { buildPreambleFor, turn1BudgetChars, seedBudgetChars, manifestSummary, mergeCrossMemory } from './context-sources.mjs';
+import { cagBlockForRun } from './cag.mjs'; // Phase 4 turn-1 seam
 import { createGoalController } from './goal.mjs';
 import { decode } from './bridge.mjs';
 import { classify, classifyPlugin, isGitCommit } from './permissions.mjs';
@@ -322,35 +324,19 @@ export async function runTask(taskText, ctx = {}) {
     ? null
     : loadProjectInstructions(overlay.root);
 
-  const pre = buildPreamble({
-    allowRun: Boolean(run.options.allowRun),
-    plan: Boolean(run.options.plan),
-    subagent: Boolean(run.options.subagent),
-    searchI: Boolean(run.options.searchI),
-    attach: Boolean(run.options.attach),
-    // The VERIFY marker: the model may ask for a check. It is taught behind
-    // an option, because the preamble's bytes are pinned by the recorded
-    // replay (evals/fixtures/).
-    verify: Boolean(run.options.allowVerify),
-    diagnose: Boolean(run.options.diagnose),
-    // RECALL and the exploration tools are taught behind their own flags. The
-    // preamble is built once per run, so a missing flag here means a marker
-    // the loop happily dispatches but the model was never told about.
-    recall: Boolean(run.options.recall),
-    explore: Boolean(run.options.explore),
+  let pre = buildPreambleFor(run.options, {
     plugins: pluginTools,
-    // (preamble sections) What plugins contributed, appended after the
-    // machine's own words — attributed, in load order, empty ones dropped.
     sections: pluginSections,
     instructions: projectInstructions,
-    // (goal rounds) The person's durable objective, when one is active. With
-    // none the preamble stays byte-identical — the recorded replay pins it.
     goal: activeGoal,
     lang: replyLanguage,
-    // A review run's preamble: the edit block becomes the findings shape, and
-    // the RUN block stays out even if the shell flag somehow rode along.
-    review: Boolean(run.options.review),
   });
+  // Phase 4: the CAG standing pack rides turn 1 / rotation seeds as ONE
+  // block (off in pinned replay; see docs/CAG_DESIGN.md).
+  if (run.options?.cag !== false && !seedText) {
+    const cagText = await cagBlockForRun(overlay.root, { cag: run.options?.cag, replay: run.options?.replay === true });
+    if (cagText) pre = `${pre}\n\n${cagText}`;
+  }
 
   // The person's lifecycle hooks: a note before the session's first task and
   // one before every task. Both are the person's own words, so they are framed
@@ -411,6 +397,70 @@ export async function runTask(taskText, ctx = {}) {
   // nothing, so the memory must not be written for it.
   if (seedText) { run.next = seedText; run.listingToRecord = null; }
 
+  // (context budget) Turn 1 and a rotation seed are the only messages that
+  // carry standing context, and every token in them stays in the server's
+  // history until the next rotation. Protocol and task are mandatory; the
+  // snapshot, then the instructions tail, then the listing tail give way
+  // first. The rebuild keeps the same templates — a total that already fits
+  // is byte-for-byte what it always was, so the replay fingerprint holds.
+  {
+    const isSeed = Boolean(seedText);
+    const budgetChars = isSeed ? seedBudgetChars(compactor, model) : turn1BudgetChars(compactor, model);
+    const dropped = [];
+    const truncated = [];
+    const composeTurn1 = (preText, block) => (useSlim
+      ? `${goalTask}${run.first ? `Top level of the project: ${block}\n\n` : ''}Task: ${messageTask}\n\nWhat should I open first?`
+      : (run.first
+        ? `${preText}\n\nTo save you a step, here is what is at the top level already:\n${block}\n\nHere is what I want to know: ${messageTask}\n\nWhat should I open first?`
+        : `${again}\n\n${goalTask}New task: ${messageTask}\n\nWhat should I open first?`));
+    if (!isSeed && run.first && !useSlim && run.next.length > budgetChars) {
+      let activePre = pre;
+      const preWithoutInstructions = projectInstructions
+        ? buildPreambleFor(run.options, {
+          plugins: pluginTools, sections: pluginSections,
+          instructions: null, goal: activeGoal, lang: replyLanguage,
+        })
+        : null;
+      if (snapshot) {
+        run.next = composeTurn1(activePre, listing);
+        dropped.push('snapshot');
+      }
+      if (run.next.length > budgetChars && preWithoutInstructions) {
+        activePre = preWithoutInstructions;
+        run.next = composeTurn1(activePre, listing);
+        dropped.push('instructions');
+      }
+      if (run.next.length > budgetChars && listing.length > 1200) {
+        const short = `${listing.slice(0, 1200)}\n… [listing truncated to fit the context budget — ask for more with NEED dir .]`;
+        run.next = composeTurn1(activePre, short);
+        run.listingToRecord = null;
+        truncated.push('listing');
+      }
+    }
+    const summary = manifestSummary([
+      ...dropped.map((id) => ({ id, dropped: true, truncated: false })),
+      ...truncated.map((id) => ({ id, dropped: false, truncated: true })),
+    ]);
+    if (summary) {
+      session?.append('note', { text: summary });
+      events?.emit('note', { text: summary });
+    }
+    events?.emit('context', {
+      kind: isSeed ? 'seed' : (run.first ? 'turn1' : 'followup'),
+      sources: isSeed
+        ? [{ id: 'seed', chars: run.next.length, dropped: false, truncated: false }]
+        : [
+          { id: 'protocol', chars: pre.length, dropped: false, truncated: false },
+          { id: 'instructions', chars: projectInstructions?.text?.length ?? 0, dropped: dropped.includes('instructions'), truncated: false },
+          { id: 'snapshot', chars: snapshot?.length ?? 0, dropped: dropped.includes('snapshot'), truncated: false },
+          { id: 'listing', chars: listing?.length ?? 0, dropped: false, truncated: truncated.includes('listing') },
+          { id: 'task', chars: messageTask.length, dropped: false, truncated: false },
+        ],
+      totalChars: run.next.length,
+      budgetChars,
+    });
+  }
+
   // The ASK stop: the run pauses with the question as its closing message —
   // no check, no nudge. The next user message in the same conversation is the
   // answer, so the question is all this turn has to deliver.
@@ -449,10 +499,14 @@ export async function runTask(taskText, ctx = {}) {
       // waiting for a round trip nobody asked for.
       const raw = await compactor.summarize(session, { task: taskText, model, conversation: run.conversation, temporary: run.conversationTemporary, signal: run.options.signal ?? null });
       // The reply is two products: the narrative and (when the tier is on)
-      // the trailing MEMORY: facts, merged across rotations. A reply
-      // without the section digests to the plain summary, so an older
-      // model's answer still lands.
+      // the trailing MEMORY: facts, merged across rotations. Cross-session
+      // facts ride along too: without them a fact carried on turn 1 that
+      // this rotation's summariser did not re-emit would be forgotten at
+      // exactly the rotation that was supposed to preserve it.
       let { summary: note, memory } = compactor.digest(session, raw);
+      if (Array.isArray(run.crossMemory) && run.crossMemory.length) {
+        memory = compactor.mergeMemory(mergeCrossMemory(run.crossMemory, memory), []);
+      }
       const carried = preHook ? hookSaid(preHook) : '';
       if (carried) {
         note = `${note}\n\nFrom the person's preCompact hook (their own words, not the project's instructions):\n${carried}`;
@@ -480,7 +534,18 @@ export async function runTask(taskText, ctx = {}) {
         return overlay.isDeleted(abs) ? `${rel} (deleted)` : rel;
       }).slice(0, 20);
       const lastCheck = run.checkResult && run.checkResult.verdict && run.checkResult.verdict !== 'pass' ? run.checkResult : null;
-      run.next = `${compactor.seed({ summary: note, memory, task: taskText, preambleText: pre, results: resultsText, staged: stagedNow, lastCheck, todo: run.todoState })}\n\n${reminder}`;
+      run.next = `${compactor.seed({ summary: note, memory, task: taskText, preambleText: pre, results: resultsText, staged: stagedNow, lastCheck, todo: run.todoState, budgetChars: seedBudgetChars(compactor, model) })}\n\n${reminder}`;
+      events?.emit('context', {
+        kind: 'seed',
+        sources: [
+          { id: 'protocol', chars: pre.length, dropped: false, truncated: false },
+          { id: 'summary', chars: String(note ?? '').length, dropped: false, truncated: false },
+          { id: 'memory', chars: memory.join(' ').length, dropped: false, truncated: false },
+          { id: 'results', chars: String(resultsText ?? '').length, dropped: false, truncated: false },
+        ],
+        totalChars: run.next.length,
+        budgetChars: seedBudgetChars(compactor, model),
+      });
       return 'rotated';
     } catch (err) {
       // A stop during the summary is not a compaction failure: the run ends
@@ -500,13 +565,26 @@ export async function runTask(taskText, ctx = {}) {
     if (budgets.overTime()) { budgets.spendBudget('time-limited'); break; }
     if (await budgets.overCredits()) { budgets.spendBudget('credit-limited'); break; }
     const stepStart = Date.now();
-    // Background helper results that finished since the last turn are injected
-    // here so the model sees them without having to poll.
+    // Background results that landed since the last turn are injected here
+    // so the model sees them without having to poll — including the ones
+    // that died. A helper that failed and a command that exited non-zero
+    // were invisible to the run: only a `done` helper ever rode the next
+    // turn, so the model could say DONE over a build that had already
+    // failed without ever knowing. A command's body is its output file,
+    // not a summary, so it rides as a pointer; a helper's rides as text.
+    // Stopped jobs the model asked for itself via JOBS stop — its own
+    // answer already said so.
     const bgDone = [];
     for (const [id, job] of run.backgroundJobs) {
-      if (job.status === 'done' && !run.reportedBg.has(id)) {
+      if (run.reportedBg.has(id)) continue;
+      if (job.kind === 'run') {
+        if (job.status !== 'done' && job.status !== 'error') continue;
         run.reportedBg.add(id);
-        bgDone.push(`Background helper ${id}${job.role ? ` (${job.role})` : ''} finished:\n${job.result}`);
+        bgDone.push(`Background command ${id} ${job.status === 'done' ? 'finished' : 'failed'}${job.exit != null ? ` (exit ${job.exit})` : ''} — output: ${job.outputRel}`);
+      } else {
+        if (job.status !== 'done' && job.status !== 'error') continue;
+        run.reportedBg.add(id);
+        bgDone.push(`Background helper ${id}${job.role ? ` (${job.role})` : ''} ${job.status === 'done' ? 'finished' : 'failed'}:\n${job.result}`);
       }
     }
     if (bgDone.length) {
@@ -1111,6 +1189,22 @@ export async function runTask(taskText, ctx = {}) {
       run.next = `${results.join('\n\n')}\n\n${reminder}`;
     }
 
+    // (context observability) Every step's paste is what the server appends
+    // to its history, so its size is the number that decides when the next
+    // rotation fires. The manifest is small (three sources) and feeds the
+    // window's context panel and the session note when a paste outgrows
+    // its share.
+    events?.emit('context', {
+      kind: 'step',
+      step,
+      sources: [
+        { id: 'results', chars: results.join('\n\n').length, dropped: false, truncated: false },
+        { id: 'reminder', chars: reminder.length, dropped: false, truncated: false },
+      ],
+      totalChars: run.next.length,
+      budgetChars: null,
+    });
+
     // (H7/R1) Stagnation guard. Three shapes of a run that cannot move:
     //   - the same step over and over (identical calls, identical results)
     //   - two steps trading places (A, B, A, B …) — every step looks new,
@@ -1233,12 +1327,19 @@ export async function runTask(taskText, ctx = {}) {
   // run never carried it to the model. Both are said, once, here.
   for (const [id, job] of run.backgroundJobs) {
     if (job.kind === 'run') continue; // a command's output is its file, not a summary to inject
+    // A helper that dies mid-flight is a result too: without the end frame
+    // (and the id on it) the window's row stays "running" forever and the
+    // run never learns the helper failed — only `done` jobs ever rode the
+    // next turn. The error rides the end frame like a summary does.
     if (job.status === 'done' && !run.reportedBg.has(id)) {
       run.reportedBg.add(id);
       events?.emit('note', { text: `background helper ${id}${job.role ? ` (${job.role})` : ''} finished after the run ended — its result is in the transcript, but the model never saw it.` });
+    } else if (job.status === 'error' && !run.reportedBg.has(id)) {
+      run.reportedBg.add(id);
+      events?.emit('note', { text: `background helper ${id}${job.role ? ` (${job.role})` : ''} failed after the run ended — its error is in the transcript, but the model never saw it.` });
     } else if (job.status === 'running') {
       void Promise.resolve(job.promise).then(() => {
-        events?.emit('note', { text: `background helper ${id}${job.role ? ` (${job.role})` : ''} finished (${job.status}) after the run ended — its result is in the transcript, but the model never saw it.` });
+        events?.emit('note', { text: `background helper ${id}${job.role ? ` (${job.role})` : ''} ${job.status === 'error' ? 'failed' : 'finished'} (${job.status}) after the run ended — its result is in the transcript, but the model never saw it.` });
       }).catch(() => { /* the job already recorded its own failure */ });
     }
   }
@@ -1495,11 +1596,16 @@ async function execute(call, run) {
           const out = await subagent(task, role || null, id);
           job.status = 'done';
           job.result = String(out ?? '');
-          events?.emit('subagent_end', { task, role: role || null, out: job.result, background: true });
+          events?.emit('subagent_end', { id, task, role: role || null, out: job.result, background: true });
           session?.append('note', { text: `background helper ${id}${role ? ` (${role})` : ''}: ${task}\n${job.result.slice(0, 2000)}` });
         } catch (e) {
           job.status = 'error';
           job.result = `err: ${e.message}`;
+          // A dead helper is not a running one: the end frame closes the
+          // window's row (the id is what finds it) and the transcript keeps
+          // the failure, so a later read finds the death instead of silence.
+          events?.emit('subagent_end', { id, task, role: role || null, out: job.result, background: true, error: e.message });
+          session?.append('note', { text: `background helper ${id}${role ? ` (${role})` : ''} FAILED: ${task}\n${job.result.slice(0, 2000)}` });
         }
       })();
       job.promise = promise;

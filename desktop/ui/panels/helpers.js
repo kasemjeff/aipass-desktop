@@ -31,7 +31,7 @@ export function createHelpersPanel(/** @type {any} */ ctx) {
     const head = el('div', 'helper-head');
     head.append(el('span', 'helper-badge', badge(item.kind, item.role)));
     head.append(el('span', 'helper-task', String(item.task || '').slice(0, 80)));
-    const st = el('span', 'helper-status', item.status === 'running' ? 'กำลังรัน…' : item.status === 'error' ? 'ผิดพลาด' : 'เสร็จ');
+    const st = el('span', 'helper-status', item.status === 'running' ? 'กำลังรัน…' : item.status === 'error' ? 'ผิดพลาด' : item.status === 'stopped' ? 'หยุดแล้ว' : 'เสร็จ');
     head.append(st);
     li.append(head);
 

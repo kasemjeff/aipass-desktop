@@ -59,7 +59,7 @@ the table says so, the same way a renamed test fails the `Verify:` anchors.
 | event | fired by | what it says | read by |
 |---|---|---|---|
 | `subagent_start` | loop | a SUBAGENT began (foreground or background) | window, plugins |
-| `subagent_end` | loop | a SUBAGENT finished, with its summary | window, plugins |
+| `subagent_end` | loop | a SUBAGENT ended, with its summary (a background one carries the `id` of its `subagent_start`, and a helper that died carries an `error` instead of a clean finish) | window, plugins |
 | `helper_start` | harness | a helper run starts (the fan-out's own session): id, task, role, session | window, plugins |
 | `helper_end` | harness | a helper run ended: id, summary, prepared, skipped, steps, ms, estTokens | window, plugins |
 
@@ -82,6 +82,7 @@ the table says so, the same way a renamed test fails the `Verify:` anchors.
 | `applied` | loop | an apply wrote its files (with the checkpoint id) | window, plugins |
 | `discarded` | harness | pending changes dropped without writing: how many | window, plugins |
 | `compacted` | loop/harness | summarise + rotate happened: the summary and the memory facts | window, plugins |
+| `context` | loop/harness | what the model was shown this message: kind (turn1/seed/step), sources with chars and dropped/truncated flags, total and budget | window (context panel), plugins |
 | `conversation` | harness/rpc | the conversation a session talks through (created, adopted, rotated) | window (header) |
 | `session` | harness | the session a run writes to (id, title, file) | window (follows the run) |
 

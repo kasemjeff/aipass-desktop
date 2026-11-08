@@ -499,3 +499,10 @@ lexical retriever is missing queries that a vector would catch.
   README: `memory-store.mjs` (30/128 KB/8/280, 50 facts, 2,400 chars),
   `tools.mjs` (50 matches, 1 MB search cap, 20 MB attach cap), `settings.mjs`
   (`searchI: false`, `recall: true`), `rpc.mjs` (60 s path index).
+- `npm run bench:retrieval -- --repo .` on 2026-11-08 (this repo): 922 files,
+  6,928 chunks, cold build 6.9 s, incremental 1.3 s (read 10, reused 922),
+  query p50 13 ms / p95 25 ms; exact recall@8 100% / MRR 0.958, paraphrase
+  21.4%, negative 6/6, real-query recall 70% / MRR 0.479. BM25 now lives in
+  `text.mjs` (`bm25Idf`/`bm25Term`/`bm25ScoreAll`) and `retrieval.mjs`
+  calls it — same math, retrieval+bench+recall 30/30. CAG (standing-context
+  pack) is designed in `docs/CAG_DESIGN.md`.

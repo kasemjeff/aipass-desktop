@@ -228,6 +228,9 @@ export async function runHook(command, { root, timeoutMs = HOOK_TIMEOUT_MS, sign
     let stdout = '';
     let stderr = '';
     let done = false;
+    // Decode across chunks, not per chunk (a split Thai byte is mojibake).
+    child.stdout?.setEncoding('utf8');
+    child.stderr?.setEncoding('utf8');
     const cap = (s, d) => (s.length >= OUTPUT_CAP ? s : s + String(d));
     child.stdout?.on('data', (d) => { stdout = cap(stdout, d); });
     child.stderr?.on('data', (d) => { stderr = cap(stderr, d); });

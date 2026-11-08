@@ -257,7 +257,7 @@ export class Overlay {
     for (const [key, value] of this.map) {
       if (value === DELETED) continue;
       const rel = path.relative(abs, key);
-      if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) continue;
+      if (!rel || rel === '..' || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)) continue;
       const [first, ...rest] = rel.split(path.sep);
       names.add(rest.length ? `${first}/` : first);
     }

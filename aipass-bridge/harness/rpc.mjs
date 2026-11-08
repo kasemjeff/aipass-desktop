@@ -463,7 +463,7 @@ export function createRpc({
       // Size-capped rotation (harness/log-file.mjs): a bridge left running for
       // weeks used to grow bridge.log without bound.
       const log = openLogFile(path.join(aipassHome(), 'logs', 'bridge.log'));
-      const child = spawn(process.execPath, [script], { cwd: root, stdio: ['ignore', log, log], detached: true, env });
+      const child = spawn(process.execPath, [script], { cwd: root, stdio: ['ignore', log, log], detached: true, env, windowsHide: true });
       // An ENOENT that slips past the check is the same fact: swallow the
       // event (the poll below finds no bridge and the run reports offline)
       // instead of letting it become an uncaught exception in a process the
@@ -671,7 +671,11 @@ export function createRpc({
         // snapshot the CLI asks for with `--snapshot`. On by default here
         // because the window's user pays the same discovery round trips and
         // never sees the flag; a caller can still pass `snapshot: false`.
-        snapshot: true,
+        // The setting decides, not this line — the sheet's toggle is the
+        // truth, and a hard true here made it a switch that switches nothing.
+        snapshot: appSettings.get('snapshot'),
+        instructions: appSettings.get('instructions'),
+        memoryCapture: appSettings.get('memoryCapture'),
         // (Thai pack) Reply-language policy and the loop guards the settings
         // sheet owns: language check, repeat guard, and the window's attempt
         // count for a failed checker.
@@ -784,6 +788,12 @@ export function createRpc({
       retrieve: appSettings.get('retrieve'),
       explore: appSettings.get('explore'),
       parallelReads: appSettings.get('parallelReads'),
+      // Turn-1 context switches (the same reads, plus the two that were
+      // missing from the live sheet): the snapshot, the project's instructions
+      // and the DONE-time fact capture.
+      snapshot: appSettings.get('snapshot'),
+      instructions: appSettings.get('instructions'),
+      memoryCapture: appSettings.get('memoryCapture'),
       // (Thai pack) the language policy and the loop guards
       replyLanguage: appSettings.get('replyLanguage'),
       langCheck: appSettings.get('langCheck'),

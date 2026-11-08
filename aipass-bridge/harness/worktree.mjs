@@ -75,6 +75,9 @@ function git(cwd, args, { timeoutMs = GIT_TIMEOUT } = {}) {
       clearTimeout(timer);
       fn(value);
     };
+    // Decode across chunks, not per chunk (a split Thai byte is mojibake).
+    child.stdout?.setEncoding('utf8');
+    child.stderr?.setEncoding('utf8');
     child.stdout?.on('data', (d) => { stdout += d; });
     child.stderr?.on('data', (d) => { stderr += d; });
     child.on('error', (error) => {

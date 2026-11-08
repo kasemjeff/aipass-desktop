@@ -8,7 +8,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { binaryKind } from '../overlay.mjs';
 import { listSymbols, findDefinition, findReferences } from '../symbols.mjs';
-import { status as retrievalStatus, clearIndex as retrievalClear } from '../retrieval.mjs';import { fuzzyMatch } from '../fuzzy.mjs';
+import { status as retrievalStatus, clearIndex as retrievalClear } from '../retrieval.mjs';
+import { statusPack, clearPack } from '../cag.mjs'; // CAG RPC (Phase 4)
+import { fuzzyMatch } from '../fuzzy.mjs';
 import { restoreTable } from '../waf.mjs';
 import { openBrowser } from '../browser.mjs';
 import { aipassHome } from '../settings.mjs';
@@ -102,9 +104,9 @@ export function createFilesMethods(ctx) {
     const { spawn } = await import('node:child_process');
     const platform = process.platform;
     try {
-      if (platform === 'win32') spawn('explorer.exe', [target], { detached: true, stdio: 'ignore' }).unref();
-      else if (platform === 'darwin') spawn('open', [target], { detached: true, stdio: 'ignore' }).unref();
-      else spawn('xdg-open', [target], { detached: true, stdio: 'ignore' }).unref();
+      if (platform === 'win32') spawn('explorer.exe', [target], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+      else if (platform === 'darwin') spawn('open', [target], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+      else spawn('xdg-open', [target], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
       return { ok: true };
     } catch (err) {
       return { ok: false, reason: err?.message ?? String(err) };
@@ -171,6 +173,15 @@ export function createFilesMethods(ctx) {
     async 'retrieval.clear'(params = {}) {
       const h = targetFor(params);
       retrievalClear(h.root);
+      return { cleared: true };
+    },
+    async 'cag.status'(params = {}) {
+      const h = targetFor(params);
+      return statusPack(h.root);
+    },
+    async 'cag.clear'(params = {}) {
+      const h = targetFor(params);
+      clearPack(h.root);
       return { cleared: true };
     },
 

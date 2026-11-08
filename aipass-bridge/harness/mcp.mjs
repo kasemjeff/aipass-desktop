@@ -378,6 +378,7 @@ class StdioClient {
         }
       }
     });
+    this.proc.stderr.setEncoding('utf8');
     this.proc.stderr.on('data', (d) => this.log(`[mcp:${this.server.name}] ${String(d).trim()}`));
     // A command that does not exist fails asynchronously: without this listener
     // the 'error' event is unhandled and takes the whole backend down, and a

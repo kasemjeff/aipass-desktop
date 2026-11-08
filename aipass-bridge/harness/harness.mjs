@@ -21,7 +21,7 @@ import { checkModel } from './run/preflight.mjs';
 import { loadMemory, saveMemory, clearMemory, carryFacts } from './memory-store.mjs';
 import { McpManager } from './mcp.mjs';
 import { runTask, applyOverlay, resolveHelperPreset } from './loop.mjs';
-import { preamble as buildPreamble } from './protocol.mjs';
+import { buildPreambleFor, seedBudgetChars, mergeCrossMemory } from './context-sources.mjs';
 import { loadProjectInstructions } from './instructions.mjs';
 import { loadGoal } from './goal.mjs';
 import { RulesStore } from './rules.mjs';
@@ -519,25 +519,16 @@ export class Harness {
       summary,
       memory: this.#crossSessionMemory,
       task,
-      preambleText: buildPreamble({
-        allowRun: Boolean(this.options.allowRun),
-        plan: Boolean(this.options.plan),
-        subagent: Boolean(this.options.subagent),
-        searchI: Boolean(this.options.searchI),
-        attach: Boolean(this.options.attach),
-        verify: Boolean(this.options.allowVerify),
-        diagnose: Boolean(this.options.diagnose),
-        recall: Boolean(this.options.recall),
-        retrieve: Boolean(this.options.retrieve),
-        explore: Boolean(this.options.explore),
-        plugins: this.options.pluginTools ?? [],
-        sections: this.options.pluginSections ?? [],
+      preambleText: buildPreambleFor(this.options, {
+        plugins: this.options.pluginTools,
+        sections: this.options.pluginSections,
         instructions: loadProjectInstructions(this.root),
         goal: loadGoal(this.root),
         lang: this.options.replyLanguage === 'en' ? 'en' : 'th',
       }),
       staged: this.#stagedList(),
       todo: this.#sessionTodo(),
+      budgetChars: seedBudgetChars(this.compactor, this.bridge.model ?? this.options.model),
     });
     this.#pendingResumeBoundary = { summary: digest, entryId: this.session?.entries.at(-1)?.id ?? null };
     return seedText;
@@ -615,7 +606,10 @@ export class Harness {
     // The reply digests into the narrative and the merged facts — the facts
     // accumulate across rotations (digest reads the session's compaction
     // entries), so this rotation's seed carries everything earlier ones kept.
-    const { summary, memory } = this.compactor.digest(this.session, raw);
+    // Cross-session facts ride along for the same reason the manual seed
+    // needs them: a rotation must not forget the earlier sessions' spine.
+    const { summary, memory: sessionMemory } = this.compactor.digest(this.session, raw);
+    const memory = this.compactor.mergeMemory(mergeCrossMemory(this.#crossSessionMemory, sessionMemory), []);
     // Rotate first, record second — the loop's rotation keeps the same order:
     // a compaction entry for a rotation that failed would reset the estimate
     // against a conversation the model never carried.
@@ -638,25 +632,26 @@ export class Harness {
       // silently dropped SEARCH -i, ATTACH or a plugin's markers was a
       // different run wearing the same name (the loop's own rotation passes
       // every one of them).
-      preambleText: buildPreamble({
-        allowRun: Boolean(this.options.allowRun),
-        plan: Boolean(this.options.plan),
-        subagent: Boolean(this.options.subagent),
-        searchI: Boolean(this.options.searchI),
-        attach: Boolean(this.options.attach),
-        verify: Boolean(this.options.allowVerify),
-        diagnose: Boolean(this.options.diagnose),
-        recall: Boolean(this.options.recall),
-        retrieve: Boolean(this.options.retrieve),
-        explore: Boolean(this.options.explore),
-        plugins: this.options.pluginTools ?? [],
-        sections: this.options.pluginSections ?? [],
+      preambleText: buildPreambleFor(this.options, {
+        plugins: this.options.pluginTools,
+        sections: this.options.pluginSections,
         instructions: loadProjectInstructions(this.root),
         goal: loadGoal(this.root),
         lang: this.options.replyLanguage === 'en' ? 'en' : 'th',
       }),
       staged,
       todo: this.#sessionTodo(),
+      budgetChars: seedBudgetChars(this.compactor, this.bridge.model ?? this.options.model),
+    });
+    this.events.emit('context', {
+      kind: 'seed',
+      sources: [
+        { id: 'protocol', chars: seedText.length, dropped: false, truncated: false },
+        { id: 'summary', chars: String(summary ?? '').length, dropped: false, truncated: false },
+        { id: 'memory', chars: memory.join(' ').length, dropped: false, truncated: false },
+      ],
+      totalChars: seedText.length,
+      budgetChars: seedBudgetChars(this.compactor, this.bridge.model ?? this.options.model),
     });
     return { summary, memory, seedText };
   }
@@ -678,6 +673,36 @@ export class Harness {
       try { this.#crossSessionMemory = saveMemory(this.root, [...this.#crossSessionMemory, ...memory]); } catch { /* best effort */ }
     }
     return s;
+  }
+
+  /**
+   * Feed the cross-session store from a finished short session. Compaction
+   * is what normally extracts MEMORY facts, so a run that ends DONE under
+   * budget never leaves facts behind. Opt-in (`memoryCapture`), because it
+   * costs one extra model call per DONE. The extraction rides a one-off
+   * temporary conversation when the bridge can make one, so the question
+   * and its answer never join the session's own history.
+   */
+  async #captureMemory(task, session, { signal = null } = {}) {
+    if (!this.options.memoryCapture || !this.compactor?.carryMemory || !session) return [];
+    let conversation = null;
+    let temporary = null;
+    try {
+      const made = await this.bridge.createConversation({
+        temporary: true, message: 'Extracting durable facts.', adopt: false,
+      }).catch(() => null);
+      if (made?.id) { conversation = made.id; temporary = true; }
+    } catch { /* fall through to the current conversation */ }
+    const facts = await this.compactor.extractFacts(session, {
+      task, model: this.bridge.model ?? this.options.model,
+      ...(conversation ? { conversation, temporary } : {}),
+      ...(signal ? { signal } : {}),
+    });
+    if (Array.isArray(facts) && facts.length) {
+      try { this.#crossSessionMemory = saveMemory(this.root, [...this.#crossSessionMemory, ...facts]); } catch { /* best effort */ }
+      this.events.emit('note', { text: `captured ${facts.length} durable fact(s) from this finished run into cross-session memory` });
+    }
+    return Array.isArray(facts) ? facts : [];
   }
 
   /** How full the context budget is right now, for whoever is watching. */
@@ -799,36 +824,23 @@ export class Harness {
       // nobody knew it yet. Consumed once: a second run must not repeat the
       // seed into a conversation that already carries it.
       if (!preflightGone && !seedText && this.#pendingSummary) {
-        const { summary, memory } = this.#pendingSummary;
+        const { summary, memory: pendingMemory } = this.#pendingSummary;
         this.#pendingSummary = null;
+        const memory = mergeCrossMemory(this.#crossSessionMemory, Array.isArray(pendingMemory) ? pendingMemory : []);
         seedText = this.compactor.seed({
           summary,
           memory,
           task,
-          preambleText: buildPreamble({
-            allowRun: Boolean(this.options.allowRun),
-            plan: Boolean(this.options.plan),
-            subagent: Boolean(this.options.subagent),
-            searchI: Boolean(this.options.searchI),
-            attach: Boolean(this.options.attach),
-            // The VERIFY marker: the model may ask for a check. It is taught
-            // behind an option, because the preamble's bytes are pinned by
-            // the recorded replay (evals/fixtures/).
-            verify: Boolean(this.options.allowVerify),
-        diagnose: Boolean(this.options.diagnose),
-            // The RECALL marker: the model may ask what this project said
-            // before. The same reason - the preamble's bytes are pinned.
-            recall: Boolean(this.options.recall),
-        retrieve: Boolean(this.options.retrieve),
-            explore: Boolean(this.options.explore),
-            plugins: this.options.pluginTools ?? [],
-            sections: this.options.pluginSections ?? [],
+          preambleText: buildPreambleFor(this.options, {
+            plugins: this.options.pluginTools,
+            sections: this.options.pluginSections,
             instructions: loadProjectInstructions(this.root),
             goal: loadGoal(this.root),
             lang: this.options.replyLanguage === 'en' ? 'en' : 'th',
           }),
           staged: this.#stagedList(),
           todo: this.#sessionTodo(),
+          budgetChars: seedBudgetChars(this.compactor, this.bridge.model ?? this.options.model),
         });
       }
       if (!preflightGone && !seedText && this.compactor.needsCompaction(this.session)) {
@@ -866,7 +878,7 @@ export class Harness {
       const saidFinished = () => { loopSaidFinished = true; };
       this.events.on('finished', saidFinished);
       try {
-        return await runTask(effectiveTask, {
+        const result = await runTask(effectiveTask, {
           preflightGone,
           skipModelCheck: true,
           bridge: this.bridge,
@@ -897,6 +909,7 @@ export class Harness {
             : null,
           compactor: this.compactor,
           rotate: (summary) => this.#rotate(summary, task),
+          crossMemory: this.#crossSessionMemory,
           // (resume) The conversation this session adopted can be gone upstream
           // (a temporary that expired, one deleted by hand). The loop only asks
           // on the run's first send, before anything of this run entered it;
@@ -926,6 +939,13 @@ export class Harness {
           retry,
           first: isFirst,
         });
+        // A finished short session leaves facts behind for the next one — but
+        // only when the person opted into the extra call (memoryCapture).
+        // Best effort: a capture that fails never un-finishes the run.
+        if (result?.stopReason === 'done' && !preflightGone) {
+          try { await this.#captureMemory(task, runSession, { signal: this.abort.signal }); } catch { /* best effort */ }
+        }
+        return result;
       } catch (e) {
         if (!loopSaidFinished) {
           this.events.emit('finished', {

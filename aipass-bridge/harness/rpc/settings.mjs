@@ -260,9 +260,10 @@ export function createSettingsMethods(ctx) {
         }
         // The reading switches: the preamble and the read group read their
         // options per run, so a save is live on the next one.
-        for (const key of ['recall', 'explore', 'parallelReads']) {
+        for (const key of ['recall', 'retrieve', 'diagnose', 'explore', 'parallelReads', 'snapshot', 'instructions', 'memoryCapture']) {
           if (params[key] != null) h.options[key] = appSettings.get(key);
         }
+        if (params.cag != null) h.options.cag = appSettings.get('cag'); // Phase 4 (disjoint line)
         // The playbook folders are per project, so each harness rebuilds its
         // own list. The plugin list is one module for the whole backend and is
         // reloaded once below.

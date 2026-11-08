@@ -66,6 +66,7 @@ export const FLOORS = {
   'desktop/ui/working.js': { lines: 98, branches: 95, functions: 98 },
   'desktop/ui/stream.js': { lines: 92, branches: 68, functions: 60 },
   'desktop/ui/draft.js': { lines: 90, branches: 78, functions: 83 },
+  'desktop/ui/todo.js': { lines: 98, branches: 90, functions: 98 },
   'desktop/ui/features/checkpoints.js': { lines: 64, branches: 35, functions: 52 },
   'desktop/ui/features/git-schedule.js': { lines: 54, branches: 54, functions: 57 },
   'desktop/ui/features/media.js': { lines: 40, branches: 95, functions: 47 },

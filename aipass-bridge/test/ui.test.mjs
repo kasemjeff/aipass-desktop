@@ -4758,3 +4758,38 @@ test('a background subagent only gets a row when it is background', async () => 
   await tick();
   assert.equal(node('helpers').children.length, 1, 'the background one does');
 });
+
+test('a background subagent end closes its own row', async () => {
+  // The end frame has to carry the start frame's id: without it the panel
+  // paints a second, finished row and leaves the first one running forever.
+  const { node, tick } = await bootApp(BACKEND);
+  await tick();
+  globalThis.__stream.emit('subagent_start', { id: 'bg', task: 'background work', background: true });
+  await tick();
+  assert.equal(node('helpers').children.length, 1, 'the row is up');
+  globalThis.__stream.emit('subagent_end', { id: 'bg', task: 'background work', out: 'read it', background: true });
+  await tick();
+  assert.equal(node('helpers').children.length, 1, 'the end closes the same row, no second row');
+  assert.match(node('helpers').children[0].textContent, /เสร็จ/, 'and the row says it finished');
+  assert.match(node('helpers').children[0].textContent, /read it/, 'and carries the summary');
+});
+
+test('a stopped job says it was stopped, and a failed helper says it failed', async () => {
+  const { node, tick } = await bootApp(BACKEND);
+  await tick();
+  globalThis.__stream.emit('job_start', { id: 'j1', command: 'npm run dev' });
+  await tick();
+  globalThis.__stream.emit('job_end', { id: 'j1', code: null, stopped: true });
+  await tick();
+  assert.match(node('helpers').children[0].textContent, /หยุดแล้ว/, 'a stopped job is not shown as finished');
+  globalThis.__stream.emit('subagent_start', { id: 'bg', task: 'dying work', background: true });
+  await tick();
+  globalThis.__stream.emit('subagent_end', { id: 'bg', task: 'dying work', out: 'err: blew up', background: true, error: 'blew up' });
+  await tick();
+  // The panel sorts running rows first, then newest — so find the dying
+  // helper by its task, not by position.
+  const helper = node('helpers').children.find((c) => /dying work/.test(c.textContent));
+  assert.ok(helper, 'the helper gets a row');
+  assert.match(helper.textContent, /ผิดพลาด/, 'a helper that died says it failed');
+  assert.match(helper.textContent, /err: blew up/, 'and carries the error back');
+});

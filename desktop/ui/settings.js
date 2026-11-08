@@ -140,7 +140,15 @@ const saveContextTab = (sheet) => {
   if (!Number.isFinite(budget) || budget < 1000) problems.push('งบบริบทควร 1000 token ขึ้นไป');
   if (!Number.isFinite(reserve) || reserve < 128) problems.push('ส่วนสำรองควรอย่างน้อย 128 token');
   if (Number.isFinite(budget) && Number.isFinite(reserve) && reserve >= budget) problems.push('ส่วนสำรองต้องน้อยกว่างบทั้งหมด');
-  return { problems, patch: { compactAtPercent: d.compactAtPercent, compaction: d.compaction } };
+  /** @type {any} */
+  const patch = { compactAtPercent: d.compactAtPercent, compaction: d.compaction };
+  // Turn-1 context switches (the reads, plus the two that were missing from
+  // the live sheet): the preamble teaches them, the run reads them per run.
+  for (const key of ['retrieve', 'recall', 'diagnose', 'explore', 'snapshot', 'instructions', 'memoryCapture']) {
+    if (d[key] != null) patch[key] = d[key];
+  }
+  if (d.cag != null) patch.cag = d.cag; // Phase 4 (disjoint line)
+  return { problems, patch };
 };
 
 /**
@@ -215,6 +223,15 @@ const renderContextTab = async (/** @type {any} */ page, /** @type {any} */ shee
     group.append(sheet.row('บทสนทนาล่าสุดที่เก็บดิบ (bytes)', 'ส่วนท้ายของบทสนทนาจะคงอยู่ตรง ๆ ไม่ถูกย่อรวม', sheet.control({ key: 'compaction.keepRecentBytes', type: 'number' })));
 group.append(sheet.row('Elision tier — ย่อผลลัพธ์เก่า (head…tail)', 'ผลลัพธ์เก่าที่ไม่ได้ใช้แล้วจะถูกย่อเป็นต้น…ท้าย เก็บลง spill — ประหยัด context (ค่าเริ่มต้น: ปิด)', sheet.control({ key: 'compaction.elideStaleResults', type: 'checkbox' })));
     page.append(group);
+    const reads = el('div', 'set-group');
+    reads.append(sheet.row('RETRIEVE — ให้โมเดลค้น passage ในโปรเจกต์ได้', 'โมเดลจะรู้ marker RETRIEVE ตั้งแต่ turn แรก; ปิด = ไม่สอน (เครื่องมือยังตอบ error ตามปกติ)', sheet.control({ key: 'retrieve', type: 'checkbox' })));
+    reads.append(sheet.row('RECALL — ให้โมเดลค้นบทสนทนาในอดีตได้', 'โมเดลจะรู้ marker RECALL ตั้งแต่ turn แรก; ปิด = ไม่สอน', sheet.control({ key: 'recall', type: 'checkbox' })));
+    reads.append(sheet.row('TREE/STAT — สอน shape โฟลเดอร์', 'โมเดลจะรู้ marker TREE กับ STAT; ปิด = ใช้ NEED dir แทน', sheet.control({ key: 'explore', type: 'checkbox' })));
+    reads.append(sheet.row('DIAGNOSE — ให้โมเดลถาม language server ได้', 'โมเดลจะรู้ marker DIAGNOSE', sheet.control({ key: 'diagnose', type: 'checkbox' })));
+    reads.append(sheet.row('Snapshot เริ่มต้น — git status + scripts ใน turn แรก', 'ลด round trip ตอนเปิดงาน; ปิด = ไม่แปะ snapshot', sheet.control({ key: 'snapshot', type: 'checkbox' })));
+    reads.append(sheet.row('คำสั่งของโปรเจกต์ — AGENTS.md ใน turn แรก', ' AGENTS.md / CLAUDE.md / GEMINI.md รูท + nested; ปิด = ไม่แปะ', sheet.control({ key: 'instructions', type: 'checkbox' })));
+    reads.append(sheet.row('จำ facts ตอน DONE ให้ข้าม session', 'เสียค่าใช้จ่าย model เพิ่ม 1 ครั้งต่อ DONE; เก็บ facts จากงานสั้นที่ไม่เคย rotate (ค่าเริ่มต้น: ปิด)', sheet.control({ key: 'memoryCapture', type: 'checkbox' })));
+    page.append(reads);
 };
 const renderProvidersTab = async (/** @type {any} */ page, /** @type {any} */ sheet) => {    // Who answers the run: the built-in AiPASS provider (the local bridge
     // and its tab) and every added API provider.

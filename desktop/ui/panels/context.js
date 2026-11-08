@@ -72,6 +72,25 @@ export function createContextPanel(/** @type {any} */ ctx) {
       panel.append(row('Tokens', `${(c.used ?? 0).toLocaleString()} / ${(c.budget ?? 0).toLocaleString()}`));
     }
 
+    // Injected context (the last turn-1/seed/step assembly the loop reported
+    // through the `context` event): what the model was actually shown, which
+    // source gave way when the total outgrew its budget, and how much it cost.
+    // Reads from `state.lastContext` (set by the stream handler); no new RPC.
+    const lastCtx = state.lastContext;
+    if (lastCtx && Array.isArray(lastCtx.sources) && lastCtx.sources.length) {
+      panel.append(section('Injected'));
+      panel.append(row('Kind', lastCtx.kind ?? '—'));
+      if (lastCtx.step != null) panel.append(row('Step', lastCtx.step));
+      panel.append(row('Chars', `${(lastCtx.totalChars ?? 0).toLocaleString()}${lastCtx.budgetChars ? ` / ${(lastCtx.budgetChars ?? 0).toLocaleString()}` : ''}`));
+      for (const src of lastCtx.sources.slice(0, 8)) {
+        const value = src.dropped ? `${src.id} (dropped)` : (src.truncated ? `${src.id} (truncated)` : src.id);
+        panel.append(row(value, (src.chars ?? 0).toLocaleString()));
+      }
+      // Phase 4: the CAG pack is one manifest row when the loop reports it.
+      const cagSrc = lastCtx.sources.find((/** @type {any} */ s) => s.id === 'cag');
+      if (cagSrc) panel.append(row('CAG pack', `${(cagSrc.chars ?? 0).toLocaleString()} chars`));
+    }
+
     // Credits
     if (credits) {
       panel.append(section('Credits'));

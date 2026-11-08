@@ -58,6 +58,11 @@ export function runShell(cmd, { cwd, timeoutMs, maxBuffer = 10 * 1024 * 1024, si
     let stdout = '';
     let stderr = '';
     let done = false;
+    // UTF-8 is decoded across chunks, not per chunk: String(d) on a Buffer
+    // that ends mid-character (a Thai byte split between two chunks) would
+    // mojibake the straddle. setEncoding hands the decoder the whole stream.
+    child.stdout?.setEncoding('utf8');
+    child.stderr?.setEncoding('utf8');
     const cap = (/** @type {string} */ s, /** @type {string|Buffer} */ d) => (s.length >= maxBuffer ? s : s + String(d));
     child.stdout?.on('data', (d) => { stdout = cap(stdout, d); });
     child.stderr?.on('data', (d) => { stderr = cap(stderr, d); });
@@ -307,6 +312,10 @@ export async function startBackgroundRun({ root, overlay, signal = null, command
     written += text.length;
     out.write(text);
   };
+  // Same cross-chunk decode as runShell above: a split multi-byte character
+  // is whole again by the time the line is screened and written.
+  child.stdout?.setEncoding('utf8');
+  child.stderr?.setEncoding('utf8');
   const feed = (/** @type {any} */ chunk) => {
     pending += String(chunk);
     const lines = pending.split('\n');

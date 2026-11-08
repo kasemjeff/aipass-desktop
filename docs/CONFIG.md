@@ -49,8 +49,16 @@ drift this file exists to catch.
 | `AIPASS_RETRIEVAL_MAX_FILES` | `5000` | the retrieval index's file cap | `retrieval.mjs` |
 | `AIPASS_RETRIEVAL_MAX_CHUNKS` | `20000` | the retrieval index's chunk cap | `retrieval.mjs` |
 | `AIPASS_RETRIEVAL_BUDGET` | `6000` | the char budget for a RETRIEVE answer | `retrieval.mjs` |
+| `AIPASS_RETRIEVAL_MIN_COVERAGE` | `0` (off) | opt-in score gate: min distinct query terms a chunk must match (§9.2) | `retrieval.mjs` |
+| `AIPASS_RETRIEVAL_MIN_SCORE` | `0` (off) | opt-in absolute BM25 floor for RETRIEVE hits | `retrieval.mjs` |
+| `AIPASS_CAG_BUDGET` | `16000` | the char budget for the CAG standing-context pack | `cag.mjs` |
+| `AIPASS_CAG_MAX_FILE_BYTES` | `524288` | the per-file cap for a CAG pack source | `cag.mjs` |
+| `AIPASS_EMBED_CONSENT` | `0` | consent gate for the embeddings Ranker plugin (off = BM25 only) | `ranker-embed.mjs` |
+| `AIPASS_EMBED_BASE` | `http://127.0.0.1:11434` | local Ollama-compatible embed provider base | `ranker-embed.mjs` |
+| `AIPASS_EMBED_MODEL` | `nomic-embed-text` | local embed model name | `ranker-embed.mjs` |
 | `AIPASS_INSTRUCTIONS` | on | `off` stops the project's own instruction file (AGENTS.md / CLAUDE.md / GEMINI.md) from riding a run's first message | `instructions.mjs` |
 | `AIPASS_INSTRUCTIONS_MAX_BYTES` | `8000` | the byte cap on the project instruction file pasted into turn 1 | `instructions.mjs` |
+| `AIPASS_INSTRUCTIONS_NESTED` | on | `off` stops the nested AGENTS.md discovery under the root | `instructions.mjs` |
 | `AIPASS_SPILL_KEEP` | `200` | how many spill files are kept before pruning | `tools.mjs` |
 | `AIPASS_SPILL_PRUNE_EVERY` | `25` | prune the spill dir every this-many appends | `tools.mjs` |
 | `AIPASS_SANDBOX_MAX_FILE_MB` | `64` | the projection's per-file copy cap | `sandbox.mjs` |
@@ -156,6 +164,10 @@ drift this file exists to catch.
 | `diagnose` | `true` | may the preamble teach DIAGNOSE (language-server diagnostics) |
 | `diagnose` | `true` | may the model ask a language server for diagnostics (DIAGNOSE) |
 | `explore` | `true` | may the preamble teach TREE/STAT |
+| `snapshot` | `true` | may turn 1 carry the bootstrap snapshot (git status + package scripts) |
+| `instructions` | `true` | may turn 1 carry the project's standing instructions (AGENTS.md et al, root + nested) |
+| `memoryCapture` | `false` | may a finished run capture durable facts into cross-session memory (one extra model call per DONE) |
+| `cag` | `true` | may turn 1 carry the CAG standing-context pack (AGENTS.md + README.md) |
 | `helperPresets` | `{}` | the machine's own SUBAGENT roles: name → { lead, run }, beside the built-ins |
 
 ## Harness options (one run's sheet)
@@ -188,6 +200,10 @@ drift this file exists to catch.
 | `review` | `false` | a review run: read a change, stage nothing |
 | `reviewBase` | `null` | the base ref a review run reads against |
 | `explore` | `true` | may the preamble teach TREE/STAT |
+| `snapshot` | `true` | may turn 1 carry the bootstrap snapshot (git status + package scripts) |
+| `instructions` | `true` | may turn 1 carry the project's standing instructions (AGENTS.md et al, root + nested) |
+| `memoryCapture` | `false` | may a finished run capture durable facts into cross-session memory |
+| `cag` | `true` | may turn 1 carry the CAG standing-context pack |
 | `pluginSections` | `[]` | what plugins contribute to the turn-1 message |
 | `helperPresets` | `{}` | the machine's own helper roles beside the built-ins |
 | `conversation` | `null` | the conversation this run sends into |

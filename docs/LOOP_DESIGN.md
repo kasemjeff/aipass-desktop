@@ -47,11 +47,25 @@ later message is only the results of the previous reply, joined as one text and
 closed with the `REMINDER`. "Context is full" is handled by `compact.mjs`
 (summarise → rotate → re-seed), not by cutting messages.
 
+Turn 1 and every rotation seed are measured against their model's share of
+the window (`harness/context-sources.mjs`): the preamble flags are derived in
+one place (a flag the preamble reads but no caller passes is a tool the model
+was never told about), and when the total outgrows its budget the snapshot
+gives way first, then the instructions tail, then the listing tail — protocol
+and task never do. Every assembly fires a `context` event (`docs/EVENTS.md`)
+naming its sources, so the window can show what the model was shown. A
+rotation seed merges cross-session facts with the session's own memory, so a
+fact carried on turn 1 survives the first rotation. A finished short session
+can leave facts behind without a compaction (`extractFacts`, gated by
+`memoryCapture`).
+
 The project's own instruction file (AGENTS.md, or its CLAUDE.md / GEMINI.md
-ancestor) rides that same first message, read once and capped
-(`harness/instructions.mjs`). A rotation carries it again because the seed
-rebuilds the preamble; a follow-up run in the same conversation does not
-resend it, for the same reason the preamble is not resent.
+ancestor) rides that same first message, read once and capped, with nested
+per-subproject files under the same total budget (`harness/instructions.mjs`,
+root wins, depth 2, `AIPASS_INSTRUCTIONS_NESTED=off` to disable). A rotation
+carries it again because the seed rebuilds the preamble; a follow-up run in
+the same conversation does not resend it, for the same reason the preamble is
+not resent.
 
 ## Shape of one run
 

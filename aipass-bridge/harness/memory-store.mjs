@@ -24,7 +24,7 @@ import { writeFileAtomic } from './atomic-write.mjs';
 // header's `root` is the authority on which project a session belongs to,
 // and the store is what knows that.
 import { SessionStore } from './session.mjs';
-import { tokenize, queryWords, excerptOf } from './text.mjs';
+import { tokenize, queryWords, excerptOf, bm25Idf, bm25Term } from './text.mjs'; // shared BM25 kernel (Phase 3, P2)
 // The store's directory is resolved when it is used, not when this module
 // loads. AIPASS_HOME is the switch every surface reads, and a caller that
 // points it at a scratch home after the import — the test suite does — must
@@ -111,6 +111,10 @@ export function saveMemory(root, facts, dir = defaultDir()) {
   // a broken file as "no facts" — the loss would look like a fresh project.
   // The mode is pinned on the new file, so the facts are the owner's alone.
   try { writeFileAtomic(file, next, { mode: 0o600 }); } catch {}
+  // Legacy sweep (Phase 3): once the sha256 file exists, the sha1 legacy
+  // file is dead weight — delete it so the dual-read ends. Only after a
+  // successful write to the new path, never before.
+  try { const leg = legacyStorePath(root, dir); if (leg !== file && fs.existsSync(leg)) fs.rmSync(leg, { force: true }); } catch {}
   return merged;
 }
 
@@ -163,14 +167,14 @@ function carryBudget() {
 /**
  * The facts this task's first message carries, picked under a byte budget.
  *
- * A fact the task names wins a seat over a newer fact it does not: the whole
- * point of the carry is that the model does not rediscover what the project
- * already knows, and a fact about the task at hand is the one it would have
- * spent turns rediscovering. The rest fill what is left, newest first — the
- * newest are what a live project is building on (the store itself drops the
- * oldest on overflow). Whatever is picked renders in the stored order,
- * oldest first, so the block reads as one continuous record — and the same
- * facts and task always render byte-identically.
+ * Ranking is BM25 over the shared tokenizer (text.mjs): the same scoring
+ * RECALL and RETRIEVE use, so a Thai task ranks its facts the same way it
+ * ranks passages. The query's tokens score each fact; a fact the task names
+ * wins a seat over a newer fact it does not. The rest fill what is left,
+ * newest first — the newest are what a live project is building on (the
+ * store itself drops the oldest on overflow). Whatever is picked renders in
+ * the stored order, oldest first, so the block reads as one continuous
+ * record — and the same facts and task always render byte-identically.
  *
  * @param {string[]} facts the stored facts, oldest first
  * @param {string} task the task the first message is about
@@ -180,23 +184,56 @@ function carryBudget() {
 export function carryFacts(facts, task, { budgetChars = carryBudget() } = {}) {
   const list = (Array.isArray(facts) ? facts : []).map((f) => String(f).trim()).filter(Boolean);
   if (!list.length || !(budgetChars > 0)) return [];
-  const words = queryWords(task);
-  const matched = [];
-  const rest = [];
-  for (let i = 0; i < list.length; i++) {
-    const low = list[i].toLowerCase();
-    (words.some((w) => low.includes(w)) ? matched : rest).push(i);
-  }
+  const qTokens = [...new Set(tokenize(task))];
+  // BM25 over tokenize(fact), the same scoring recallEntries runs (k1=1.2,
+  // b=0.75). Small store (≤50 facts), so the inverse-document frequencies
+  // are computed inline instead of through an index — the ranking is what
+  // matters, not the speed.
+  const tfArr = list.map((f) => {
+    const m = new Map();
+    for (const t of tokenize(f)) m.set(t, (m.get(t) || 0) + 1);
+    return m;
+  });
+  const N = list.length;
+  const df = new Map();
+  for (const m of tfArr) for (const t of m.keys()) df.set(t, (df.get(t) || 0) + 1);
+  // Trigram tokens (t:…) are a matching aid, not document length — recall
+  // excludes them from lenOf the same way, so a Thai fact is not penalised
+  // for carrying its trigrams.
+  const lenOf = (m) => [...m.entries()].reduce((a, [t, f]) => a + (t.startsWith('t:') ? 0 : f), 0) || 1;
+  const avgLen = tfArr.reduce((a, m) => a + lenOf(m), 0) / N || 1;
+  const idf = (t) => {
+    const d = df.get(t) || 0;
+    return Math.log(1 + (N - d + 0.5) / (d + 0.5));
+  };
+  const scored = list.map((_, i) => {
+    const m = tfArr[i];
+    const len = lenOf(m);
+    let score = 0;
+    for (const t of qTokens) {
+      const f = m.get(t) || 0;
+      if (!f) continue;
+      score += idf(t) * (f * 2.2) / (f + 1.2 * (1 - 0.75 + 0.75 * len / avgLen));
+    }
+    // A verbatim phrase in the fact is the strongest signal the carry has.
+    const phrase = String(task ?? '').trim().toLowerCase();
+    if (phrase.length >= 3 && list[i].toLowerCase().includes(phrase)) {
+      score += 0.5 * qTokens.reduce((a, t) => a + idf(t), 0);
+    }
+    return { i, score };
+  });
+  // Ranking: score first, newest as tiebreak (the store drops the oldest on
+  // overflow, so newest is the freshest knowledge). Zero-score facts rank by
+  // recency alone, which is the previous behaviour for the unmatched tail.
+  const order = scored.sort((a, b) => b.score - a.score || b.i - a.i);
   const picked = [];
   let used = 0;
-  const take = (i) => {
+  for (const { i } of order) {
     const cost = list[i].length + 2; // the "- " bullet
-    if (used + cost > budgetChars) return;
+    if (used + cost > budgetChars) continue;
     used += cost;
     picked.push(i);
-  };
-  for (const i of matched) take(i);
-  for (let n = rest.length - 1; n >= 0; n--) take(rest[n]);
+  }
   return picked.sort((a, b) => a - b).map((i) => list[i]);
 }
 
@@ -378,7 +415,7 @@ export async function recallEntries(query, { root, store = null, limit = MAX_HIT
   // do not let them inflate the document length (matches the retrieval index).
   const lenOf = (m) => [...m.entries()].reduce((a, [t, f]) => a + (t.startsWith('t:') ? 0 : f), 0) || 1;
   const avgLen = tfArr.reduce((a, m) => a + lenOf(m), 0) / N;
-  function idf(t) { const d = df.get(t) || 0; return Math.log(1 + (N - d + 0.5) / (d + 0.5)); }
+  const idf = (t) => bm25Idf(df.get(t) || 0, N); // same math as retrieval postings
   const scored = cands.map((c, i) => {
     const m = tfArr[i];
     const len = lenOf(m);
@@ -387,7 +424,7 @@ export async function recallEntries(query, { root, store = null, limit = MAX_HIT
       const f = m.get(t) || 0;
       if (!f) continue;
       const idfVal = idf(t);
-      score += idfVal * (f * 2.2) / (f + 1.2 * (1 - 0.75 + 0.75 * len / (avgLen || 1)));
+      score += bm25Term(f, len, avgLen || 1, idfVal);
     }
     const hay = c.text.toLowerCase();
     const phrase = String(query ?? '').trim().toLowerCase();

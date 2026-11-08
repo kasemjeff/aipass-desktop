@@ -1,0 +1,15 @@
+{
+  "description": "RECALL recall floor (D12): synthetic sessions + facts, recall@8 and negatives. The bench script scores these with RecallService.rank over sessionDocuments.",
+  "queries": [
+    { "q": "***REMOVED*** prediction threshold", "expectIncludes": "***REMOVED***" },
+    { "q": "holdout lock", "expectIncludes": "***REMOVED***" },
+    { "q": "***REMOVED***", "expectIncludes": "***REMOVED***" }
+  ],
+  "negatives": ["kubernetes helm chart", "quantum entanglement", "zzzz notaword"],
+  "sessions": [
+    { "session": "***REMOVED***", "ts": 1700000000000, "kind": "spoken", "text": "We use ***REMOVED*** for ***REMOVED*** prediction on the ***REMOVED*** cows." },
+    { "session": "***REMOVED***", "ts": 1700000001000, "kind": "spoken", "text": "The ***REMOVED*** must not be touched until the final confirmatory run." },
+    { "session": "***REMOVED***", "ts": 1700000002000, "kind": "spoken", "text": "การทำนาย***REMOVED***ของ***REMOVED***ใช้เซนเซอร์กิจกรรม" }
+  ],
+  "facts": ["Project key is sha256 over the real root", "Embeddings are gated pending ***REMOVED*** measurement"]
+}

@@ -27,6 +27,7 @@ import { createSettings } from './settings.js';
 import { createWorking } from './working.js';
 import { createEventStream } from './stream.js';
 import { createDraft } from './draft.js';
+import { createTodo } from './todo.js';
 
 /**
  * @param {string} id
@@ -203,6 +204,8 @@ setLogBusy(false);
 // so it is `any` — there is no fixed shape to check against.
 /** @type {any} */
 const ctx = { $, el, log, state, scrollDown, atBottom, rpc, client, clickable, friendly, stageLabel, setLogBusy };
+// The PLAN/TODO card, in its own module (todo.js).
+const { clearTodo, renderTodo } = createTodo(ctx);
 // The context meter's timer. The sheet starts it and the sheet's close stops
 // it — one timer, shared through the context, so a "คืนค่าเดิม" (which
 // closes the sheet and opens it again) cannot leave one polling forever.
@@ -386,71 +389,6 @@ function resetTranscript() {
 }
 
 /* ------------------------------------------------------------------ panel */
-
-// The PLAN/TODO card is one element for the whole session: built on the first
-// todo, re-tallied after that, removed when the session changes. It lives
-// outside #log (directly before #pending), so folding the run's trail never
-// swallows it — and its list scrolls inside a bounded box (styles.css), so a
-// plan of fifty items no longer pushes the conversation off the screen.
-/** @type {any} */
-let todoPanel = null;
-/** @type {any} */
-let todoHead = null;
-/** @type {any} */
-let todoList = null;
-/** @type {any} */
-let todoRows = []; // [{ li, text }] — lets an unchanged row stay put across updates
-
-/** Drop the plan/todo card — a new session must not show the old one's plan. */
-function clearTodo() {
-  if (!todoPanel) return;
-  todoPanel.remove();
-  todoPanel = null;
-  todoHead = null;
-  todoList = null;
-  todoRows = [];
-}
-
-function renderTodo(/** @type {any} */ items) {
-  // A todo frame is wire data; a malformed one is dropped, never a crash in
-  // the middle of the run's stream.
-  if (!Array.isArray(items)) return;
-  const list = items.map((it) => ({ text: String(it?.text ?? ''), done: Boolean(it?.done) }));
-  if (!todoPanel) {
-    todoPanel = el('div', 'panel');
-    todoPanel.id = 'todo-panel';
-    todoHead = el('h4', null, 'plan & todo');
-    todoList = el('ul');
-    todoPanel.append(todoHead, todoList);
-    // #chat contains #pending, so this is the same slot as "before #pending" —
-    // spelled with insertBefore because the test suite's fake DOM has no before().
-    $('chat').insertBefore(todoPanel, $('pending'));
-  }
-  const total = list.length;
-  const done = list.filter((it) => it.done).length;
-  todoHead.textContent = `plan & todo · ${done}/${total}`;
-  todoPanel.classList.toggle('complete', total > 0 && done === total);
-  // Ticks move constantly while a run works. When the same rows are still
-  // there, update them where they stand — a full rebuild on every step makes
-  // the card flicker and resets the list's scroll position.
-  const same = todoRows.length === list.length && list.every((it, i) => todoRows[i].text === it.text);
-  if (same) {
-    list.forEach((it, i) => {
-      todoRows[i].li.classList.toggle('done', it.done);
-      todoRows[i].li.children[0].textContent = it.done ? '☑' : '☐';
-    });
-    return;
-  }
-  const keepScroll = todoList.scrollTop;
-  todoList.textContent = '';
-  todoRows = list.map((it) => {
-    const li = el('li', it.done ? 'done' : '');
-    li.append(el('span', 'box', it.done ? '☑' : '☐'), el('span', null, it.text));
-    todoList.append(li);
-    return { li, text: it.text };
-  });
-  todoList.scrollTop = keepScroll;
-}
 
 function renderPending(/** @type {any} */ changes) {
   const wrap = $('pending');
@@ -952,6 +890,18 @@ onRun('compacted', (/** @type {any} */ data) => {
   }
   scrollDown();
 });
+onRun('context', (/** @type {any} */ data) => {
+  // The loop's context assembly manifest (turn 1 / seed / step): what the
+  // model was shown this message, and what gave way. Stored for the
+  // context panel; a helper's frames are tagged and skipped.
+  if (data?.helper) return;
+  state.lastContext = {
+    kind: data.kind, step: data.step ?? null,
+    sources: Array.isArray(data.sources) ? data.sources : [],
+    totalChars: data.totalChars ?? 0, budgetChars: data.budgetChars ?? null,
+  };
+  ctx.refreshContextPanel?.();
+});
 onRun('helper_start', (/** @type {any} */ data) => { addHelper(data); addNote(`helper started: ${data.task}`); });
 onRun('helper_end', (/** @type {any} */ data) => {
   const { summary, prepared, skipped } = data;
@@ -959,9 +909,9 @@ onRun('helper_end', (/** @type {any} */ data) => {
   addNote(`helper finished${prepared?.length ? `, prepared ${prepared.length} file(s) for approval` : ''}${skipped?.length ? `, left ${skipped.length} file(s) alone (a newer version was already staged)` : ''}: ${summary}`);
 });
 onRun('subagent_start', (/** @type {any} */ data) => { if (data?.background) addHelper(data); addNote(`subagent started: ${data?.task}`); });
-onRun('subagent_end', (/** @type {any} */ data) => { if (data?.background) updateHelper(data); addNote(`subagent finished: ${data?.out ?? data?.summary ?? ''}`); });
+onRun('subagent_end', (/** @type {any} */ data) => { if (data?.background) updateHelper(data); addNote(data?.error ? `subagent failed: ${data.error}` : `subagent finished: ${data?.out ?? data?.summary ?? ''}`); });
 onRun('job_start', (/** @type {any} */ data) => { addJob(data); addNote(`background job ${data?.id ?? ''} started: ${data?.command ?? ''}`); });
-onRun('job_end', (/** @type {any} */ data) => { updateJob(data); addNote(`background job ${data?.id ?? ''} finished (exit ${data?.code ?? '?'})`); });
+onRun('job_end', (/** @type {any} */ data) => { updateJob(data); addNote(`background job ${data?.id ?? ''} ${data?.stopped ? 'stopped' : 'finished'} (exit ${data?.code ?? '?'})`); });
 onRun('done_line', (/** @type {any} */ data) => {
   if (data?.helper) return;
   const { text, extra } = data;

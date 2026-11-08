@@ -271,7 +271,7 @@ export async function materializeTree(root, overlay, dest, { signal = null, onSk
   for (const abs of staged) {
     stopped();
     const rel = path.relative(root, abs);
-    if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) continue; // outside the tree
+    if (!rel || rel === '..' || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)) continue; // outside the tree
     if (rel.split(path.sep)[0] === '.git') continue; // never projected: see below
     const target = path.join(dest, rel);
     if (overlay.isDeleted(abs)) continue; // deleted for this run: not projected

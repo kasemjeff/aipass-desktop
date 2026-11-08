@@ -580,6 +580,9 @@ function runProbe(nodePath, probe) {
     const timer = setTimeout(() => {
       try { child.kill(); } catch { /* already gone */ }
     }, 20000);
+    // Decode across chunks, not per chunk (a split Thai byte is mojibake).
+    child.stdout?.setEncoding('utf8');
+    child.stderr?.setEncoding('utf8');
     child.stdout?.on('data', (chunk) => { out += chunk; });
     child.stderr?.on('data', (chunk) => { err += chunk; });
     child.on('error', (error) => {

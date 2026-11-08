@@ -102,7 +102,7 @@ if (!noBridge) {
   if (await bridgeUp()) {
     ok(`bridge already running at ${BRIDGE}`);
   } else {
-    const child = spawn(process.execPath, [path.join(BRIDGE_DIR, 'bridge', 'server.mjs')], { detached: true, stdio: 'ignore', env: process.env });
+    const child = spawn(process.execPath, [path.join(BRIDGE_DIR, 'bridge', 'server.mjs')], { detached: true, stdio: 'ignore', env: process.env, windowsHide: true });
     child.unref();
     fs.mkdirSync(STATE, { recursive: true });
     // The pid file is the bridge's: the bridge writes it when it binds, so it

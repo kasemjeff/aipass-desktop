@@ -136,8 +136,12 @@ export async function ensureBridge({
     stdio: detached ? ['ignore', log, log] : ['ignore', 'pipe', 'pipe'],
     env,
     detached,
+    windowsHide: true,
   });
   if (!detached) {
+    // Decode across chunks, not per chunk (a split Thai byte is mojibake).
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
     child.stdout.on('data', (d) => out.write(`[bridge] ${d}`));
     child.stderr.on('data', (d) => err.write(`[bridge] ${d}`));
   }
@@ -185,6 +189,7 @@ export async function detachBackend({
     stdio: ['ignore', log, log],
     env,
     detached: true,
+    windowsHide: true,
   });
   backend.unref();
   fs.closeSync(log); // the child has its own handle; leaving ours open trips libuv on exit
