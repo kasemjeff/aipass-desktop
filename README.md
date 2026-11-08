@@ -27,6 +27,12 @@
   📦 <a href="https://github.com/kasemjeff/aipass-desktop/releases/latest">Releases (pre-1.0: source install until first installer is published)</a>
 </p>
 
+<p align="left">
+  💬 <a href="https://github.com/kasemjeff/aipass-desktop/discussions">Join the discussion</a> ·
+  🐛 <a href="https://github.com/kasemjeff/aipass-desktop/issues/new/choose">Report a problem or suggest an idea</a> ·
+  ⭐ <a href="https://github.com/kasemjeff/aipass-desktop">Star the repo if it helps you</a>
+</p>
+
 ![AiPASS Desktop window in light theme: sessions and project files on the left, conversation with tool rows in the center, composer with mode, provider, model and effort at the bottom](./public/screenshots/desktop-light.png)
 
 <p align="center">
@@ -60,6 +66,7 @@ Then load the extension once (`chrome://extensions` → Developer mode → Load 
 - [The bridge and the CLI](#the-bridge-and-the-cli)
 - [Configuration](#configuration)
 - [Documentation](#documentation)
+- [Community and contributing](#community-and-contributing)
 - [Repo layout](#repo-layout)
 - [Development](#development)
 - [Credits & license](#credits--license)
@@ -438,6 +445,19 @@ if it disagrees with `CONFIG.md`, `CONFIG.md` wins:
 
 The window and the CLI keep their state in `~/.aipass/` (settings, sessions,
 plugins, uploads, logs).
+
+## Community and contributing
+
+The fastest way to help is to try one real task and tell us what happened:
+
+1. **Ask a question or share a workflow** in [Discussions](https://github.com/kasemjeff/aipass-desktop/discussions).
+2. **Report a reproducible problem or propose an improvement** through the [issue forms](https://github.com/kasemjeff/aipass-desktop/issues/new/choose).
+3. **Test a platform build** and note your OS, Node version and result in [Platform Checklist](./docs/PLATFORM_CHECKLIST.md).
+4. **Send a small pull request** after reading [CONTRIBUTING.md](./CONTRIBUTING.md); documentation, tests and translations are welcome.
+
+Please include the task you tried, the expected result and the actual result. Never
+post tokens, private project paths or customer data. If the project saves you time,
+a star or a short note about what you built helps other people decide whether to try it.
 
 ## Documentation
 

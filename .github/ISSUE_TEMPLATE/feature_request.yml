@@ -11,7 +11,7 @@ body:
         - Search the existing issues and discussions first.
         - Do not include tokens, credentials, private project paths, or
           customer data. Security problems belong in a private advisory, not
-          here: https://github.com/kasemjeff/TH-aipassport-desktop/security/advisories/new
+          here: https://github.com/kasemjeff/aipass-desktop/security/advisories/new
   - type: textarea
     id: problem
     attributes:

@@ -36,6 +36,10 @@ npm run desktop   # เปิดหน้าต่างที่ http://127.0.0
 
 จากนั้นโหลด extension ครั้งเดียว (`chrome://extensions` → Developer mode → Load unpacked → `aipass-bridge/extension`) แล้ววาง token ใน popup
 
+💬 [คุยและแชร์ workflow ใน Discussions](https://github.com/kasemjeff/aipass-desktop/discussions) ·
+🐛 [แจ้งปัญหาหรือเสนอไอเดีย](https://github.com/kasemjeff/aipass-desktop/issues/new/choose) ·
+⭐ [กด Star ถ้า repo นี้มีประโยชน์](https://github.com/kasemjeff/aipass-desktop)
+
 **เหมาะกับใคร:** ผู้ใช้ Windows ภาษาไทย ที่อยากได้ agent แก้ไฟล์ที่ดูได้ อนุมัติได้ resume ได้
 **ยังไม่เหมาะกับใคร:** คนที่ต้องการ installer macOS/Linux ที่เซ็นแล้ววันนี้ — ใช้แบบเบราว์เซอร์ไปก่อน
 
@@ -122,6 +126,19 @@ npm run check         # ก่อน push: lint + test + qa + coverage + docs
 - [สถาปัตยกรรม harness](./docs/HARNESS_DESIGN.md)
 - [การ release](./docs/RELEASE.md)
 - [ความปลอดภัย](./SECURITY.md)
+
+## ชุมชนและการมีส่วนร่วม
+
+วิธีช่วยที่เร็วที่สุดคือทดลองทำงานจริงหนึ่งงานแล้วเล่าให้เราฟัง:
+
+1. [ถามคำถามหรือแชร์ workflow ใน Discussions](https://github.com/kasemjeff/aipass-desktop/discussions)
+2. [แจ้งปัญหาที่ทำซ้ำได้หรือเสนอฟีเจอร์ผ่าน issue form](https://github.com/kasemjeff/aipass-desktop/issues/new/choose)
+3. [ทดสอบบน OS ของคุณ](./docs/PLATFORM_CHECKLIST.md) แล้วบอกเวอร์ชัน Node และผลที่ได้
+4. [ส่ง pull request](./CONTRIBUTING.md) — เอกสาร test และคำแปลล้วนช่วยได้
+
+เวลาแจ้งปัญหา ให้ใส่งานที่ลองทำ ผลลัพธ์ที่คาดหวัง และผลลัพธ์จริง
+อย่าใส่ token path โปรเจกต์ส่วนตัว หรือข้อมูลลูกค้าใน issue
+ถ้า repo นี้ช่วยคุณได้ การกด Star หรือเล่าสั้น ๆ ว่าเอาไปสร้างอะไรช่วยให้คนอื่นกล้าลองมากขึ้น
 
 ## ผู้ร่วมพัฒนา
 

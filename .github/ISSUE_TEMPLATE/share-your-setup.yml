@@ -1,0 +1,45 @@
+name: Share your setup
+description: Tell the community what you built or how AiPASS Desktop fits your workflow
+title: "showcase: "
+labels: ["showcase"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for sharing. This is a lightweight space for workflows, screenshots,
+        platform notes and lessons learned. Do not include tokens, credentials,
+        private project paths or customer data.
+  - type: textarea
+    id: workflow
+    attributes:
+      label: What did you use AiPASS Desktop for?
+      description: A short description of the task or workflow is enough.
+      placeholder: "I used it to ..."
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Platform
+      placeholder: "Windows 11, Node 24, Chrome 141"
+    validations:
+      required: true
+  - type: textarea
+    id: result
+    attributes:
+      label: What worked well, and what should improve?
+      description: Practical feedback helps others choose a setup and helps us prioritize.
+    validations:
+      required: true
+  - type: textarea
+    id: links
+    attributes:
+      label: Links or screenshot
+      description: Optional. Use public links only, and remove sensitive information.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I removed tokens, credentials, private paths and customer data.
+          required: true
