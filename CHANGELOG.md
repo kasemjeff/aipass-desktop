@@ -41,6 +41,16 @@ procedure, acceptance criteria and rollback live in [`docs/RELEASE.md`](docs/REL
 
 ### Removed
 
+- **The external-project eval corpus left the repository.** The eval set
+  built around a single external project (and its dedicated test) is gone
+  and the recall fixtures are now synthetic and generic: this repo
+  carries no named external project, no absolute out-of-repo path, and no
+  pinned measurement from another corpus. External benchmarking stays
+  available at bench time only — `bench:retrieval --repo <operator-supplied
+  path>` scores the in-repo `queries-real.json` against that tree with the
+  index in a temp home, and calibration floors are derived per run, never
+  copied from a named corpus (separation rule in `docs/KNOWLEDGE_ARCHITECTURE.md`).
+
 - **The terminal CLI left the repository.** This repo is the desktop app, and
   it now ships like one: `bin/aipass.mjs` (the `aipass` dispatcher), the chat
   TUI (`chat.mjs`), the list printers (`list.mjs`), the stats report

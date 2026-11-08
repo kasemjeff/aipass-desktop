@@ -390,15 +390,15 @@ export async function retrieve(query, opts = {}) {
   }
 
   // §9.2 coverage gate: a chunk matching only one query term is not an
-  // answer (***REMOVED*** measured `kubernetes helm chart production` returning 6
-  // hits via the single word `production`). Require ≥2 distinct primary
+  // answer (a negative query sharing one common term, e.g. `production`,
+  // can return hits via that single word). Require ≥2 distinct primary
   // terms, or all of them when the query has fewer. Env override 0/1 off.
-  // Measured 2026-11-08: default-ON coverage kills paraphrase recall
-  // (0.214 -> 0.000 on the fixture; paraphrases are single-term by
-  // nature and the ***REMOVED*** negative's score 9.34 beats paraphrase scores
-  // 3-3.5, so neither coverage nor an absolute floor separates them).
-  // The gate is therefore opt-in (AIPASS_RETRIEVAL_MIN_COVERAGE=2) until
-  // a per-corpus calibration exists; hits always report their coverage.
+  // On the in-repo fixture, default-ON coverage kills paraphrase recall
+  // (paraphrases are single-term by nature, and a negative's score can
+  // beat paraphrase scores, so neither coverage nor an absolute floor
+  // separates them). The gate is therefore opt-in
+  // (AIPASS_RETRIEVAL_MIN_COVERAGE=2) until a per-corpus calibration
+  // exists; hits always report their coverage.
   const minCoverageEnv = Number(process.env.AIPASS_RETRIEVAL_MIN_COVERAGE);
   const minCoverage = Number.isFinite(minCoverageEnv) ? Math.max(0, Math.floor(minCoverageEnv)) : 0;
   let droppedByCoverage = 0;

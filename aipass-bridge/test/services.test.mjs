@@ -35,7 +35,7 @@ test('recall eval floor: recall@8 and negatives (evals/recall/queries.json)', ()
 
 test('hits carry provenance with a query hash', () => {
   const docs = sessionDocuments({ entries: evalSet.sessions });
-  const { hits } = rankDocuments(docs, '***REMOVED*** prediction', { limit: 3 });
+  const { hits } = rankDocuments(docs, 'retrieval index', { limit: 3 });
   assert.ok(hits[0].provenance.queryHash);
   assert.equal(hits[0].provenance.source, 'session');
 });

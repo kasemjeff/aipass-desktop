@@ -11,6 +11,17 @@
 > `context-sources.mjs`, `memory-store.mjs`, `settings.mjs` stays
 > read-only until it lands.
 
+**Separation rule:** this repo is self-contained. Eval fixtures are
+in-repo only (`evals/retrieval/tree` + `queries-{exact,paraphrase,negative,real}.json`,
+`evals/recall/queries.json` synthetic sessions) — no named external project,
+no absolute out-of-repo path, and no measured number from an external corpus
+is pinned in a test. Measuring an external corpus happens only at bench time:
+`bench:retrieval --repo <operator-supplied path>` scores the in-repo
+`queries-real.json` against that tree with the index in a temp home; the
+corpus, its name, and its numbers are never committed. Calibration floors
+(`minScore`/coverage) are derived per run from the in-repo fixture negatives
+plus the operator's current external run, never copied from a named corpus.
+
 **One line:** `text.mjs` stays the pure kernel (tokenize, excerpt, BM25);
 above it sit three corpora (project, session, standing) behind one
 document interface, one cache-store framework for every on-disk cache, and
@@ -196,10 +207,12 @@ revertable without touching the others (facades keep the old exports).
 
 1. **CacheStore first.** Approved. Memory needs no key fix (P5 corrected);
    Phase 1 is retrieval + CAG persistence onto the new store.
-2. **Embeddings: measure on the ***REMOVED*** corpus first.** Paraphrase 21.4% on
-   the fixture is not evidence about a Thai ***REMOVED***-***REMOVED*** corpus; build
-   the ***REMOVED*** index, run Thai/English paraphrase queries against it, and
-   only then decide. Phase 6 stays gated.
+2. **Embeddings: measure on a large external corpus first (bench-time only).**
+   Paraphrase 21.4% on the fixture is not evidence about a large real-world
+   corpus; index an operator-supplied repo via `bench --repo`, run
+   Thai/English paraphrase queries against it, and only then decide.
+   Phase 6 stays gated. (Separation rule: the corpus is supplied at bench
+   time, never named or committed here.)
 3. **CAG default on in desktop, off in replay fixtures.** Like `retrieve`:
    the pack rides turn 1 in the window, and the pinned replay keeps its
    bytes (gate flag, same treatment as VERIFY).
@@ -220,16 +233,17 @@ not ranking). Target sizes: chunker ~150, index-store ~120, ranker ~250,
 facade ~200. No behaviour change in this sub-phase; bench floors
 (exact 1.000 / MRR 0.958) are the proof.
 
-### 9.2 D13 — score threshold gate (the ***REMOVED*** finding)
+### 9.2 D13 — score threshold gate (the negative-query finding)
 
-Retrieval today returns the top-6 *whatever* their score: on the ***REMOVED***
-corpus `kubernetes helm chart production` returned 6 hits because one
-term (`production`) matched. A result set with no floor is not an
-answer, it is a guess with citations. Design:
+Retrieval today returns the top-6 *whatever* their score: a negative
+query sharing one common term (e.g. `production`) can return hits via
+that single term alone. A result set with no floor is not an answer, it
+is a guess with citations. Design:
 
 - `rank()` takes `minScore` (default: `AIPASS_RETRIEVAL_MIN_SCORE`,
   unset = today's behaviour until the floor is measured).
-- Floor calibration: run the fixture negative set + ***REMOVED*** negatives;
+- Floor calibration: run the in-repo fixture negative set (plus, at
+  bench time only, the operator-supplied external repo's negatives);
   the floor is the highest score any negative query produces, plus a
   margin. BM25 scores are corpus-relative, so the floor is per-corpus
   shaped: `minScore` is compared against `score / maxScore` (relative)
@@ -243,7 +257,8 @@ answer, it is a guess with citations. Design:
 
 ### 9.3 Cold build: progress + abort + no freeze
 
-***REMOVED*** cold build measured 14.6 s. Design (no worker thread yet):
+A large-repo cold build (measured at bench time via `--repo`) takes
+seconds. Design (no worker thread yet):
 
 - `buildIndex` already yields via `setImmediate` every file and honours
   `signal`; add a `onProgress({files, total, chunks})` callback so the
@@ -304,14 +319,14 @@ harness/
 | corpus | new eval set | floor (initial) | gate |
 |---|---|---|---|
 | project (exists) | `evals/retrieval/` fixture + `queries-real.json` | exact recall@8 ≥ 0.9, negatives 6/6 | `npm run bench:retrieval --strict` |
-| ***REMOVED*** project | `evals/retrieval/***REMOVED***.json` (new: Thai ***REMOVED*** queries incl. negatives) | exact ≥ 5/6, negatives 0 hits after D13 | bench `--repo ***REMOVED***` in CI (nightly, index in temp home) |
+| external repo (operator-supplied, bench-time only) | `queries-real.json` (in-repo) scored against the supplied tree | exact ≥ 5/6, negatives 0 hits after D13 | `bench:retrieval --repo <path>` in CI (nightly, index in temp home); corpus/name/numbers never committed |
 | session (RECALL) | `evals/recall/queries.json` (new: synthetic sessions + facts) | recall@8 ≥ 0.9, negatives 0 | new `bench:recall` script |
 | carry | folded into recall set (fact queries) | carry picks the named fact ≥ 0.9 | recall bench |
 | standing (CAG) | no ranking eval — determinism + invalidation tests only | byte-identical reuse, changed-source rebuild | `test/cag.test.mjs` (exists) |
 
 ## 12. Sequencing, rollback, and the dirty-WIP boundary
 
-Order: 9.1 split → 9.2 gate (calibrated on fixture+***REMOVED***) → 9.3 progress
+Order: 9.1 split → 9.2 gate (calibrated on the in-repo fixture) → 9.3 progress
 → 9.4 manifest → Phase 3 corpora/services → Phase 4 CAG wiring.
 Each step: retrieval 25 + bench green before the next; facade exports
 unchanged so `tools.mjs`/`rpc` never break; rollback is `git revert`
@@ -330,8 +345,8 @@ Phase 3/4 edits there are *planned* in this design, *written* after.
   retrieval; facade exports unchanged. Coverage gate (§9.2) + min-score
   are opt-in envs (`AIPASS_RETRIEVAL_MIN_COVERAGE`/`_MIN_SCORE`) with
   per-hit `coverage` — default-ON was measured to kill paraphrase
-  (0.214 → 0.000) while the ***REMOVED*** negative scored 9.34 above paraphrase
-  scores 3–3.5, so neither gate separates them without per-corpus
+  (0.214 → 0.000 on the fixture) while a negative can score above
+  paraphrase scores, so neither gate separates them without per-corpus
   calibration; the machinery + reporting ship, the default stays off.
   `buildIndex` gained `onProgress` + `manifestHash` (§9.3/§9.4).
 - **Phase 3:** `corpus.mjs` (Project/Session/Standing drivers, secret
@@ -360,18 +375,19 @@ Phase 3/4 edits there are *planned* in this design, *written* after.
   seeds reuse the same `pre`). Harness-side seed helpers
   (`harness.mjs` ×3) still rebuild preamble without CAG — they are
   sync compaction paths, noted not forced.
-- *****REMOVED*** eval set:** `evals/retrieval/***REMOVED***.json` +
-  `test/***REMOVED***.test.mjs` (measured floor pinned: 763 files /
-  10,310 chunks / negatives 0 with gate).
+- **External-repo eval:** in-repo `queries-real.json` via
+  `bench:retrieval --repo <operator-supplied path>` (separation rule —
+  no external corpus stored in this repo).
 - **StoreRegistry complete:** rows for `symbols`, `checkpoints`, `goal`,
   `memory` declared (migration pending, D7).
 - **Memory legacy sweep:** `saveMemory` deletes the sha1 legacy file
   after a successful sha256 write.
 - **UI:** context panel renders the `cag` manifest row; settings sheet
   saves `cag` (disjoint lines in foreign files, named).
-- **Worker thread measured, deferred:** ***REMOVED*** cold build 37 s this run,
-  worst event-loop lag 278 ms — janky at worst, never frozen; a worker
-  would cut lag, not wall time, so it stays Phase 6 material.
+- **Worker thread measured, deferred:** a large-repo cold build (bench-
+  time `--repo` run) showed worst event-loop lag in the hundreds of ms —
+  janky at worst, never frozen; a worker would cut lag, not wall time,
+  so it stays Phase 6 material.
 - **Carry:** `carryFacts` body sits inside the other session's fresh
   hunk — its private BM25 stays until that WIP lands; `CarryService`
   (shared kernel) already serves new callers.
@@ -381,14 +397,15 @@ Phase 3/4 edits there are *planned* in this design, *written* after.
 - Full suite after completion pass: 1418 pass / 0 fail.
 
 - **Threshold miscalibration** (D13): a floor tuned on the fixture may
-  starve real queries. Mitigation: relative+absolute floor, ***REMOVED***
-  calibration set, and the answer always names what was dropped.
+  starve real queries. Mitigation: relative+absolute floor, per-corpus
+  calibration at bench time, and the answer always names what was dropped.
 - **Split churn**: four new modules invite import cycles. Mitigation:
   chunker imports only `text`+`symbols`; ranker imports `text`;
   index-store imports `cache-store`; facade imports all — a DAG, no
   back-edges. The typecheck (`npm run typecheck`) catches cycles early.
-- **Bench becomes the bottleneck**: ***REMOVED*** build 14.6 s nightly is fine;
-  per-PR it is not — fixture bench stays per-PR, ***REMOVED*** nightly (§11).
+- **Bench becomes the bottleneck**: a large-repo build nightly is fine;
+  per-PR it is not — fixture bench stays per-PR, external-repo bench
+  nightly (§11).
 
 ## Checked (2026-11-08, pre-design)
 
@@ -408,16 +425,17 @@ Phase 3/4 edits there are *planned* in this design, *written* after.
 - `cag.mjs` and `retrieval.mjs` persistence now ride the store; exported
   signatures unchanged. retrieval+cag+recall+bench+cache-store: 43/43.
   Full suite: 1407 pass / 0 fail.
-- *****REMOVED*** corpus measurement** (`C:/Users/ASUS/***REMOVED***`, temp home,
-  caps as-is): 763 files / 10,310 chunks indexed, cold build 14.6 s,
-  query 31–154 ms. Thai paraphrase queries returned relevant tops
+- **External-corpus measurement (bench-time, temp home, caps as-is):**
+  a large operator-supplied repo indexed in seconds with queries in the
+  tens-to-hundreds of ms. Thai paraphrase queries returned relevant tops
   (lexical Thai works: docs share vocabulary + trigram fallback);
-  English paraphrase partial (top hit `addendum36_label_cycle.py` for a
-  holdout question). **Negative query leaked:** `kubernetes helm chart
-  production` returned 6 hits (`alerts_app.js`, score 9.34) — retrieval
-  has no score threshold, so a single shared word (`production`) is an
-  answer. Needs a min-score gate (Phase 2, D13 candidate) before the
-  embeddings decision: fix the false-positive floor first.
-- Embeddings decision after ***REMOVED***: **still gated.** Thai ***REMOVED*** retrieval
-  is lexically adequate; the measured gap is false positives (above),
-  which embeddings do not fix. Re-measure after the threshold gate.
+  English paraphrase was partial. **Negative query leaked:** a negative
+  sharing one common word returned hits — retrieval has no score
+  threshold, so a single shared word is an answer. Needs a min-score
+  gate (Phase 2, D13 candidate) before the embeddings decision: fix
+  the false-positive floor first. (Per the separation rule, the corpus,
+  its name, and its numbers are not recorded here.)
+- Embeddings decision after the external run: **still gated.** Thai
+  retrieval on a large corpus is lexically adequate; the measured gap
+  is false positives (above), which embeddings do not fix. Re-measure
+  after the threshold gate.

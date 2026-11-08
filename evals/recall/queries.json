@@ -1,15 +1,15 @@
 {
-  "description": "RECALL recall floor (D12): synthetic sessions + facts, recall@8 and negatives. The bench script scores these with RecallService.rank over sessionDocuments.",
+  "description": "RECALL recall floor (D12): synthetic generic sessions + facts, recall@8 and negatives. The bench script scores these with RecallService.rank over sessionDocuments. Fixtures are self-contained: no external project corpus is named or measured here.",
   "queries": [
-    { "q": "***REMOVED*** prediction threshold", "expectIncludes": "***REMOVED***" },
-    { "q": "holdout lock", "expectIncludes": "***REMOVED***" },
-    { "q": "***REMOVED***", "expectIncludes": "***REMOVED***" }
+    { "q": "retrieval index build", "expectIncludes": "buildIndex" },
+    { "q": "overlay stage edits", "expectIncludes": "overlay" },
+    { "q": "ดัชนีการค้นหา", "expectIncludes": "retrieval" }
   ],
   "negatives": ["kubernetes helm chart", "quantum entanglement", "zzzz notaword"],
   "sessions": [
-    { "session": "***REMOVED***", "ts": 1700000000000, "kind": "spoken", "text": "We use ***REMOVED*** for ***REMOVED*** prediction on the ***REMOVED*** cows." },
-    { "session": "***REMOVED***", "ts": 1700000001000, "kind": "spoken", "text": "The ***REMOVED*** must not be touched until the final confirmatory run." },
-    { "session": "***REMOVED***", "ts": 1700000002000, "kind": "spoken", "text": "การทำนาย***REMOVED***ของ***REMOVED***ใช้เซนเซอร์กิจกรรม" }
+    { "session": "proj-1", "ts": 1700000000000, "kind": "spoken", "text": "We build the retrieval index with buildIndex and chunk the project files." },
+    { "session": "proj-1", "ts": 1700000001000, "kind": "spoken", "text": "The overlay stages edits in memory until Apply writes them to disk." },
+    { "session": "proj-2", "ts": 1700000002000, "kind": "spoken", "text": "ดัชนีการค้นหา retrieval index ถูกสร้างจากไฟล์ของโปรเจกต์" }
   ],
-  "facts": ["Project key is sha256 over the real root", "Embeddings are gated pending ***REMOVED*** measurement"]
+  "facts": ["Project key is sha256 over the real root", "Embeddings are gated pending a measured paraphrase floor"]
 }
