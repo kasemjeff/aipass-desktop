@@ -111,7 +111,12 @@ const NESTED_MAX_DIRS = 120;
 // is the test -- its contents are never read.
 const VCS_MARKERS = ['.git', '.hg', '.svn'];
 
-/** Is `dir` the root of its own version-controlled project? */
+/**
+ * Is `dir` the root of its own version-controlled project?
+ *
+ * @param {string} dir
+ * @returns {boolean}
+ */
 const isVcsRoot = (dir) => VCS_MARKERS.some((m) => { try { return fs.existsSync(path.join(dir, m)); } catch { return false; } });
 
 /**
