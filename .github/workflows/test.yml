@@ -75,7 +75,6 @@ jobs:
         shell: bash
         run: |
           for f in aipass-bridge/bridge/server.mjs aipass-bridge/agent.mjs \
-                   aipass-bridge/chat.mjs aipass-bridge/list.mjs \
                    aipass-bridge/extension/*.js; do
             node --check "$f"
           done

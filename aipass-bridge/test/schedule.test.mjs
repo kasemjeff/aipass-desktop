@@ -42,7 +42,10 @@ function fakeSpawner() {
   const calls = [];
   const spawnFn = (cmd, args, opts) => {
     calls.push({ cmd, args, opts });
-    return { pid: 1000 + calls.length, unref() {} };
+    // A fake pid must never be a real one: recordPids prunes by isRunning,
+    // and 1001/1002 are live processes on CI runners — the "job ended"
+    // assertion below then fails on Windows/macOS but passes on Linux.
+    return { pid: 2147483000 + calls.length, unref() {} };
   };
   return { calls, spawnFn };
 }
@@ -137,7 +140,7 @@ test('a due schedule entry is due once and then spent', async () => {
 
   // The jobs that started are named in the pid file, the way the bridge's are.
   const pids = await store.readPids();
-  assert.deepEqual(pids, [1001, 1002], 'the running jobs are named');
+  assert.deepEqual(pids, [2147483001, 2147483002], 'the running jobs are named');
   await store.recordPids([]);
   assert.deepEqual(await store.readPids(), [], 'and a job that ended leaves nothing behind');
 });
