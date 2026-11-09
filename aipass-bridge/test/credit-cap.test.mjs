@@ -76,3 +76,24 @@ test('the credit cap is clamped, and 0 stays a real value', () => {
   assert.equal(sane(0), 0);
   assert.equal(sane(99_999_999), 10_000_000, 'the ceiling is a ceiling');
 });
+
+test('an unreadable quota is said once, and the credit cap stays fail-open', async () => {
+  const dir = tempDir({ 'a.txt': 'hello\n' });
+  const store = new SessionStore(path.join(dir, 'sessions'));
+  const session = store.create({ root: dir, model: 'test-model' });
+  const tools = createTools({ root: dir, overlay: new Overlay(dir) });
+  let n = 0;
+  const bridge = {
+    async chat() { n += 1; return n === 1 ? { text: 'NEED file a.txt', reasoning: '' } : { text: 'DONE', reasoning: '' }; },
+    async quota() { throw new Error('the bridge never answered'); },
+  };
+  const result = await runTask('read it and stop', {
+    bridge, tools, overlay: new Overlay(dir), session,
+    options: { maxSteps: 3, maxCredits: 150 },
+    first: true,
+  });
+  assert.notEqual(result.stopReason, 'credit-limited', 'an unknown spend never stops a run');
+  const notices = session.entries.filter((e) => e.type === 'note' && /credit cap is not being enforced/.test(e.text ?? ''));
+  assert.equal(notices.length, 1, 'the run is told once that the ceiling is not enforced');
+  assert.match(notices[0].text, /quota could not be read/, 'and why');
+});

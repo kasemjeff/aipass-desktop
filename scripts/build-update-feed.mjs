@@ -15,6 +15,9 @@
 // The key comes from the environment and never from the repository:
 //   AIPASS_RELEASE_KEY       a path to a PEM file, or the PEM itself
 //   AIPASS_RELEASE_KEY_ID    the key id the feed is signed with
+//   AIPASS_RELEASE_SEQUENCE  the monotonic sequence; CI supplies
+//                            github.run_number, a local run names it
+//                            explicitly — there is no default.
 //
 // No dependencies: node built-ins only, like the rest of the repository.
 import crypto from 'node:crypto';
@@ -43,16 +46,36 @@ export function readKey(env = process.env) {
 export const keyId = (env = process.env) => (env.AIPASS_RELEASE_KEY_ID ?? '').trim() || 'aipass-release-2026';
 
 /**
+ * The feed's monotonic sequence — the rollback guard (`update.mjs` refuses
+ * a feed older than the one already seen).
+ *
+ * There is no default: a silent 1 signs every tag push with the same
+ * number and the guard never fires. CI passes `github.run_number`, which
+ * increases on every run of the release workflow; a local run names the
+ * number explicitly. Anything that is not a positive integer is a
+ * release-lane bug and stops the build, not the first client.
+ */
+export function parseSequence(env = process.env) {
+  const raw = String(env.AIPASS_RELEASE_SEQUENCE ?? '').trim();
+  if (!raw) throw new Error('AIPASS_RELEASE_SEQUENCE is not set — the feed sequence has no default; CI passes github.run_number, a local run names it explicitly');
+  const sequence = Number(raw);
+  if (!Number.isInteger(sequence) || sequence <= 0) throw new Error(`AIPASS_RELEASE_SEQUENCE must be a positive integer, got '${raw}'`);
+  return sequence;
+}
+
+/**
  * The feed.
  *
  * The sequence is the rollback guard: it only ever goes up, and the app
  * refuses a feed that is older than the one it has already seen.
  */
 export function buildFeed({ version, commit, artifacts, pack, sequence, releasedAt, notes = '' }) {
+  const seq = Number(sequence);
+  if (!Number.isInteger(seq) || seq <= 0) throw new Error(`the feed sequence must be a positive integer, got '${sequence}'`);
   return {
     schema: 1,
     product: 'aipass desktop',
-    sequence: Number(sequence),
+    sequence: seq,
     channel: 'stable',
     generatedAt: releasedAt,
     releases: [
@@ -177,7 +200,7 @@ function main() {
     commit: manifest?.commit ?? null,
     artifacts: mergedArtifacts,
     pack,
-    sequence: Number(process.env.AIPASS_RELEASE_SEQUENCE ?? 1),
+    sequence: parseSequence(),
     releasedAt: new Date().toISOString(),
     notes: process.env.AIPASS_RELEASE_NOTES ?? '',
   });

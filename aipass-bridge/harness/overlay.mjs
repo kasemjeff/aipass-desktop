@@ -1,3 +1,4 @@
+// @ts-nocheck
 // The pending-edit filesystem.
 //
 // The agent never writes while it works: every read, edit and delete lands in

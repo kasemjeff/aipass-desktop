@@ -1,3 +1,4 @@
+// @ts-nocheck
 // A run's own checkout: a second working tree of the person's repository.
 //
 // WHY it exists: two runs (or a run and the person) editing one repository

@@ -1,3 +1,4 @@
+// @ts-nocheck
 // The goal: one durable objective per project, pursued across runs.
 //
 // Every peer with a long horizon has a version of this (dsh's goal +

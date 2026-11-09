@@ -7,6 +7,53 @@ procedure, acceptance criteria and rollback live in [`docs/RELEASE.md`](docs/REL
 
 ### Added
 
+- **Small-fix batch (2026-11-08).** The release lane now calls `test.yml` as a
+  reusable workflow (`workflow_call`) instead of copying its steps, and `build`
+  waits for it; the feed sequence stays `github.run_number` and the app still
+  accepts an equal sequence (only `< seen` is refused). Repository links point
+  at `kasemjeff/aipass-desktop` (upstream commit/PR links are untouched).
+  `saveMemory` gained an `onError` reporter while keeping its never-throws
+  contract, `clearMemory` returns whether the files actually went, and
+  `memory.clear` answers `{ ok: false }` — with the window saying "ล้างไม่สำเร็จ"
+  — when a clear cannot land, instead of resurrecting forgotten facts on the
+  next save. The marker list is one frozen list in `protocol.mjs` (`MARKERS`),
+  shared by the attempt grammar and the meta verifier, which had lost
+  TREE/STAT/RETRIEVE/DIAGNOSE/GOAL. Media signed-link downloads take an
+  injected resolver/transport like the FETCH tool, so tests no longer depend
+  on the machine's DNS. `checkJs` is on for both jsconfigs, with
+  `// @ts-nocheck` on the files that do not pass yet (60 files) and a ratchet
+  in `agents-lint` capping `runTask`/`createTools`/`createRpc` at their
+  measured sizes. The shell's 25 `.lock().unwrap()` sites go through one
+  poison-recovering `lock()` helper. The bridge counts edge 403s per process
+  (`/status` → `edge403`, passed through `status`), the window shows the
+  "เว็บบล็อกคำขอที่ตารางควรกลบแล้ว ตารางอาจล้าสมัย" banner, and `MATURITY.md`
+  carries the WAF-table row (measured 2026-11-08, next due 2026-12-08). Plugin
+  manifests may declare `permissions`, and panel markup renders in a sandboxed
+  iframe instead of `innerHTML`. Sessions are named from the first line of
+  their first message (about 40 characters) when the first turn ends, the time
+  title staying as fallback. The sidebar sections scroll in their own flex
+  boxes and fold with a remembered state. Provider, effort and temp live in
+  one "ตัวเลือกการรัน" popover; the model and send stay visible. The theme
+  defaults to the system's scheme (`prefers-color-scheme: dark`) when the
+  person has not chosen one, and a test holds the CSS colour pairs at WCAG AA.
+
+
+- **The loop got six intelligence upgrades.** Failures are now classified
+  (model / tool / environment, `harness/failure.mjs`), the second and third
+  failure of a streak carry an adaptive hint that is never the same sentence
+  twice plus an ordered recovery plan (isolate → diagnose → alternatives →
+  fallback), the checker’s verdict is audited against staged files, ran
+  executions and the declared command (`harness/verify-evidence.mjs` — only
+  a `pass` is ever downgraded, to `none`), the allowance scales 0.3×/1×/2× by
+  task difficulty (`run/budgets.mjs`), and an atomic snapshot of the guard
+  counters is written after every step outside the project
+  (`harness/loop-state.mjs`) so a crashed run resumes its guards. All on by
+  default with per-run off-switches (`dynamicBudget`, `independentVerify`,
+  `loopStatePersist`); `run_stats` gains `failureCounts`, `adaptiveRetries`,
+  `independentChecks`/`independentVerdict`, `budgetTier`/`budgetScore` and
+  `loopStateSaved`/`loopStateRestored`. The full account is
+  `docs/LOOP_INTELLIGENCE.md`.
+
 - **Context assembly lives in one module, with a budget and a manifest.**
   `harness/context-sources.mjs` owns the preamble flag sheet, the turn-1 and
   seed budgets, and the assembly manifest: the live loop and the three seed
@@ -39,6 +86,40 @@ procedure, acceptance criteria and rollback live in [`docs/RELEASE.md`](docs/REL
   Rotation seeds truncate the summary and the step results to their share
   instead of pasting the whole step.
 
+- **Benchmark lanes grew: SWE-bench-shaped tasks, Thai repository
+  evaluation, a long-horizon fixture, and the prompt-injection regression
+  (P2 — benchmark).** `task.json` may carry a `swebench` block
+  (`repo`, `baseCommit`, `testPatch`, `failToPass[]`, `passToPass[]`):
+  the attempt runs in a git worktree at the base commit, the test patch
+  applies after the model's fix, and `solved` needs every failToPass
+  green and every passToPass green (`check.f2p`/`check.p2p` on the row);
+  a patch that does not apply is `invalid`. A synthetic offline repo
+  proves the mechanism (`evals-swebench.test.mjs`); the Verified set
+  itself stays bench-time-only. `evals/thai-repo/` is the Thai lane
+  (`--thai-repo`): a Thai-language fixture project and tasks that read
+  it and answer in Thai. `evals/tasks/long-horizon/` is the multi-file
+  task whose check only passes when all three fixes land. The injection
+  regression (`prompt-injection.test.mjs`) scores the safety fixtures
+  both ways offline and pins the untrusted framing, the secret floor
+  under pasted content, and path containment.
+
+- **The shell runs in a forked worker, and shared directories are locked
+  for a RUN (P0 — execution sandbox).** RUN/VERIFY/JOBS no longer spawn the
+  shell inside the backend: `harness/shell-worker.mjs` forks per call with a
+  sanitized environment (an allowlist minus secret-named variables —
+  `AIPASS_TOKEN` never reaches the child), a confined cwd, a timeout with a
+  tree-kill, an output cap and a worker concurrency gate (`AIPASS_SHELL_WORKERS`,
+  default 8). The junctioned heavy directories (`node_modules`, `dist`, …)
+  are locked read-only during a RUN and audited afterwards
+  (`lockSharedDirs`/`auditSharedDirs` in `sandbox.mjs`): a RUN that changes
+  one answers `err:` naming the files. `boundary.mjs` now probes the
+  platform backend from PATH (Seatbelt/bubblewrap); native Windows stays
+  without a kernel boundary on purpose, and enforcing modes refuse until an
+  adapter lands. This is defence in depth, not a kernel jail — a same-user
+  command that clears the bits can still write (the audit names it).
+  Evidence: `test/shell-worker.test.mjs`, `test/sandbox.test.mjs`,
+  `test/boundary-policy.test.mjs`, `test/run-sandbox.test.mjs`.
+
 ### Changed
 
 - **The shell and the backend read one contract.** The desktop port (8790),
@@ -52,9 +133,42 @@ procedure, acceptance criteria and rollback live in [`docs/RELEASE.md`](docs/REL
   `test/desktop-contract.test.mjs`. `npm run test:rust` runs the shell's
   unit tests on the developer's machine (skipping, loudly, where cargo is
   absent) and `npm run check` includes it. `docs/TECH_STACK.md` now names the
-  real size of the Rust half (~1.7k lines across eight files) and the crate
-  tree (446 crates) instead of calling the shell "a page of code", and the
-  boundary itself is `docs/SHELL_BOUNDARY.md`.
+  real size of the Rust half (~2.4k lines across eight files, comments and
+  tests included) and the crate tree (446 crates) instead of calling the
+  shell "a page of code", and the boundary itself is `docs/SHELL_BOUNDARY.md`.
+
+- **Plugins can run isolated: separate process, capability walls, timeouts
+  and crash recovery (P1 — plugin isolation).** A plugin that declares
+  `isolated: true` in its source forks `harness/plugin-worker.mjs` and never
+  executes in the backend — `PluginManager` only reads its source as text,
+  the worker does the importing. It may use only the surfaces its
+  `capabilities` declare (using another fails the load and registers
+  nothing); setup and every call are time-bounded
+  (`AIPASS_PLUGIN_TIMEOUT_MS` / `AIPASS_PLUGIN_CALL_TIMEOUT_MS`, 30 s);
+  workers are memory- and count-capped (`AIPASS_PLUGIN_MEMORY_MB` /
+  `AIPASS_PLUGIN_WORKERS`); a crash rejects the in-flight call, restarts
+  the worker once, and fails the plugin permanently on a second death.
+  `AIPASS_PLUGIN_ISOLATION` selects `off` (every plugin in-process,
+  trusted: today's behaviour), `all` (every plugin forks) or `declared`
+  (the default: only the ones that say so). This is a process boundary,
+  not a kernel one — the in-process default is unchanged, residuals are
+  stated in `SECURITY.md`. Evidence: `test/plugin-isolation.test.mjs`.
+
+- **Verification now follows the task type, with acceptance criteria and
+  test evidence (P1 — stronger verification).** The staged set is
+  classified `code` / `docs` / `none` (`verify-evidence.mjs`:
+  `classifyTaskType`): code work needs an execution behind its DONE — a
+  declared check that ran nothing is untrusted, a code change with no
+  execution behind its `none` verdict records `unverified: true` in
+  `run_stats`, and under `requireCheck` that dormant-declared case is
+  refused as `done-unverified`. A run may declare
+  `acceptanceCriteria` (harness option; preamble-teached, checker-briefed
+  and gated: criteria with no execution behind the verdict are a false
+  DONE and are refused once, then recorded). `run_stats` carries the
+  task type, the criteria and the check's evidence tail
+  (`checkEvidence: {command, ran, tail}`) as machine-readable test
+  results. Evidence: `test/verify-gates.test.mjs` +
+  `test/verify-evidence.test.mjs`.
 
 - **Nested instructions stop at a VCS boundary.** `instructions.mjs` no
   longer collects nested `AGENTS.md` files from (or descends into) a
@@ -92,6 +206,41 @@ procedure, acceptance criteria and rollback live in [`docs/RELEASE.md`](docs/REL
   `relocate.mjs`, `scale.mjs`, `acp.mjs`, `mcp.mjs`, `plugin.mjs`), reachable
   as `node aipass-bridge/<name>.mjs`. Status/diagnostics now live in the
   window and in the bridge's `GET /status`.
+
+### Fixed
+
+- **Background output, spill reads and sandbox wording (Phase 1).** The
+  spill read ceiling is now the same 20 MB contract as the background
+  job's disk cap (`MAX_SPILL_READ` = `BACKGROUND_OUTPUT_CAP`, pinned by
+  test), and a refusal past it names the ranged `NEED file` read that
+  pages the rest instead of stranding the tail. A job's spill file is
+  created exclusively (`wx`): a name another run or process owns is
+  suffixed, never truncated, so two runs' output can never share a file;
+  one endless output line is flushed through the cap instead of being
+  held in memory until its newline, and the disk write is sliced to the
+  cap instead of overshooting by a line. The preamble now says the
+  Phase 1 truth — enforcing sandbox modes refuse until the OS adapters
+  land (only `off`/`danger-full-access` run, without a boundary), and a
+  RUN with nothing staged runs in the real project folder while a RUN
+  with staged edits runs in the projection outside it (`test/background-caps.test.mjs`).
+
+- **Marker keywords are exact-case; an unclosed block stages nothing.**
+  `parse()` matched every marker case-insensitively, so ordinary English
+  sentences starting with a marker word (`Create a summary…`, `Ask me
+  if…`, `Delete the old build folder first.`, `Done with the first
+  half.`) executed as commands — 22 of a 30-sentence battery. The `i`
+  flag is gone from every marker regex in `protocol.mjs` and from the
+  window's mirror scanner (`desktop/ui/markers.js`), so only the exact
+  uppercase keyword on its own line is a call and the sentence stays
+  prose. Block terminators (END/NEW) are exact-case with no case-blind
+  fallback — a lowercase `end` is Ruby/Lua content, and a reply cut off
+  mid-block is flagged `unterminated` instead of closing on whatever
+  lowercase word it happened to contain — and `validateCall` refuses a
+  CREATE/EDIT that never reached END, so a fragment is never staged.
+  DONE is uppercase-only by owner decision: a run that has used no tool
+  yet and answers `Done.` earns the shape nudge instead of ending
+  (`test/protocol.test.mjs`, `test/ui-markers.test.mjs`,
+  `test/validate.test.mjs`, `test/agent.test.mjs`).
 
 ### Added
 
@@ -509,6 +658,27 @@ procedure, acceptance criteria and rollback live in [`docs/RELEASE.md`](docs/REL
   `desktop/ui/app.js`).
 ### Fixed
 
+- **Tag releases sign a sequence that goes up, and publish only after tests.**
+  The release feed signed sequence 1 on every tag push (`AIPASS_RELEASE_SEQUENCE`
+  defaulted to 1), so the rollback guard (`update.mjs` refuses a feed older
+  than the one seen) never fired. The lane now signs `github.run_number`
+  (a manual dispatch may override it with a higher number),
+  `build-update-feed.mjs` requires a positive-integer sequence with no
+  default, the publish job waits for a `test` job as well as the build
+  (a tag push does not run `test.yml`), the feed notes come from the head
+  commit (on a tag push `github.event.release.body` is always empty), and
+  the default feed URL names this repository's releases. Security reporting
+  and the remaining repository links now point at `kasemjeff/aipass-desktop`
+  instead of the upstream bridge repo or the old `TH-aipassport-desktop`
+  name, and `extension.install` opens the same address.
+- **Tests are hermetic, and CI is least-privilege and pinned.** The FETCH
+  and SSRF cases stub the resolver, the read-only-directory cases skip
+  under root, `git config` checks use `--local` instead of the global
+  file, `test.yml`/`build.yml` declare `permissions: contents: read`,
+  actions are pinned to commit SHAs (the release lane's `softprops` and
+  `rust-toolchain` first), and Pages uses the same checkout version as
+  the other lanes.
+
 - **Every dead CI lane revived.** Three independent causes had main red:
   `package-lock.json` drifted from `package.json` (`@types/node` 26.6.6 vs
   a locked 24.19.2), so every `npm ci` step failed at install on all three
@@ -714,6 +884,19 @@ procedure, acceptance criteria and rollback live in [`docs/RELEASE.md`](docs/REL
 - **IDE extension test suite runs on every `npm test`.** `ide-extension/selftest.mjs` is
   integrated into the suite via `aipass-bridge/test/ide-extension.test.mjs`, ensuring the
   protocol mirror and marker grammar never drift undetected.
+- **File bodies and attachments are no longer lost to the terminator race.**
+  Block terminators are exact-case, so a Ruby/Lua `CREATE` keeps its own
+  lowercase `end` lines instead of being truncated (and silently written)
+  at the first one, and a block that never reaches its `END` — cut off, or
+  closed in lowercase, or borrowing the next block's terminator — is
+  flagged `unterminated` and refused staging by `validateCall`, so a
+  fragment is never written. `run/send.mjs` drains the attachment queue
+  once per send instead of once per attempt, restoring the parts on any
+  failed ending (cancel, context overflow, send-timeout, error) — a
+  retried or rotation-resent message now carries the files it was
+  supposed to carry. `run/budgets.mjs` keeps the fail-open credit policy
+  but says it once per run (`the credit cap is not being enforced…`)
+  instead of silently not enforcing a ceiling the person set.
 
 ### Changed
 

@@ -201,6 +201,38 @@ test('a signed link is downloaded once and the bytes are kept', async (t) => {
   assert.equal(out.mime, 'video/mp4');
 });
 
+test('a signed link is vetted through the stubbed resolver, not this machine\'s DNS', async (t) => {
+  // Hermetic: the host below does not exist. Without an injected resolver
+  // the verdict would depend on whatever this machine's DNS answers for it
+  // (on a sandbox with no DNS: "could not resolve" instead of "private").
+  const body = Buffer.from('fake mp4 bytes');
+  const ext = await new FakeExtension(bridge.base, {
+    onChat: async (_j, e) => { await e.media('video', 'https://media.example/clip.mp4?X-Goog-Signature=abc'); await e.done(); },
+  }).connect();
+  t.after(() => ext.disconnect());
+  await warm();
+
+  const dir = tempDir({});
+  await assert.rejects(
+    () => generate({
+      client, model: 'seedance-2.0-mini', prompt: 'a cat', out: dir,
+      fetchResolve: async () => ({ addresses: [{ address: '127.0.0.1', family: 4 }], private: true }),
+    }),
+    /resolves to a private\/internal address/,
+    'a name the stub resolves private is refused before any fetch'
+  );
+
+  // The public answer goes through the stubbed transport too: no socket, no
+  // DNS, and the bytes are still the bytes.
+  const out = await generate({
+    client, model: 'seedance-2.0-mini', prompt: 'a cat', out: dir,
+    fetchResolve: async () => ({ addresses: [{ address: '93.184.216.34', family: 4 }], private: false }),
+    fetchTransport: async () => new Response(body, { status: 200, headers: { 'content-type': 'video/mp4' } }),
+  });
+  assert.deepEqual(fs.readFileSync(out.path), body, 'the stubbed transport\'s bytes are kept locally');
+  assert.equal(out.mime, 'video/mp4');
+});
+
 test('a video frame with no url is read from its snapshotUrl', () => {
   // The upstream bug, in one shape: a video carries no `url` at all, only a
   // `snapshotUrl` beside its storage key — and a frame can carry `url: ""`

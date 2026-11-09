@@ -1,3 +1,4 @@
+// @ts-nocheck
 // The second axis of a RUN: not "against which tree" (execution.mjs owns
 // that) but "with which rights". A command's tree and its rights are two
 // different questions, and answering them in one module would make either
@@ -14,16 +15,44 @@
 // refused, never silently downgraded to "run anyway". A downgrade is the
 // one thing this project does not ship.
 import { platform } from 'node:os';
+import fs from 'node:fs';
+import path from 'node:path';
 
 /** The sandbox modes a run may be given. */
 export const SANDBOX_MODES = Object.freeze(['off', 'read-only', 'workspace-write', 'danger-full-access']);
 
-/** Which backend this platform can offer today. Phase 1 ships none: the real
- *  backends (Seatbelt, bubblewrap, a Windows helper) land in later waves.
- *  Keeping this a function means the adapters are added here and nowhere else. */
-export function backendFor(p = platform()) {
-  if (p === 'darwin') return 'none'; // seatbelt lands in wave B2
-  if (p === 'linux') return 'none';  // bubblewrap lands in wave B2
+/**
+ * Is `name` on PATH? A PATH scan, not a spawn: no process, no shell, so this
+ * stays pure enough to call wherever a backend is resolved (rule 9). The
+ * PATHEXT half is what makes a `.exe`/`.cmd` shim count on Windows.
+ */
+export function findOnPath(name, { pathEnv = process.env.PATH ?? '', pathExt = process.env.PATHEXT ?? '.COM;.EXE;.BAT;.CMD', win = process.platform === 'win32' } = {}) {
+  const exts = win ? ['', ...String(pathExt).split(';').filter(Boolean)] : [''];
+  for (const dir of String(pathEnv).split(path.delimiter)) {
+    if (!dir) continue;
+    for (const ext of exts) {
+      try {
+        const abs = path.join(dir, name + ext);
+        if (fs.existsSync(abs) && fs.statSync(abs).isFile()) return abs;
+      } catch { /* unreadable PATH entry: not a backend */ }
+    }
+  }
+  return null;
+}
+
+/**
+ * Which backend this platform can offer today, probed from PATH. Phase 1
+ * shipped none everywhere; the probe names Seatbelt/bubblewrap when the
+ * platform tool is actually installed, so a machine that has them is not
+ * told its modes refuse. Native Windows stays 'none' on purpose: there is
+ * no kernel filesystem boundary without the Windows helper (AppContainer),
+ * and claiming one would be the silent downgrade this module forbids — the
+ * Windows rung is the projection + shared-dir lock (sandbox.mjs), and
+ * enforcing modes refuse here rather than run unsandboxed.
+ */
+export function backendFor(p = platform(), { onPath = findOnPath } = {}) {
+  if (p === 'darwin') return onPath('sandbox-exec') ? 'seatbelt' : 'none';
+  if (p === 'linux') return onPath('bwrap') ? 'bubblewrap' : 'none';
   if (p === 'win32') return 'none';  // the Windows helper lands in wave E
   return 'none';
 }
@@ -67,10 +96,15 @@ export function resolvePolicy({ sandboxMode = 'off', platform: p = platform(), b
       danger: false,
     };
   }
-  // Real backend (future waves): the policy the backends honour.
+  // A real backend tool is installed, but its enforcing adapter is not wired
+  // into the shell worker in this build (bubblewrap/seatbelt argv lands with
+  // the adapters, wave B2). Passing the command through unsandboxed while
+  // the policy claims `fs: read/write` would be a mode that only SAYS it is
+  // on — the failure FEATURE_GAPS_WAVE3 3.1 forbids. Refuse, and name it.
+  const adapterPending = `the sandbox backend "${b}" is installed on ${p} but its enforcing adapter is not wired in this build — the command was not run. Set sandbox: danger-full-access to run it without one.`;
   if (mode === 'read-only') {
     return {
-      sandboxMode: mode, backend: b, refuse: null,
+      sandboxMode: mode, backend: b, refuse: adapterPending,
       fs: 'read', needsProjection: false,
       net: { mode: 'off', hosts: [] },
       danger: false,
@@ -78,7 +112,7 @@ export function resolvePolicy({ sandboxMode = 'off', platform: p = platform(), b
   }
   // workspace-write
   return {
-    sandboxMode: mode, backend: b, refuse: null,
+    sandboxMode: mode, backend: b, refuse: adapterPending,
     fs: 'write', needsProjection: true,
     net: { mode: allowHosts.length ? 'allowlist' : 'off', hosts: [...allowHosts] },
     danger: false,
@@ -101,8 +135,9 @@ export function makeBoundary(policy, { runShell, projectionRoot = null, tempRoot
     // as an `err:` string so the model reads what happened.
     async run(command, opts = {}) {
       if (refuse) return { __refused: true, message: `err: ${refuse}` };
-      // Phase 1 has no enforcing backend; the only non-refusing modes are
-      // 'off' and 'danger-full-access', both of which are passthrough.
+      // The only non-refusing modes are 'off' and 'danger-full-access';
+      // both are passthrough by contract. Any mode that needs enforcing
+      // carries a refusal above — a passthrough here is never a sandbox.
       return passthrough(command, opts);
     },
   };

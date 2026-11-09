@@ -71,10 +71,17 @@ export function createHelpersPanel(/** @type {any} */ ctx) {
   // tick elapsed time while anything is running
   /** @type {any} */
   let ticker = null;
+  function stopTickerIfIdle() {
+    if (ticker && ![...items.values()].some((i) => i.status === 'running')) {
+      clearInterval(ticker);
+      ticker = null;
+    }
+  }
   function ensureTicker() {
     if (ticker) return;
     ticker = setInterval(() => {
       if ([...items.values()].some((i) => i.status === 'running')) paint();
+      else stopTickerIfIdle();
     }, 1000);
   }
 
@@ -112,6 +119,7 @@ export function createHelpersPanel(/** @type {any} */ ctx) {
       it.summary = data?.summary || data?.out || it.summary;
     }
     paint();
+    stopTickerIfIdle();
   }
 
   function addJob(/** @type {any} */ data) {
@@ -133,9 +141,14 @@ export function createHelpersPanel(/** @type {any} */ ctx) {
     it.ms = data?.ms ?? it.ms;
     it.summary = data?.stopped ? 'stopped' : (data?.code != null ? `exit ${data.code}` : it.summary);
     paint();
+    stopTickerIfIdle();
   }
 
-  function clear() { items.clear(); paint(); }
+  function clear() {
+    if (ticker) { clearInterval(ticker); ticker = null; }
+    items.clear();
+    paint();
+  }
 
   // initial paint (empty -> hidden)
   paint();

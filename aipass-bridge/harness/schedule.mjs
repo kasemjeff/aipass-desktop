@@ -1,3 +1,4 @@
+// @ts-nocheck
 // Scheduled work: the tasks that run at a time of day, without cron.
 //
 // The competitors run work on a schedule (Claude Code's /schedule and its

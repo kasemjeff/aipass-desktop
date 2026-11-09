@@ -19,20 +19,43 @@
 // worktree run's root already IS its world, so its RUNs project from there),
 // or a remote sandbox — is another branch of `pickWorld`, not a second copy
 // of the RUN tool.
-import { spawn } from 'node:child_process';
+import { fork, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { createSandbox, materializeTree, removeSandbox, restorePaths, sandboxRoot, sharedDirs } from './sandbox.mjs';
-import { scrubOutput } from './output-scrub.mjs';
+import { fileURLToPath } from 'node:url';
+import { createSandbox, materializeTree, removeSandbox, restorePaths, sandboxRoot, sharedDirs, lockSharedDirs, unlockSharedDirs, auditSharedDirs } from './sandbox.mjs';
+import { scrubOutput, collectProjectSecretValues } from './output-scrub.mjs';
 import { scrubSecretDiff } from './permissions.mjs';
+import { sanitizeEnv } from './shell-worker.mjs';
+
+/** The worker process that actually spawns shells (shell-worker.mjs). */
+const WORKER = path.join(path.dirname(fileURLToPath(import.meta.url)), 'shell-worker.mjs');
+
+// How many shell workers may run at once. A runaway fan-out (one helper per
+// minute, each holding a build) is a process table, not a run — the gate turns
+// the excess away with `err:` instead of forking without bound.
+const MAX_WORKERS = (() => {
+  const n = Number(process.env.AIPASS_SHELL_WORKERS);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 8;
+})();
+let activeWorkers = 0;
+const workerWaiters = /** @type {Array<(value?: any) => void>} */ ([]);
+async function acquireWorker() {
+  if (activeWorkers < MAX_WORKERS) { activeWorkers++; return; }
+  await new Promise((r) => workerWaiters.push(r));
+  activeWorkers++;
+}
+function releaseWorker() {
+  activeWorkers = Math.max(0, activeWorkers - 1);
+  workerWaiters.shift()?.();
+}
 
 /**
- * Run one shell command to completion, and take the whole process tree down
- * when the timeout runs out. `exec`'s timeout kills the shell alone: on
- * Windows the command's own children — a server it started, a watcher —
- * survived the timeout and kept holding the files they had open, so a later
- * RUN met "EBUSY" from a process nobody could see. taskkill /T (or a POSIX
- * process-group signal) ends the tree instead.
+ * Run one shell command to completion, in a forked WORKER — never in this
+ * process (shell-worker.mjs). The worker owns the timeout (tree kill), the
+ * output cap, the sanitized environment and the cwd confinement; this process
+ * only forwards, and a worker that dies answers `err:` while the backend
+ * stays up (crash recovery: respawn per call, no state to lose).
  *
  * Rejects the way `exec` did — an Error carrying `code`, `signal`, `stdout`
  * and `stderr` — so callers keep formatting `err: exit …` the same way.
@@ -40,68 +63,105 @@ import { scrubSecretDiff } from './permissions.mjs';
  * @param {string} cmd   the shell line, run through the platform shell
  * @param {object} [opts]
  * @param {string} [opts.cwd]
+ * @param {string|null} [opts.allowedRoot]  the cwd must stay inside this (default: cwd)
  * @param {number} [opts.timeoutMs]
  * @param {number} [opts.maxBuffer]
  * @param {AbortSignal|null} [opts.signal]
  * @returns {Promise<{stdout: string, stderr: string}>}
  */
-export function runShell(cmd, { cwd, timeoutMs, maxBuffer = 10 * 1024 * 1024, signal = null } = {}) {
-  return new Promise((resolve, reject) => {
-    const child = spawn(cmd, {
-      cwd,
-      shell: true,
-      windowsHide: true,
-      // A POSIX group leader is what lets `kill(-pid)` below reach the
-      // grandchildren; on Windows the tree is addressed by taskkill /T.
-      detached: process.platform !== 'win32',
+export async function runShell(cmd, { cwd, timeoutMs, maxBuffer = 10 * 1024 * 1024, signal = null, allowedRoot = null } = {}) {
+  await acquireWorker();
+  try {
+    return await new Promise((resolve, reject) => {
+      /** @type {import('node:child_process').ChildProcess} */
+      let worker;
+      try {
+        worker = fork(WORKER, [], {
+          env: sanitizeEnv(),
+          windowsHide: true,
+          stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+          execArgv: ['--max-old-space-size=512'],
+        });
+      } catch (err) {
+        releaseWorker();
+        const e = /** @type {any} */ (err);
+        reject(Object.assign(new Error(`the shell worker could not start: ${String(e?.message ?? e)}`), { code: null, signal: null, stdout: '', stderr: '' }));
+        return;
+      }
+      let done = false;
+      let stopped = false;
+      /** @type {NodeJS.Timeout|null} */
+      let grace = null;
+      const finish = (/** @type {(v: any) => void} */ fn, /** @type {any} */ v) => {
+        if (done) return;
+        done = true;
+        clearTimeout(failsafe);
+        if (grace) clearTimeout(grace);
+        if (signal) signal.removeEventListener('abort', onAbort);
+        releaseWorker();
+        try { worker.disconnect(); } catch { /* already gone */ }
+        try { if (worker.exitCode === null) worker.kill(); } catch { /* already gone */ }
+        fn(v);
+      };
+      // The worker enforces the timeout itself; the failsafe only covers a
+      // worker that never answers (crashed before it could reply).
+      const failsafe = setTimeout(() => {
+        finish(reject, Object.assign(new Error(`timed out after ${timeoutMs} ms`), {
+          code: null, signal: 'SIGTERM', killed: true, timedOut: true, stdout: '', stderr: '',
+        }));
+        killTree(worker);
+      }, (Number(timeoutMs) || 120_000) + 5_000);
+      failsafe.unref?.();
+      function onAbort() {
+        stopped = true;
+        try { worker.send({ type: 'stop', id: 'run' }); } catch { /* already gone */ }
+        // If the worker does not answer the stop, take it down tree-and-all.
+        grace = setTimeout(() => killTree(worker), 3_000);
+        grace.unref?.();
+      }
+      if (signal) {
+        if (signal.aborted) {
+          // Stopped before it started: never send the run (a stop sent first
+          // would race the run message and could be lost).
+          finish(reject, Object.assign(new Error('the run was stopped'), { code: null, signal: 'SIGTERM', killed: true, stdout: '', stderr: '' }));
+          return;
+        }
+        signal.addEventListener('abort', onAbort, { once: true });
+      }
+      worker.on('error', (error) => finish(reject, Object.assign(error, { stdout: '', stderr: '' })));
+      worker.on('exit', (code, killedBy) => {
+        // The worker died without an exit message (killed, OOM, crash): the
+        // backend survives and says so — this is the recovery path.
+        if (done) return;
+        finish(reject, Object.assign(new Error(`the shell worker exited (${code ?? killedBy ?? '?'}) before the command answered`), {
+          code: null, signal: killedBy ?? null, stdout: '', stderr: '', workerExited: true,
+        }));
+      });
+      worker.on('message', (/** @type {any} */ msg) => {
+        if (msg?.type !== 'exit') return;
+        const { stdout = '', stderr = '', code = null, signal: sig = null, error = null, timedOut = false } = msg;
+        if (error) {
+          finish(reject, Object.assign(new Error(error), { code, signal: sig, stdout, stderr, refused: true }));
+          return;
+        }
+        if (stopped || msg.stopped) {
+          finish(reject, Object.assign(new Error('the run was stopped'), { code: null, signal: 'SIGTERM', killed: true, stdout, stderr }));
+          return;
+        }
+        if (timedOut) {
+          finish(reject, Object.assign(new Error(`timed out after ${timeoutMs} ms`), { code: null, signal: 'SIGTERM', killed: true, timedOut: true, stdout, stderr }));
+          return;
+        }
+        if (code === 0 && !sig) finish(resolve, { stdout, stderr });
+        else finish(reject, Object.assign(new Error(`exited with ${code ?? sig}`), { code, signal: sig, stdout, stderr }));
+      });
+      worker.send({ type: 'run', id: 'run', command: cmd, cwd, allowedRoot: allowedRoot ?? cwd, timeoutMs, maxBuffer });
     });
-    let stdout = '';
-    let stderr = '';
-    let done = false;
-    // UTF-8 is decoded across chunks, not per chunk: String(d) on a Buffer
-    // that ends mid-character (a Thai byte split between two chunks) would
-    // mojibake the straddle. setEncoding hands the decoder the whole stream.
-    child.stdout?.setEncoding('utf8');
-    child.stderr?.setEncoding('utf8');
-    const cap = (/** @type {string} */ s, /** @type {string|Buffer} */ d) => (s.length >= maxBuffer ? s : s + String(d));
-    child.stdout?.on('data', (d) => { stdout = cap(stdout, d); });
-    child.stderr?.on('data', (d) => { stderr = cap(stderr, d); });
-    const finish = (/** @type {(v: any) => void} */ fn, /** @type {any} */ v) => {
-      if (done) return;
-      done = true;
-      clearTimeout(t);
-      // The listener is dropped with the child: a stop that lands after the
-      // command is over must not go and kill a tree that is already gone.
-      if (signal) signal.removeEventListener('abort', onAbort);
-      fn(v);
-    };
-    const t = setTimeout(() => {
-      killTree(child);
-      finish(reject, Object.assign(new Error(`timed out after ${timeoutMs} ms`), {
-        code: null, signal: 'SIGTERM', killed: true, stdout, stderr,
-      }));
-    }, timeoutMs);
-    t.unref?.();
-    // (stop) A stop kills the command, tree and all. The command used to run
-    // to its own timeout (two minutes) after the person pressed stop: the
-    // window said the run was stopping while the build kept going, holding
-    // the files it needed and the next task waiting behind it.
-    function onAbort() {
-      killTree(child);
-      finish(reject, Object.assign(new Error('the run was stopped'), {
-        code: null, signal: 'SIGTERM', killed: true, stdout, stderr,
-      }));
-    }
-    if (signal) {
-      if (signal.aborted) return onAbort();
-      signal.addEventListener('abort', onAbort, { once: true });
-    }
-    child.on('error', (error) => finish(reject, Object.assign(error, { stdout, stderr })));
-    child.on('close', (code, killedBy) => {
-      if (code === 0 && !killedBy) finish(resolve, { stdout, stderr });
-      else finish(reject, Object.assign(new Error(`exited with ${code ?? killedBy}`), { code, signal: killedBy, stdout, stderr }));
-    });
-  });
+  } finally {
+    // releaseWorker runs in finish(); a fork that threw before finish still
+    // owes the gate nothing — the count is only incremented after acquire,
+    // and finish() is the single release on every settled path above.
+  }
 }
 
 /** The tree, not the shell alone — see runShell for why.
@@ -195,13 +255,27 @@ async function pickWorld({ root, overlay, signal }) {
  * @param {string} opts.command   the shell line to run
  * @param {number} [opts.timeoutMs]
  * @param {(text: string) => (string|Promise<string>)} [opts.clip]
+ * @param {string[]|null} [opts.knownSecrets]
  * @returns {Promise<string>} the command's result, `err: …` on failure
  */
-export async function runInProjectWorld({ root, overlay, signal = null, command, timeoutMs = 120_000, clip = (text) => text }) {
+export async function runInProjectWorld({ root, overlay, signal = null, command, timeoutMs = 120_000, clip = (text) => text, knownSecrets = null }) {
+  let secrets = knownSecrets;
+  if (!secrets) { try { secrets = await collectProjectSecretValues(root); } catch { secrets = []; } }
+  // (P0) The shared heavy dirs are locked read-only for the command and
+  // audited after it — a write into one must not land in the real tree
+  // quietly. The lock is taken before the projection is built (the
+  // projection links those dirs) and released after the audit, on every path.
+  // In plain mode (no staged overlay), shared dirs are not locked so normal
+  // builds and commands in the workspace run unimpeded.
+  let lock = null;
+  if (overlay?.size) {
+    try { lock = await lockSharedDirs(root); } catch { lock = null; }
+  }
   let world;
   try {
     world = await pickWorld({ root, overlay, signal });
   } catch (err) {
+    try { await unlockSharedDirs(root, lock); } catch { /* best effort */ }
     const e = /** @type {any} */ (err);
     // A stop during the projection ends the run: the copy is the longest
     // wait a RUN has, and it used to finish while the window said the
@@ -215,26 +289,55 @@ export async function runInProjectWorld({ root, overlay, signal = null, command,
     const why = String(e?.message ?? e).replace(/\s+/g, ' ').trim().slice(0, 200);
     return `err: the projection could not be built (${why || 'unknown reason'}) — the command was not run, and nothing on disk changed. Retry once; if it fails again, tell the person to check disk space and permissions under ${sandboxRoot(root)}.`;
   }
+  let result;
   try {
     const { stdout } = await runShell(command, { cwd: world.cwd, timeoutMs, signal });
-    return (await clip(scrubSecretDiff(world.scrub(scrubOutput(stdout))))) + world.notes();
+    result = (await clip(scrubSecretDiff(world.scrub(scrubOutput(stdout, secrets))))) + world.notes();
   } catch (err) {
     const e = /** @type {any} */ (err);
     // A stop that killed the command says so: "exit SIGTERM" would read as
     // the command's own failure, and the person did ask for it.
     if (e?.killed && /stopped/i.test(String(e.message ?? ''))) {
-      return clip(scrubSecretDiff(world.scrub('err: the run was stopped before the command finished')));
+      result = await clip(scrubSecretDiff(world.scrub('err: the run was stopped before the command finished')));
+    } else {
+      result = await clip(scrubSecretDiff(world.scrub(scrubOutput(`err: exit ${e.code ?? e.signal ?? '?'}\n${String(e.stdout ?? '')}${String(e.stderr ?? '')}`, secrets))));
     }
-    return clip(scrubSecretDiff(world.scrub(scrubOutput(`err: exit ${e.code ?? e.signal ?? '?'}\n${String(e.stdout ?? '')}${String(e.stderr ?? '')}`))));
   } finally {
     world.dispose();
   }
+  // The audit runs after the world is gone (its junction is not needed) and
+  // before the lock is released — both on the success and failure paths, so
+  // a failed command that still wrote is still named.
+  let auditNote = '';
+  try {
+    const audit = await auditSharedDirs(root, lock);
+    const bad = [
+      ...audit.changed.map((f) => `${f} (changed)`),
+      ...audit.added.map((f) => `${f} (added)`),
+      ...audit.deleted.map((f) => `${f} (deleted)`),
+    ];
+    if (bad.length) {
+      auditNote = `\n\nerr: the run changed a shared directory — ${bad.slice(0, 10).join(', ')}${bad.length > 10 ? `, and ${bad.length - 10} more` : ''} — a write into a shared folder lands in your project, and this run was not allowed to do that. The change is left on disk; review it, or restore the folder.`;
+    } else if (lock?.partial) {
+      auditNote = '\n\nnote: the shared-directory lock stopped at its file cap — later files were not locked. Set AIPASS_SANDBOX_LOCK_MAX_FILES higher for very large trees.';
+    } else if (lock?.disabled) {
+      auditNote = '\n\nnote: shared-directory locking is off (AIPASS_SANDBOX_LOCK_SHARED=0) — a write into a shared folder changes your project.';
+    }
+  } catch { /* the audit is a second layer; its own failure must not fail the RUN */ }
+  try { await unlockSharedDirs(root, lock); } catch { /* best effort — the manifest covers a crash */ }
+  return result + auditNote;
 }
 
 export default { runShell, runInProjectWorld, startBackgroundRun };
 
 /** How much of a background command's output is kept on disk. */
 export const BACKGROUND_OUTPUT_CAP = 20 * 1024 * 1024;
+
+// Live background spill files, by absolute path. Two tool tables (the main
+// run and a helper/checker) each start their ids at run1, so without this
+// a helper's run1 truncates the main run's live run1.txt. A name is freed
+// only when its job settles, so a finished file is still reused next run.
+const liveSpillFiles = new Set();
 
 /**
  * Start one command as a job: same world as a RUN, output streamed to a file.
@@ -254,42 +357,90 @@ export const BACKGROUND_OUTPUT_CAP = 20 * 1024 * 1024;
  * @param {AbortSignal|null} [opts.signal]
  * @param {string} opts.command
  * @param {string} opts.name   file name (without .txt) under `.aipass/spill`
- * @returns {Promise<{outputRel: string, done: Promise<{code: number|null, signal: string|null, stopped: boolean}>, stop: () => Promise<any>}|{error: string}>}
+ * @param {string[]|null} [opts.knownSecrets]
+ * @param {number} [opts.outputCap]  disk cap for this job's output file
+ *   (default BACKGROUND_OUTPUT_CAP; a test passes a small one)
+ * @returns {Promise<{name: string, outputRel: string, done: Promise<{code: number|null, signal: string|null, stopped: boolean}>, stop: () => Promise<any>}|{error: string}>}
  */
-export async function startBackgroundRun({ root, overlay, signal = null, command, name }) {
+export async function startBackgroundRun({ root, overlay, signal = null, command, name, knownSecrets = null, outputCap = BACKGROUND_OUTPUT_CAP }) {
+  let secrets = knownSecrets;
+  if (!secrets) { try { secrets = await collectProjectSecretValues(root); } catch { secrets = []; } }
+  // (P0) The shared dirs stay locked for the job's whole life — a background
+  // command is a RUN that outlives the turn, and its writes must not land in
+  // the real tree either. Released on the job's end, after the audit.
+  // In plain mode (no staged overlay), shared dirs are not locked.
+  let lock = null;
+  if (overlay?.size) {
+    try { lock = await lockSharedDirs(root); } catch { lock = null; }
+  }
   let world;
   try {
     world = await pickWorld({ root, overlay, signal });
   } catch (err) {
+    try { await unlockSharedDirs(root, lock); } catch { /* best effort */ }
     const e = /** @type {any} */ (err);
     if (e?.name === 'AbortError') return { error: 'the run was stopped before the command could start' };
     const why = String(e?.message ?? e).replace(/\s+/g, ' ').trim().slice(0, 200);
     return { error: `the projection could not be built (${why || 'unknown reason'}) — the command was not started` };
   }
 
-  const rel = `.aipass/spill/${name}.txt`;
-  const file = path.join(root, '.aipass', 'spill', `${name}.txt`);
+  let finalName = name;
+  let rel = `.aipass/spill/${finalName}.txt`;
+  let file = path.join(root, '.aipass', 'spill', `${finalName}.txt`);
+  let attempt = 1;
+  while (liveSpillFiles.has(file)) {
+    attempt++;
+    finalName = `${name}-${attempt}`;
+    rel = `.aipass/spill/${finalName}.txt`;
+    file = path.join(root, '.aipass', 'spill', `${finalName}.txt`);
+  }
   try {
     await fs.promises.mkdir(path.dirname(file), { recursive: true });
-    // 'w': a stale file from an earlier job with the same id is not this one's
-    // output, and appending would make JOBS point at a mixture of two runs.
-    await fs.promises.writeFile(file, '');
+    // Exclusive create ('wx'), never a truncate ('w'): a file that already
+    // exists may belong to a live job in ANOTHER process (a second backend
+    // on the same project — liveSpillFiles only sees this one's), or to a
+    // finished job whose output a session note still points at. Truncating
+    // either would mix two runs' output in one file, so a taken name gets a
+    // random suffix instead. A fresh name is still exactly `${name}.txt`.
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await fs.promises.writeFile(file, '', { flag: 'wx' });
+        break;
+      } catch (err) {
+        const e = /** @type {any} */ (err);
+        if (e?.code !== 'EEXIST' || attempt >= 8) throw err;
+        finalName = `${name}-${Math.random().toString(16).slice(2, 8)}`;
+        rel = `.aipass/spill/${finalName}.txt`;
+        file = path.join(root, '.aipass', 'spill', `${finalName}.txt`);
+        if (liveSpillFiles.has(file)) continue;
+      }
+    }
+    liveSpillFiles.add(file);
   } catch (err) {
     world.dispose();
+    try { await unlockSharedDirs(root, lock); } catch { /* best effort */ }
     const e = /** @type {any} */ (err);
     return { error: `the output file could not be created: ${String(e?.message ?? e).slice(0, 200)}` };
   }
 
-  let child;
+  // The job runs in a forked worker (shell-worker.mjs), like a foreground RUN
+  // — the backend never spawns the shell itself. If the worker cannot start,
+  // the job answers `err:` and nothing runs.
+  await acquireWorker();
+  /** @type {import('node:child_process').ChildProcess} */
+  let worker;
   try {
-    child = spawn(command, {
-      cwd: world.cwd,
-      shell: true,
+    worker = fork(WORKER, [], {
+      env: sanitizeEnv(),
       windowsHide: true,
-      detached: process.platform !== 'win32',
+      stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+      execArgv: ['--max-old-space-size=512'],
     });
   } catch (err) {
+    releaseWorker();
+    liveSpillFiles.delete(file);
     world.dispose();
+    try { await unlockSharedDirs(root, lock); } catch { /* best effort */ }
     const e = /** @type {any} */ (err);
     return { error: `the command could not start: ${String(e?.message ?? e).slice(0, 200)}` };
   }
@@ -300,47 +451,85 @@ export async function startBackgroundRun({ root, overlay, signal = null, command
   let clipped = false;
   let pending = '';
   const out = fs.createWriteStream(file, { flags: 'a' });
+  const capLabel = outputCap >= 1024 * 1024
+    ? `${Math.round(outputCap / 1024 / 1024)} MB`
+    : `${outputCap} bytes`;
+  const clipMarker = `\n… output stopped at ${capLabel} — the rest was dropped.\n`;
   const write = (/** @type {string} */ text) => {
     if (!text || settled) return;
-    if (written >= BACKGROUND_OUTPUT_CAP) {
-      if (!clipped) {
-        clipped = true;
-        out.write(`\n… output stopped at ${Math.round(BACKGROUND_OUTPUT_CAP / 1024 / 1024)} MB — the rest was dropped.\n`);
-      }
+    if (written >= outputCap) {
+      if (!clipped) { clipped = true; out.write(clipMarker); }
+      return;
+    }
+    // Slice to the room left, not past it: a single long line must not
+    // overshoot the cap by its whole length (the marker rides after it).
+    const room = outputCap - written;
+    if (text.length > room) {
+      out.write(text.slice(0, room));
+      written = outputCap;
+      if (!clipped) { clipped = true; out.write(clipMarker); }
       return;
     }
     written += text.length;
     out.write(text);
   };
-  // Same cross-chunk decode as runShell above: a split multi-byte character
-  // is whole again by the time the line is screened and written.
-  child.stdout?.setEncoding('utf8');
-  child.stderr?.setEncoding('utf8');
-  const feed = (/** @type {any} */ chunk) => {
+  // The worker streams raw chunks over IPC; the line split and the screen
+  // happen here, as before — a split multi-byte character is whole again by
+  // the time the line is written (the worker decodes per stream, not per
+  // chunk, the same rule runShell held).
+  const feed = (/** @type {string} */ chunk) => {
     pending += String(chunk);
     const lines = pending.split('\n');
     pending = lines.pop() ?? '';
-    for (const line of lines) write(world.scrub(scrubSecretDiff(scrubOutput(line))) + '\n');
+    for (const line of lines) write(world.scrub(scrubSecretDiff(scrubOutput(line, secrets))) + '\n');
+    // The unsplit tail is held until its newline arrives — a command that
+    // prints one endless line would hold its whole output in memory while
+    // the disk cap above already said "stop". Past the cap, flush the
+    // tail through the same write (cap + marker own the ending), so memory
+    // stays bounded by outputCap, not by the longest line.
+    if (pending.length > outputCap) {
+      write(world.scrub(scrubSecretDiff(scrubOutput(pending, secrets))));
+      pending = '';
+    }
   };
-  child.stdout?.on('data', feed);
-  child.stderr?.on('data', feed);
   const finishJob = (/** @type {number|null} */ code, /** @type {string|null} */ sig) => /** @type {Promise<void>} */ (new Promise((resolve) => {
     if (settled) return resolve();
-    if (pending) write(world.scrub(scrubSecretDiff(scrubOutput(pending))));
+    // `settled` flips only after the audit line is written: write() drops
+    // text once settled, and the audit line is the last thing the job says.
+    if (pending) write(world.scrub(scrubSecretDiff(scrubOutput(pending, secrets))));
     pending = '';
     const notes = world.notes();
     if (notes) write(`\n${notes}\n`);
     if (signal) signal.removeEventListener('abort', onAbort);
-    settled = true;
-    // The stream is closed after every line is written, and the job is only
-    // settled when the file is: a model that reads the locator the same
-    // second must not find a half-written file.
-    out.once('error', () => resolve());
-    out.end(() => { world.dispose(); resolve(); });
+    // The shared-dir audit rides the job's end, like a foreground RUN's.
+    void (async () => {
+      try {
+        const audit = await auditSharedDirs(root, lock);
+        const bad = [
+          ...audit.changed.map((f) => `${f} (changed)`),
+          ...audit.added.map((f) => `${f} (added)`),
+          ...audit.deleted.map((f) => `${f} (deleted)`),
+        ];
+        if (bad.length) {
+          write(`\nerr: the run changed a shared directory — ${bad.slice(0, 10).join(', ')}${bad.length > 10 ? `, and ${bad.length - 10} more` : ''} — the change is left on disk; review it, or restore the folder.\n`);
+        }
+      } catch { /* the audit is a second layer */ }
+      settled = true;
+      try { await unlockSharedDirs(root, lock); } catch { /* best effort */ }
+      try { worker.disconnect(); } catch { /* already gone */ }
+      try { if (worker.exitCode === null) worker.kill(); } catch { /* already gone */ }
+      // The stream is closed after every line is written, and the job is only
+      // settled when the file is: a model that reads the locator the same
+      // second must not find a half-written file.
+      out.once('error', () => { liveSpillFiles.delete(file); releaseWorker(); world.dispose(); resolve(); });
+      out.end(() => { liveSpillFiles.delete(file); releaseWorker(); world.dispose(); resolve(); });
+    })();
   }));
   const onAbort = () => {
     stopped = true;
-    killTree(child);
+    try { worker.send({ type: 'stop', id: 'job' }); } catch { /* already gone */ }
+    const grace = setTimeout(() => killTree(worker), 3_000);
+    grace.unref?.();
   };
   if (signal) {
     if (signal.aborted) { onAbort(); }
@@ -348,21 +537,35 @@ export async function startBackgroundRun({ root, overlay, signal = null, command
   }
 
   const done = new Promise((resolve) => {
-    child.on('error', (err) => {
+    worker.on('error', (err) => {
       write(`\nerr: the command could not start: ${String(err?.message ?? err)}\n`);
       void finishJob(null, null).then(() => resolve({ code: null, signal: null, stopped }));
     });
-    child.on('close', (code, sig) => {
-      void finishJob(code, sig ?? null).then(() => resolve({ code: stopped ? null : code, signal: sig ?? null, stopped }));
+    worker.on('exit', (code, sig) => {
+      // The worker died without an exit message: the job ends, the backend
+      // stays up, and the spill file says what happened.
+      if (settled) return;
+      write(`\nerr: the shell worker exited (${code ?? sig ?? '?'}) before the command answered\n`);
+      void finishJob(null, sig ?? null).then(() => resolve({ code: null, signal: sig ?? null, stopped }));
+    });
+    worker.on('message', (/** @type {any} */ msg) => {
+      if (msg?.type === 'data') { feed(String(msg.chunk ?? '')); return; }
+      if (msg?.type !== 'exit') return;
+      if (msg.error) write(`\nerr: ${String(msg.error)}\n`);
+      void finishJob(msg.code ?? null, msg.signal ?? null).then(() => resolve({ code: stopped ? null : (msg.code ?? null), signal: msg.signal ?? null, stopped }));
     });
   });
+  worker.send({ type: 'run', id: 'job', command, cwd: world.cwd, allowedRoot: world.cwd, timeoutMs: 24 * 60 * 60 * 1000, maxBuffer: outputCap, stream: true });
 
   return {
+    name: finalName,
     outputRel: rel,
     done,
     stop: async () => {
       stopped = true;
-      killTree(child);
+      try { worker.send({ type: 'stop', id: 'job' }); } catch { /* already gone */ }
+      const grace = setTimeout(() => killTree(worker), 3_000);
+      grace.unref?.();
       await done;
       return { stopped: true };
     },

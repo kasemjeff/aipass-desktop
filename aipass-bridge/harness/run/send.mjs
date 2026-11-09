@@ -109,11 +109,27 @@ export function createSender(run) {
    * re-sending the same image on every step would re-upload it and occupy the
    * context again for nothing. ATTACH queues (the tool's own) drain into the
    * next message, whatever turn that is.
+   *
+   * The drain happens here, once per send — never once per attempt. A send
+   * that the recovery ladder retries re-sends the same parts (draining again
+   * on the retry would leave the resend carrying nothing while say() still
+   * records the message, and the model would answer about a file it never
+   * saw). A send that ends without success hands them back via restoreParts,
+   * so the next send — the rotation resend included — carries them again.
    */
+  /** @type {any[]} */
+  let drainedQueued = [];
   const partsForSend = () => {
     const queued = Array.isArray(run.tools.pendingParts) ? run.tools.pendingParts.splice(0) : [];
+    drainedQueued = queued;
     const base = run.sends === 0 && Array.isArray(run.firstParts) ? run.firstParts : [];
     return base.length || queued.length ? [...base, ...queued] : null;
+  };
+  const restoreParts = () => {
+    if (drainedQueued.length && Array.isArray(run.tools.pendingParts)) {
+      run.tools.pendingParts.unshift(...drainedQueued);
+    }
+    drainedQueued = [];
   };
 
   /**
@@ -129,13 +145,16 @@ export function createSender(run) {
    * `{ stopReason: 'error', overflow: <message> }` instead — the loop owns
    * the rotation that heals it, and re-fires the error ending when it cannot.
    *
-   * @returns {Promise<{reply: string|null, stopReason: string|null, overflow?: string}>}
+   * @returns {Promise<{reply: string|null, stopReason: string|null, overflow?: string, truncated?: boolean}>}
    */
   const send = async () => {
     const recover = recoverWaits();
+    // Drained once for the whole send: every attempt of the ladder below
+    // re-sends this same array, and only a failed ending gives it back.
+    const parts = partsForSend();
     for (let attempt = 0; ; attempt++) {
       try {
-        const reply = await saySafe(run.next, partsForSend());
+        const reply = await saySafe(run.next, parts);
         // (listing delta) The memory only becomes true once the message that
         // carries the listing was accepted. The first send of the run is the
         // composed message; every later message carries results or the seed,
@@ -149,7 +168,7 @@ export function createSender(run) {
         // a resume seed's boundary. Idempotent, and failures here must never
         // end a run — the message is already out.
         try { run.onConversationSettled?.({ conversation: run.conversation, temporary: run.conversationTemporary }); } catch { /* best effort */ }
-        return { reply, stopReason: null };
+        return { reply, stopReason: null, truncated: Boolean(run.lastReplyTruncated) };
       } catch (err) {
         // The failure is whatever the edge threw; its own name and message
         // are what the run's ending is made of.
@@ -157,7 +176,7 @@ export function createSender(run) {
         // The user pressed stop: the signal ends the in-flight fetch with an
         // AbortError, which is an ending, not a failure — the transcript should
         // not read "error" for something the user did on purpose.
-        if (why?.name === 'AbortError') return { reply: null, stopReason: 'cancelled' };
+        if (why?.name === 'AbortError') { restoreParts(); return { reply: null, stopReason: 'cancelled' }; }
         // (resume) The conversation this session adopted is gone upstream — a
         // temporary that expired, one deleted by hand. Only the run's first
         // send can recover: nothing of this run has entered the old one, so
@@ -192,6 +211,7 @@ export function createSender(run) {
         // note are deferred with it — a send the rotation recovers must not
         // read as a failure in the transcript.
         if (isContextOverflow(why)) {
+          restoreParts();
           return { reply: null, stopReason: 'error', overflow: String(why.message ?? why) };
         }
         // A send that delivered nothing and heals by waiting — the extension's
@@ -229,6 +249,7 @@ export function createSender(run) {
         // not a mystery after the run waited. The cause is still recorded
         // (sendError + the note), and the stopReason carries the precision.
         const exhausted = attempt >= recover.length && sendRecoverable(why);
+        restoreParts();
         return { reply: null, stopReason: exhausted ? 'send-timeout' : 'error' };
       }
     }

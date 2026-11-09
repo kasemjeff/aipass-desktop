@@ -1,3 +1,4 @@
+// @ts-nocheck
 // The browser that opens the AiPASS chat tab, and the bookkeeping that lets
 // the test suite close it again.
 //

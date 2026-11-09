@@ -60,6 +60,30 @@ test('thai ratio counts letters and ignores code, inline code, and URLs', () => 
   assert.equal(empty.ratio, 0);
 });
 
+test('the 0.4 threshold sits in the measured valley — a Thai tech closing passes, an English one nudges', () => {
+  // Measured on real closings (35 session files, 89 assistant closings):
+  // the distribution is bimodal — pure English at 0, Thai at 0.45-0.95 —
+  // with an empty valley between. 0.4 sits in it. Raising it to 0.5 would
+  // false-nudge Thai tech closings (0.45, 0.515 below), so these pin both
+  // sides rather than a bare threshold constant.
+  const thaiTech = [
+    'แก้ port_owner แล้วครับ รัน cargo test ผ่าน 28 test',
+    'เสร็จแล้วครับ แก้ send.mjs ให้ stopReason เป็น send-timeout แล้ว รัน test ผ่าน 31/31',
+  ];
+  for (const t of thaiTech) {
+    const r = thaiRatio(t);
+    assert.ok(r.ratio >= 0.4, `Thai tech closing must pass: ${r.ratio} for ${t}`);
+  }
+  const english = [
+    'Done: fixed the probe in backend.rs, 28 tests pass',
+    'The probe now falls back to raw HTTP when node is missing.',
+  ];
+  for (const t of english) {
+    const r = thaiRatio(t);
+    assert.ok(r.ratio < 0.4, `English closing must nudge: ${r.ratio} for ${t}`);
+  }
+});
+
 test('withoutTechnical drops fenced code, inline code, urls, emails', () => {
   assert.equal(withoutTechnical('a `b` c').includes('b'), false);
   assert.equal(withoutTechnical('see https://x.dev/y now').includes('x.dev'), false);

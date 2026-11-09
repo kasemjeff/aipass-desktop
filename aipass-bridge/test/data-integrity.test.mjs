@@ -9,7 +9,36 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { SessionStore, HEADER_EVERY } from '../harness/session.mjs';
+import { SessionStore, HEADER_EVERY, titleFromFirstLine, isDefaultTitle } from '../harness/session.mjs';
+
+test('a session is named from the first line of its first message, about 40 characters', () => {
+  assert.equal(titleFromFirstLine('hello world'), 'hello world');
+  assert.equal(titleFromFirstLine('\n\n  first line  \nsecond line'), 'first line', 'the first non-empty line wins');
+  assert.equal(titleFromFirstLine('a   b\n c'), 'a b', 'whitespace collapses');
+  assert.equal(titleFromFirstLine('x'.repeat(60)).length, 40, 'a long first line is cut to about 40 characters');
+  assert.equal(titleFromFirstLine(''), '');
+  assert.equal(titleFromFirstLine('   \n  '), '', 'nothing to name it from stays unnamed (the time title is the fallback)');
+  assert.equal(isDefaultTitle('2026-11-08 23:12'), true, 'the minted time title may be replaced');
+  assert.equal(isDefaultTitle('my session'), false, 'a given title is never replaced');
+  assert.equal(isDefaultTitle('2026-11-08 23:12 deploy check'), false, 'a stamped-but-named title is not the minted one');
+});
+
+test('a chosen title is marked, so automatic naming cannot take it back', () => {
+  // The flag is what tells a minted title from a chosen one — a person may
+  // choose a title that happens to look like the timestamp, and only the
+  // flag keeps the automatic naming off it.
+  const dir = tmp();
+  const store = new SessionStore(path.join(dir, 'store'));
+  const root = path.join(dir, 'proj');
+  const minted = store.create({ root });
+  assert.equal(minted.header.titleAuto, true, 'a session born with the time title is marked auto');
+  assert.equal(store.load(minted.id).header.titleAuto, true, 'and the flag survives the file');
+  const chosen = store.create({ root, title: '2026-11-08 23:12' });
+  assert.equal(chosen.header.titleAuto, false, 'a chosen title that looks like the timestamp is marked chosen');
+  store.rename(minted.id, 'my name');
+  assert.equal(store.load(minted.id).header.titleAuto, false, 'a rename marks the title chosen too');
+  assert.equal(store.load(minted.id).title, 'my name');
+});
 import { Settings } from '../harness/settings.mjs';
 import { Overlay } from '../harness/overlay.mjs';
 
@@ -576,7 +605,7 @@ test('a session records the conversation it works in; a fork starts unbound', ()
   assert.equal(store.load(s.id).header.conversationTemporary, undefined, 'both fields go');
 });
 
-test('a memory save that cannot complete leaves the previous facts intact', async () => {
+test('a memory save that cannot complete leaves the previous facts intact', { skip: process.getuid?.() === 0 && process.platform !== 'win32' && 'root ข้าม chmod (root ignores read-only modes)' }, async (t) => {
   const home = tmp();
   const prev = process.env.AIPASS_HOME;
   process.env.AIPASS_HOME = home;
@@ -607,6 +636,58 @@ test('a memory save that cannot complete leaves the previous facts intact', asyn
 
     saveMemory(root, ['fact two']);
     assert.deepEqual(loadMemory(root).sort(), ['fact one', 'fact two'], 'and the next save lands');
+  } finally {
+    if (prev === undefined) delete process.env.AIPASS_HOME;
+    else process.env.AIPASS_HOME = prev;
+  }
+});
+
+test('a failed memory save reports through onError and still never throws', { skip: process.getuid?.() === 0 && process.platform !== 'win32' && 'root ข้าม chmod (root ignores read-only modes)' }, async (t) => {
+  const home = tmp();
+  const prev = process.env.AIPASS_HOME;
+  process.env.AIPASS_HOME = home;
+  try {
+    const { saveMemory, loadMemory, memoryPath } = await import('../harness/memory-store.mjs');
+    const root = path.join(home, 'proj');
+    saveMemory(root, ['fact one']);
+    const target = memoryPath(root);
+    const reported = [];
+    if (process.platform === 'win32') {
+      fs.chmodSync(target, 0o444);
+      saveMemory(root, ['fact two'], undefined, { onError: (err) => reported.push(err) });
+      fs.chmodSync(target, 0o600);
+    } else {
+      fs.chmodSync(path.dirname(target), 0o555);
+      saveMemory(root, ['fact two'], undefined, { onError: (err) => reported.push(err) });
+      fs.chmodSync(path.dirname(target), 0o755);
+    }
+    assert.equal(reported.length, 1, 'the caller is told the save did not land');
+    assert.ok(reported[0], 'with the error itself');
+    assert.deepEqual(loadMemory(root), ['fact one'], 'and the old facts survive');
+  } finally {
+    if (prev === undefined) delete process.env.AIPASS_HOME;
+    else process.env.AIPASS_HOME = prev;
+  }
+});
+
+test('clearMemory says whether the facts actually went', async () => {
+  const home = tmp();
+  const prev = process.env.AIPASS_HOME;
+  process.env.AIPASS_HOME = home;
+  try {
+    const { saveMemory, loadMemory, clearMemory, memoryPath } = await import('../harness/memory-store.mjs');
+    const root = path.join(home, 'proj');
+    saveMemory(root, ['fact one']);
+    assert.equal(clearMemory(root), true, 'a clear that lands says so');
+    assert.deepEqual(loadMemory(root), [], 'and the facts are gone');
+    // A directory where the store file belongs cannot be removed by a plain
+    // rm — the clear must say it failed, not report a forgetting that never
+    // happened (the next save merges from disk and would resurrect them).
+    const target = memoryPath(root);
+    fs.mkdirSync(target, { recursive: true });
+    fs.writeFileSync(path.join(target, 'keep.txt'), 'x');
+    assert.equal(clearMemory(root), false, 'a clear that cannot land says so');
+    fs.rmSync(target, { recursive: true, force: true });
   } finally {
     if (prev === undefined) delete process.env.AIPASS_HOME;
     else process.env.AIPASS_HOME = prev;

@@ -27,6 +27,7 @@ import path from 'node:path';
 import { posix } from '../overlay.mjs';
 import { thaiRatio } from '../lang.mjs';
 import { hasFindings } from '../review.mjs';
+import { auditCheckResult, evidenceNote, classifyTaskType } from '../verify-evidence.mjs';
 import { RunContext } from './context.mjs';
 
 /**
@@ -59,6 +60,7 @@ export function createDoneGates(run) {
     run.mutationsAtLastCheck = run.mutations;
     run.verifySent = true; // the run is being checked; R4 stands down
     const files = run.stagedFiles(20);
+    run.taskType = classifyTaskType(files);
     const label = files.map((/** @type {{path: string, deleted: boolean}} */ f) => (f.deleted ? `${f.path} (deleted)` : f.path)).join(', ') || 'the staged tree';
     run.note(`check: ${label} staged — a read-only child is looking at the tree Apply would produce`);
     run.emit('check_start', { files, command: run.declaredCheckCommand() || null });
@@ -80,6 +82,56 @@ export function createDoneGates(run) {
       command: run.checkResult.declared ?? null,
       commandSource: run.checkResult.declaredSource ?? null,
     });
+    // Independent verification (harness/verify-evidence.mjs): the checker's
+    // verdict is one witness; this reads the evidence underneath it — ran
+    // executions, staged files, the declared command — and refuses to let a
+    // verdict stand without them. Only a `pass` is ever downgraded, and only
+    // to `none`; a `fail` is kept. Off via `independentVerify: false`.
+    const independentOn = run.sheet?.independentVerify !== false && run.options?.independentVerify !== false;
+    if (independentOn && run.checkResult && !run.checkResult.skipped) {
+      run.independentChecks += 1;
+      const criteria = Array.isArray(run.options?.acceptanceCriteria)
+        ? run.options.acceptanceCriteria.map((/** @type {any} */ c) => String(c).trim()).filter(Boolean)
+        : [];
+      run.acceptanceCriteria = criteria;
+      const audit = auditCheckResult(run.checkResult, {
+        stagedFiles: files,
+        declaredCommand: run.declaredCheckCommand() || '',
+        stagedCount: run.overlay.size ?? files.length,
+        taskType: run.taskType,
+        acceptanceCriteria: criteria,
+      });
+      run.independentVerdict = audit.verdict;
+      run.independentIssues = audit.issues;
+      if (audit.issues.length) {
+        run.note(`independent verification: ${audit.issues.join('; ')}`);
+        run.emit('note', { text: `independent verification: ${audit.issues.join('; ')}` });
+      }
+      // Capture the downgrade BEFORE the rewrite below: after it,
+      // `checkResult.verdict === audit.verdict` by construction, and the
+      // "a pass was just downgraded" signal would be lost.
+      const downgraded = !audit.trustworthy && run.checkResult.verdict !== audit.verdict;
+      if (downgraded) {
+        run.checkResult = { ...run.checkResult, verdict: audit.verdict, independentIssues: audit.issues };
+      }
+      // An audit that flags missing evidence speaks when the DONE would
+      // otherwise claim it: a just-downgraded pass, a declared check that
+      // never ran, or declared criteria with no execution behind them. A
+      // `fail` keeps its own note though — the model's next step is to read
+      // the failing output, not be told about the audit. Code staged with
+      // NO declared check and nothing runnable is an honest `none`: the
+      // unverified flag is recorded, but a nudge would have no way out
+      // (each DONE would earn another checker conversation, forever) — so
+      // those issues ride the stats, not the model.
+      const speakable = audit.issues.length
+        && run.checkResult.verdict !== 'fail'
+        && (downgraded
+          || (run.declaredCheckCommand() || run.acceptanceCriteria?.length));
+      if (speakable) {
+        const noteText = evidenceNote(audit);
+        return noteText || `Independent verification: ${audit.issues.join('; ')}.`;
+      }
+    }
     return run.checkResult.verdict === 'fail'
       ? `Before DONE, a check of the staged tree ran and did not pass:\n${String(run.checkResult.text ?? '').slice(0, 4000)}\n\nFix the staged files, or explain why the failure is not yours to fix.`
       : null;
@@ -94,8 +146,23 @@ export function createDoneGates(run) {
     if (!run.options.requireCheck) return null;
     if (!run.check || !run.options.subagent || !run.options.allowRun) return null;
     if (!run.overlay.size || !run.codeTouched) return null;
-    if (run.checkResult?.verdict !== 'fail') return null;
-    return run.declaredCheckCommand() || null;
+    // A checker that was skipped (no conversation, structurally down) is not
+    // evidence for or against anything: the run settles as it did before.
+    if (run.checkResult?.skipped) return null;
+    if (run.checkResult?.verdict === 'fail') return run.declaredCheckCommand() || null;
+    // Verification by task type: code staged, a declared check exists, and
+    // the verdict is `none` because the declared check never ran — that is
+    // the same unverified DONE as a still-failing check, just quieter. A
+    // missing verdict (checkResult still null — the checker never ran in
+    // this run) is the same case: `taskType` is only set by `finishCheck`,
+    // so the staged files are classified here when it is still 'none'.
+    const taskType = run.taskType && run.taskType !== 'none'
+      ? run.taskType
+      : classifyTaskType(run.stagedFiles?.(20) ?? []);
+    if ((!run.checkResult?.verdict || run.checkResult.verdict === 'none') && taskType === 'code' && run.declaredCheckCommand()) {
+      return run.declaredCheckCommand() || null;
+    }
+    return null;
   };
 
   /**
@@ -212,17 +279,22 @@ export function createDoneGates(run) {
    * @returns {{stop: boolean, msg: string|null}}
    */
   const jobsGate = (canNudge) => {
-    const running = [...run.backgroundJobs.values()].filter((j) => j.kind === 'run' && j.status === 'running');
+    const running = [...run.backgroundJobs.values()].filter((j) => j.status === 'running');
     if (!running.length) return { stop: false, msg: null };
     const ids = running.map((j) => j.id);
     if (!run.jobsPromptSent && canNudge) {
       run.jobsPromptSent = true;
       run.note(`background commands still running: ${ids.join(', ')} — asking before DONE`);
       run.emit('note', { text: `background command(s) ${ids.join(', ')} are still running — asking the model to wait or stop them before DONE` });
-      const lines = running.map((j) => `- ${j.id}: ${j.task} — output: ${j.outputRel}`);
+      const lines = running.map((j) => {
+        if (j.kind === 'run') return `- ${j.id}: ${j.task} — output: ${j.outputRel}`;
+        return `- ${j.id}: helper${j.role ? ` (${j.role})` : ''} — ${j.task}`;
+      });
       return { stop: false, msg: `Before DONE: the background command(s) this run started are still running:\n${lines.join('\n')}\n\nPoll with JOBS until they finish, or end one with JOBS stop <id> (the whole tree). A DONE you send anyway ends the run — the job is stopped with it.` };
     }
-    run.summary = `DONE with background command(s) still running: ${ids.join(', ')} — stopped with the run; their output is in ${running.map((j) => j.outputRel).join(', ')}`;
+    const outputs = running.map((j) => j.outputRel).filter(Boolean);
+    const outputSuffix = outputs.length ? `; their output is in ${outputs.join(', ')}` : '';
+    run.summary = `DONE with background command(s) still running: ${ids.join(', ')} — stopped with the run${outputSuffix}`;
     run.stopReason = 'jobs-running';
     run.note(`background commands left running at DONE: ${ids.join(', ')}`);
     run.emit('note', { text: run.summary });

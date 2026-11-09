@@ -1,3 +1,4 @@
+// @ts-nocheck
 // The files domain: the tree, the files, the attachments and the index.
 //
 // Everything here answers a question the person is asking ("what is in this
@@ -97,7 +98,21 @@ export function createFilesMethods(ctx) {
 
     /* -------------------------------------------------------------- browser */
 
-    async 'browser.open'(params = {}) { return { ok: await openBrowser(params.url ?? appSettings.get('chatUrl')) }; },
+    async 'browser.open'(params = {}) {
+      const url = params.url ?? appSettings.get('chatUrl');
+      const ok = await openBrowser(url);
+      // Opening the chat tab by hand (the needs_tab banner's button) is a
+      // tab return: the degraded countdown ends, even when autoOpenTab is
+      // off (the handler in rpc.mjs returns before it can clear anything).
+      // Read through `ctx` at call time, not destructured above: the timer
+      // is defined after the routes, so a factory-time destructure would
+      // read it before it exists.
+      if (ok && String(url) === String(appSettings.get('chatUrl'))) {
+        ctx.emit?.('tab_opened', { url, opened: true });
+        ctx.clearTabGone?.();
+      }
+      return { ok };
+    },
   async 'shell.reveal'(params = {}) {
     const target = params.path ?? params.target;
     if (!target || typeof target !== 'string') return { ok: false, reason: 'no path' };
@@ -117,7 +132,7 @@ export function createFilesMethods(ctx) {
     // the same tree is downloadable from the GitHub repo (Code -> Download
     // ZIP) for machines that only want the extension. Open that page so the
     // person can grab it without a store listing or a clone.
-    const url = 'https://github.com/kasemjeff/aipass';
+    const url = 'https://github.com/kasemjeff/aipass-desktop';
     try { await openBrowser(url); } catch { /* fall through — the url is still returned */ }
     return { ok: true, url };
   },

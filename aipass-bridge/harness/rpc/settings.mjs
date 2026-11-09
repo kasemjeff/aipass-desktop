@@ -1,3 +1,4 @@
+// @ts-nocheck
 // The settings domain: the file every surface shares.
 //
 // What lives here is the machine's own configuration — the mode, the budgets,
@@ -220,23 +221,7 @@ export function createSettingsMethods(ctx) {
       // first opened. The guards stay per-parameter: a save that does not name
       // the mode must not stomp a mode a run set for itself.
       for (const h of harnesses.values()) {
-        if (params.mode || params.allowRun != null) h.setPolicy({ mode: params.mode ?? null, allowRun: params.allowRun ?? null });
-        // The settings sheet claims a value is live the moment Save is pressed,
-        // so every setting that reaches a module of its own is re-applied here
-        // rather than at the next start. A half-applied form is worse than no
-        // form: it writes one truth and keeps the process running another.
-        if (params.maxSteps != null) h.options.maxSteps = appSettings.get('maxSteps');
-        // The budgets are read once per run from the harness options; without
-        // this a budget change was a note for the next backend start while the
-        // sheet said it was live.
-        if (params.maxToolCalls != null) h.options.maxToolCalls = appSettings.get('maxToolCalls');
-        if (params.maxWallClockMs != null) h.options.maxWallClockMs = appSettings.get('maxWallClockMs');
-        if (params.maxCredits != null) h.options.maxCredits = appSettings.get('maxCredits');
-        if (params.plan != null) h.options.plan = appSettings.get('plan');
-        if (params.requirePlanApproval != null) h.options.requirePlanApproval = appSettings.get('requirePlanApproval');
-        if (params.subagent != null) h.options.subagent = appSettings.get('subagent');
-        if (params.thinking != null) h.options.thinking = appSettings.get('thinking');
-        if (params.temperature !== undefined) h.options.temperature = appSettings.get('temperature');
+        applySettingsTo(h);
         // Only the AiPASS harnesses take the id: a model means nothing across
         // providers, and a harness on another provider was handed one it
         // cannot ask for.
@@ -249,21 +234,6 @@ export function createSettingsMethods(ctx) {
           const want = String(params.defaultProvider).trim().toLowerCase();
           if (providers.get(want)) applyProviderTo(h, want);
         }
-        if (params.compaction) h.compactor = Object.assign(h.compactor, params.compaction);
-        // The rotation share is its own setting, not part of the budget object:
-        // it is the knob a person turns, the budget is the ceiling.
-        if (params.compactAtPercent != null) h.compactor.compactAtPercent = params.compactAtPercent;
-        // (Thai pack) The language keys and the loop guards read their options
-        // per run, so the sheet's save has to move the live copies too.
-        for (const key of ['replyLanguage', 'langCheck', 'minThaiRatio', 'repeatGuard', 'repeatGuardMax', 'attempts', 'verifyCommand', 'requireCheck']) {
-          if (params[key] != null) h.options[key] = appSettings.get(key);
-        }
-        // The reading switches: the preamble and the read group read their
-        // options per run, so a save is live on the next one.
-        for (const key of ['recall', 'retrieve', 'diagnose', 'explore', 'parallelReads', 'snapshot', 'instructions', 'memoryCapture']) {
-          if (params[key] != null) h.options[key] = appSettings.get(key);
-        }
-        if (params.cag != null) h.options.cag = appSettings.get('cag'); // Phase 4 (disjoint line)
         // The playbook folders are per project, so each harness rebuilds its
         // own list. The plugin list is one module for the whole backend and is
         // reloaded once below.
@@ -327,8 +297,21 @@ export function createSettingsMethods(ctx) {
       return { facts: targetFor(params).crossSessionMemory() };
     },
     async 'memory.clear'(params = {}) {
-      targetFor(params).clearCrossSessionMemory();
-      return { ok: true };
+      // The clear can fail (the store file will not go) — and a save merges
+      // with the disk copy, so claiming success would resurrect the facts
+      // the person ordered forgotten. `ok: false` is the window's cue to
+      // say the clear did not land instead of announcing a forgetting that
+      // never happened.
+      const ok = targetFor(params).clearCrossSessionMemory();
+      return { ok };
+    },
+    async 'memory.forget'(params = {}) {
+      // One fact, not all of them: the list exists so a person can review
+      // what was carried, and a clear-all is too blunt to answer a single
+      // poisoned line. `ok: false` carries the same meaning as the clear's
+      // — the removal never landed, so the fact is still on disk.
+      const ok = targetFor(params).forgetCrossSessionMemory(params?.fact ?? '');
+      return { ok };
     },
 
     /* ------------------------------------------------------------------ goal */

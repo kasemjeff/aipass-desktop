@@ -79,7 +79,7 @@ function requestOnce({ port, method, path: reqPath, headers = {}, body = null, t
  * Two transports, and both carry the token — the desktop law applies to every
  * client, not only to the window (desktop/AGENTS.md, "Transport"): `/rpc` in
  * the `authorization` header, `/events` in the same header (the backend
- * accepts a header bearer on the stream as well as `?token=`).
+ * accepts a header bearer or the HttpOnly `aipass_token` cookie on the stream; a token in the URL is refused).
  *
  * @param {object} input
  * @param {number} input.port

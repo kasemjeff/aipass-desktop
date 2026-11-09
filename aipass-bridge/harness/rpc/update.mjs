@@ -14,6 +14,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {
   downloadVerified,
+  manualDownloadUrl,
   promote,
   refuseWhileRunning,
   refuseUnsignedArtifact,
@@ -134,7 +135,7 @@ export function createUpdateMethods(ctx) {
         return { ok: false, reason: found?.reason ?? 'there is no new installer to hand over to' };
       }
       const unsigned = refuseUnsignedArtifact(release);
-      if (unsigned) return unsigned;
+      if (unsigned) return { ...unsigned, manualUrl: manualDownloadUrl(release) };
       const fetched = await downloadVerified(release, { home: aipassHome() });
       if (!fetched.ok) return fetched;
       const command = {

@@ -57,7 +57,8 @@ const EVENT_NAMES = Object.freeze([
   // the questions the backend asks the client
   'permission_request', 'plan_request',
   // the machine around the run
-  'needs_tab', 'tab_opened', 'session', 'session_opened', 'session_forked',
+  'needs_tab', 'tab_opened', 'tab_degraded', 'provider_failover', 'run_interrupted',
+  'session', 'session_opened', 'session_forked',
   'conversation', 'project', 'settings', 'plugins', 'applied', 'discarded',
 ]);
 
@@ -74,7 +75,7 @@ const EVENT_NAMES = Object.freeze([
 const ALWAYS_FORWARD = Object.freeze(new Set([
   'hello', 'ping',
   'permission_request', 'plan_request',
-  'needs_tab', 'tab_opened',
+  'needs_tab', 'tab_opened', 'tab_degraded',
   'project', 'settings', 'plugins',
   'session', 'session_opened', 'session_forked', 'conversation',
 ]));
@@ -202,8 +203,9 @@ function buildRpcUrl(port) {
  * The URL of the event stream.
  *
  * No token in the query string: the backend accepts a header bearer on
- * `/events` as well as `?token=` (rpc.mjs, the `/events` route), and a URL is
- * the shape that ends up in a log.
+ * `/events` (rpc.mjs, the `/events` route; the desktop window uses the HttpOnly
+ * `aipass_token` cookie minted by `/token`), and a URL is the shape that ends
+ * up in a log — a `?token=` on the stream is refused.
  *
  * @param {number} port
  * @returns {string}

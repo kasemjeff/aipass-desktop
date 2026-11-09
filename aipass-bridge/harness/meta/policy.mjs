@@ -1,3 +1,4 @@
+// @ts-nocheck
 // The policy half of the harness: what this machine tells the model about
 // itself, in prose, one document per dimension.
 //

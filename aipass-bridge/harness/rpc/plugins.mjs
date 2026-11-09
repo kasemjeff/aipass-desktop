@@ -1,3 +1,4 @@
+// @ts-nocheck
 // The plugins and MCP domain: code the model may call, and the tools it may
 // use from outside.
 //

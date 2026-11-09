@@ -156,6 +156,38 @@ export function createBanners(ctx) {
     catalogBar.append(again);
   }
 
+  /* The edge-403 (WAF table) banner ----------------------------------------- */
+
+  /** @type {any} */
+  let wafBar = null;
+
+  /**
+   * Say that the edge refused sends the WAF table should have encoded
+   * away. The count comes from the bridge's own /status (`edge403`), read
+   * on the header poll the window already makes — a refusal that survived
+   * the outbound table is a table that may be stale, and the person who
+   * owns the table should hear it in the window, not in a log.
+   *
+   * @param {any} count how many edge 403s the bridge has counted
+   */
+  function syncWafBanner(count) {
+    const n = Number(count ?? 0);
+    if (!(n > 0)) {
+      wafBar?.remove();
+      wafBar = null;
+      return;
+    }
+    const text = `เว็บบล็อกคำขอที่ตารางควรกลบแล้ว ตารางอาจล้าสมัย (edge 403: ${n} ครั้ง)`;
+    if (wafBar) {
+      wafBar.textContent = '';
+    } else {
+      wafBar = el('div', 'note needs-tab');
+      log.append(wafBar);
+      scrollDown();
+    }
+    wafBar.append(el('span', null, text));
+  }
+
   /* The welcome card --------------------------------------------------------- */
 
   /**
@@ -464,6 +496,18 @@ export function createBanners(ctx) {
     const res = await rpc('update.install').catch((/** @type {any} */ err) => ({ ok: false, reason: err?.message ?? String(err) }));
     if (!res?.ok) {
       addCommandOut(`ติดตั้งไม่สำเร็จ — ${res?.reason ?? 'ไม่ทราบสาเหตุ'}`);
+      // The unsigned gate is not the end of the road: offer the verified
+      // artifact by hand — same address the backend would have fetched —
+      // instead of leaving the person to go hunting for a release page.
+      if (res?.manualUrl) {
+        const bar = el('div', 'note update-manual');
+        bar.append(el('span', null, 'ดาวน์โหลดตัวติดตั้งเองแล้วรันด้วยตัวเอง (แอปไม่ได้ปิดและไม่ติดตั้งให้อัตโนมัติ) '));
+        const dl = el('button', 'mini', 'ดาวน์โหลด');
+        dl.onclick = () => rpc('browser.open', { url: res.manualUrl }).catch(() => {});
+        bar.append(dl);
+        log.append(bar);
+        scrollDown();
+      }
       return;
     }
     addCommandOut('กำลังปิดแอปเพื่อติดตั้ง…');
@@ -480,9 +524,10 @@ export function createBanners(ctx) {
   function reset() {
     extensionTokenBar = null;
     catalogBar = null;
+    wafBar = null;
     updateBar = null;
     shownUpdateKey = '';
   }
 
-  return { syncExtensionToken, syncCatalogBanner, hasConversation, showWelcome, hideWelcome, refreshReadiness, checkForUpdate, reset };
+  return { syncExtensionToken, syncCatalogBanner, syncWafBanner, hasConversation, showWelcome, hideWelcome, refreshReadiness, checkForUpdate, reset };
 }

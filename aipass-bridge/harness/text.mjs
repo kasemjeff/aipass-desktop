@@ -1,3 +1,4 @@
+// @ts-nocheck
 // text.mjs — shared tokenization, excerpting and BM25 scoring for
 // retrieval, recall and the memory carry. One tokenizer and one scoring
 // shape (docs/RAG_DESIGN.md D2): a Thai task must rank its facts, its

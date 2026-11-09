@@ -671,7 +671,9 @@ test('renderMemoryFacts draws the list, the empty state, and survives an error',
   const facts = await t.panel.renderMemoryFacts(ul, head);
   assert.deepEqual(facts, ['one', 'two']);
   assert.equal(head.textContent, 'facts ข้าม session (2)');
-  assert.equal(ul.children.length, 2);
+  // The note (unverified framing) plus one row per fact.
+  assert.equal(ul.children.length, 3);
+  assert.ok(ul.textContent.includes('ยังไม่ได้ตรวจสอบ'));
 
   // The sheet may ask for the facts without giving a list to draw into.
   const returned = await t.panel.renderMemoryFacts(undefined, head);
@@ -679,7 +681,9 @@ test('renderMemoryFacts draws the list, the empty state, and survives an error',
 
   // No facts: the header says so and the list explains what creates one.
   t.setRpc('memory.list', { facts: [] });
-  await t.panel.renderMemoryFacts(ul, head);
+  const emptyFacts = await t.panel.renderMemoryFacts(ul, head);
+  assert.deepEqual(emptyFacts, []);
+  assert.equal(ul.children.length, 1);
   assert.equal(head.textContent, 'facts ข้าม session');
   assert.ok(ul.textContent.includes('ยังไม่มี'));
 

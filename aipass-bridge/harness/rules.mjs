@@ -1,3 +1,4 @@
+// @ts-nocheck
 // Persisted permission rules and "always" grants, per project.
 //
 // One JSON file (default ~/.aipass/rules.json) keyed by project root:

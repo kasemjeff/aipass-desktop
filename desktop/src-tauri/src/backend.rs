@@ -12,6 +12,7 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use crate::paths::*;
+use crate::shared::lock;
 use crate::processes::*;
 use crate::supervisor::*;
 
@@ -238,7 +239,7 @@ impl Backend {
             self.handover(command);
             return;
         }
-        let mut guard = self.child.lock().unwrap();
+        let mut guard = lock(&self.child);
         // try_wait consumes the exit status, so read it here: the note names
         // the code (or the signal) instead of just "exited", which is what
         // turns "restart attempt 1 × 40" from a mystery into a diagnosis.
@@ -264,9 +265,9 @@ impl Backend {
             // to end supervision for good, leaving the app running with
             // nothing behind it and the page redialling into the void.
             if guard.is_some() || !empty_slot_needs_a_spawn(self.adopted.load(Ordering::SeqCst)) {
-                *self.fails.lock().unwrap() = 0;
-                *self.content_fails.lock().unwrap() = 0;
-                *self.next_try.lock().unwrap() = Instant::now();
+                *lock(&self.fails) = 0;
+                *lock(&self.content_fails) = 0;
+                *lock(&self.next_try) = Instant::now();
                 self.port_busy.store(false, Ordering::SeqCst);
                 return;
             }
@@ -277,8 +278,8 @@ impl Backend {
         // "restart attempt 1 of a crash" is a lie about what happened.
         match death_of(status.and_then(|s| s.code())) {
             Death::Restart => {
-                *self.fails.lock().unwrap() = 0;
-                *self.next_try.lock().unwrap() = Instant::now();
+                *lock(&self.fails) = 0;
+                *lock(&self.next_try) = Instant::now();
                 note("backend asked for a restart (a new content version) — starting it again");
                 match self.spawn() {
                     Ok(kid) => { *guard = Some(kid); self.adopted.store(false, Ordering::SeqCst); }
@@ -297,9 +298,9 @@ impl Backend {
                 // happen any more; it is still handled, because a build that
                 // predates the fix has to survive one, and because the
                 // supervisor's job is to tell the truth about what happened.
-                *self.fails.lock().unwrap() = 0;
-                *self.content_fails.lock().unwrap() = 0;
-                *self.next_try.lock().unwrap() = Instant::now();
+                *lock(&self.fails) = 0;
+                *lock(&self.content_fails) = 0;
+                *lock(&self.next_try) = Instant::now();
                 note("backend was stopped by a console control event — starting it again, the content tree is fine");
                 match self.spawn() {
                     Ok(kid) => { *guard = Some(kid); self.adopted.store(false, Ordering::SeqCst); }
@@ -315,7 +316,7 @@ impl Backend {
                 // dead anyway: put the slot down, ask the port, pick it up.
                 drop(guard);
                 let outcome = busy_outcome(self.port_owner_with_deadline());
-                let mut guard = self.child.lock().unwrap();
+                let mut guard = lock(&self.child);
                 match outcome {
                     BusyOutcome::Adopt => {
                         // One of our backends is already answering there — a second
@@ -324,9 +325,9 @@ impl Backend {
                         // port, so it is already talking to the right backend:
                         // adopt it, and stop starting another one that could only
                         // die on the same port.
-                        *self.fails.lock().unwrap() = 0;
-                        *self.content_fails.lock().unwrap() = 0;
-                        *self.next_try.lock().unwrap() = Instant::now();
+                        *lock(&self.fails) = 0;
+                        *lock(&self.content_fails) = 0;
+                        *lock(&self.next_try) = Instant::now();
                         *guard = None;
                         self.adopted.store(true, Ordering::SeqCst);
                         self.port_busy.store(false, Ordering::SeqCst);
@@ -371,8 +372,8 @@ impl Backend {
     /// mutex down and pick it back up without the two tripping over each
     /// other.
     pub(crate) fn backoff_and_restart(&self, status: Option<std::process::ExitStatus>, guard: &mut Option<std::process::Child>) {
-        let mut fails = self.fails.lock().unwrap();
-        let mut next = self.next_try.lock().unwrap();
+        let mut fails = lock(&self.fails);
+        let mut next = lock(&self.next_try);
         if Instant::now() < *next {
             return;
         }
@@ -381,14 +382,14 @@ impl Backend {
         // the rollback below: a tree that is fine was thrown away once because
         // the port was taken.
         if counts_against_the_content(status.and_then(|s| s.code())) {
-            *self.content_fails.lock().unwrap() += 1;
+            *lock(&self.content_fails) += 1;
         }
         // Three deaths in a row, right after a content promotion, is the
         // shape of a broken content tree. The previous one is still on disk,
         // so the app puts it back instead of sitting there unable to start.
-        if *self.content_fails.lock().unwrap() == 3 && roll_content_back() {
+        if *lock(&self.content_fails) == 3 && roll_content_back() {
             *fails = 0;
-            *self.content_fails.lock().unwrap() = 0;
+            *lock(&self.content_fails) = 0;
             *next = Instant::now();
             return;
         }
@@ -409,6 +410,15 @@ impl Backend {
                 "{what} — {} straight failures, same note suppressed until it recovers or the code changes",
                 *fails,
             ));
+            // Ten straight failures is the point where silence stops being
+            // a virtue: the content tree was already rolled back at three,
+            // so what is left is not the tree. Name that, once, instead of
+            // another identical suppression line.
+            if *fails == 10 {
+                note(&format!(
+                    "{what} — backend still failing after 10 attempts: the content was already rolled back at 3, so this is not the tree; check the backend log and the app home"
+                ));
+            }
         } else {
             note(&format!("{what} — restart attempt {fails}"));
         }
@@ -505,7 +515,7 @@ impl Backend {
     /// and a forced reload would throw away whatever the composer holds.
     pub(crate) fn shutdown(&self) {
         self.quitting.store(true, Ordering::SeqCst);
-        if let Some(kid) = self.child.lock().unwrap().take() {
+        if let Some(kid) = lock(&self.child).take() {
             stop_backend(kid.id());
         }
     }

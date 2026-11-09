@@ -28,7 +28,7 @@ import { loadTask } from './evals.mjs';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const EVALS = path.join(ROOT, 'evals');
 const CHECK_TIMEOUT_MS = 20_000;
-const KINDS = ['tasks', 'holdout', 'thai'];
+const KINDS = ['tasks', 'holdout', 'thai', 'thai-repo'];
 
 /** Task directories under `evals/<kind>/`, sorted. */
 function taskDirs(kind) {

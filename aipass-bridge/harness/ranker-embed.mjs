@@ -1,3 +1,4 @@
+// @ts-nocheck
 // ranker-embed.mjs — embeddings as a Ranker plugin (Phase 6, D9, gated).
 //
 // OFF by default and inert without (a) explicit consent

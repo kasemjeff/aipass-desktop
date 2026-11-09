@@ -1,3 +1,4 @@
+// @ts-nocheck
 // The run loop — the piece the original agent.mjs was.
 //
 // Shape of one turn, unchanged from the protocol that was tuned against the
@@ -48,6 +49,12 @@ import { createBudgets } from './run/budgets.mjs';
 import { createDoneGates } from './run/gates.mjs';
 import { checkModel } from './run/preflight.mjs';
 import { createSender } from './run/send.mjs';
+// Loop intelligence: failure classification + adaptive retry + recovery
+// planning (failure.mjs), and resumption snapshots (loop-state.mjs). Both are
+// pure readings — the loop owns the counters, these own the reading.
+import { classifyFailure, retryHint, recoveryPlanText } from './failure.mjs';
+import { snapshotFromRun, saveLoopState, loadLoopState, clearLoopState, restoreLoopState } from './loop-state.mjs';
+import { saveOverlayState } from './overlay-persist.mjs';
 
 // The option sheet lives in its own module so the context can read it without
 // importing the loop that owns the context; it is re-exported here because
@@ -173,6 +180,21 @@ export function cycleLength(window, minPeriod = 3) {
 }
 
 /**
+ * The continuation prompt for a reply the provider cut at the token
+ * ceiling. A cut reply is spent, not finished: nothing it carries is
+ * staged or closed from directly — a CREATE whose END never arrived
+ * would land on disk as a cut file, a DONE would end the run on a claim
+ * the model had no room to finish making. The loop asks for the rest,
+ * exactly where it stopped, and the step budget bounds it: a ceiling
+ * that keeps cutting still ends by steps, loudly.
+ */
+function truncatedContinuation() {
+  return 'Your last reply was cut off at the token limit, in the middle of a sentence.'
+    + ' Continue it exactly where it stopped — do not repeat what you already wrote, do not restart,'
+    + ' and finish the file (or the answer) you were writing, including its closing END marker.';
+}
+
+/**
  * Drive one task to a DONE — or to whatever ends it first: a guard, a cap, a budget.
  *
  * @param {string} taskText
@@ -196,6 +218,96 @@ export function cycleLength(window, minPeriod = 3) {
  *   claim "unchanged" about ground the model never received.
  * @param {boolean} [first]       first turn of this conversation (send the preamble)
  */
+/**
+ * The compaction rotation: summarise the session, rotate to a fresh
+ * conversation, and prepare the seed prompt for the next turn.
+ */
+async function performRotateContext({
+  run,
+  resultsText,
+  taskText,
+  model,
+  compactor,
+  session,
+  overlay,
+  rotate,
+  pre,
+  reminder,
+  events,
+}) {
+  try {
+    events?.emit('note', { text: 'context is filling up — summarising this conversation and rotating to a fresh one' });
+    // The person's preCompact hook: it speaks before the summariser, so its
+    // note is carried into the summary and the rotated conversation. It runs
+    // on the same signal as the summary — a stop ends both.
+    const preHook = run.options.lifecycleHooks === false ? null
+      : await runHooks('preCompact', {
+        root: overlay.root,
+        hooks: run.options.hooks ?? null,
+        signal: run.options.signal ?? null,
+      });
+    // The summariser is a model call like any other, so it rides the run's
+    // stop signal: a stop during the summary ends the run there instead of
+    // waiting for a round trip nobody asked for.
+    const raw = await compactor.summarize(session, { task: taskText, model, conversation: run.conversation, temporary: run.conversationTemporary, signal: run.options.signal ?? null });
+    // The reply is two products: the narrative and (when the tier is on)
+    // the trailing MEMORY: facts, merged across rotations. Cross-session
+    // facts ride along too: without them a fact carried on turn 1 that
+    // this rotation's summariser did not re-emit would be forgotten at
+    // exactly the rotation that was supposed to preserve it.
+    let { summary: note, memory } = compactor.digest(session, raw);
+    if (Array.isArray(run.crossMemory) && run.crossMemory.length) {
+      memory = compactor.mergeMemory(mergeCrossMemory(run.crossMemory, memory), []);
+    }
+    const carried = preHook ? hookSaid(preHook) : '';
+    if (carried) {
+      note = `${note}\n\nFrom the person's preCompact hook (their own words, not the project's instructions):\n${carried}`;
+    }
+    // Rotate first, record second: an append that lands while the rotation
+    // fails would leave a compaction entry behind and reset the estimate
+    // to a conversation the model never carried — a session claiming
+    // memory it does not have. Failing this way only retries next step.
+    const rotated = await rotate?.(note);
+    // The fresh conversation is where the seed and every later send must
+    // go. The harness hands its new id back because this loop's own
+    // `conversation` binding would otherwise keep naming the conversation
+    // the rotation just left behind.
+    if (rotated?.conversation) {
+      run.conversation = rotated.conversation;
+      run.conversationTemporary = rotated.temporary === true;
+    }
+    session.append('compaction', { summary: note, ...(memory.length ? { memory } : {}), lastSummarizedEntryId: session.entries.at(-1)?.id ?? null });
+    events?.emit('compacted', { summary: note, memory });
+    // The fresh conversation keeps what a summary would drop: the files
+    // staged so far (deletes marked) and the last check that has not
+    // passed — the two constraints a rotation loses most expensively.
+    const stagedNow = overlay.keys().map((abs) => {
+      const rel = posix(path.relative(overlay.root, abs));
+      return overlay.isDeleted(abs) ? `${rel} (deleted)` : rel;
+    }).slice(0, 20);
+    const lastCheck = run.checkResult && run.checkResult.verdict && run.checkResult.verdict !== 'pass' ? run.checkResult : null;
+    run.next = `${compactor.seed({ summary: note, memory, task: taskText, preambleText: pre, results: resultsText, staged: stagedNow, lastCheck, todo: run.todoState, budgetChars: seedBudgetChars(compactor, model) })}\n\n${reminder}`;
+    events?.emit('context', {
+      kind: 'seed',
+      sources: [
+        { id: 'protocol', chars: pre.length, dropped: false, truncated: false },
+        { id: 'summary', chars: String(note ?? '').length, dropped: false, truncated: false },
+        { id: 'memory', chars: memory.join(' ').length, dropped: false, truncated: false },
+        { id: 'results', chars: String(resultsText ?? '').length, dropped: false, truncated: false },
+      ],
+      totalChars: run.next.length,
+      budgetChars: seedBudgetChars(compactor, model),
+    });
+    return 'rotated';
+  } catch (err) {
+    // A stop during the summary is not a compaction failure: the run ends
+    // as cancelled, and the error line would only be noise.
+    if (run.stopped()) return 'stopped';
+    events?.emit('error', { message: `compaction failed, sending the results without it: ${err.message}` });
+    return 'failed';
+  }
+}
+
 export async function runTask(taskText, ctx = {}) {
   // One object owns the run: what it was given, what it has done so far, and
   // the counters the guards read. The stages below are the same run, seen
@@ -206,11 +318,16 @@ export async function runTask(taskText, ctx = {}) {
     subagent, check, approvePlan, compactor, rotate, listingShown,
   } = run;
   const {
-    maxSteps, maxStepsWire, maxToolCalls, maxWallClockMs, maxCredits,
+    maxSteps, maxStepsWire,
     model, thinking, temperature, useSlim, seedText, pluginTools,
     pluginSections, helperPresets,
     replyLanguage, repeatGuard, repeatGuardMax,
   } = run.sheet;
+  // The tool/wall budgets are read off the sheet each step: the dynamic
+  // budget (below) scales them before the first send.
+  let maxToolCalls = run.sheet.maxToolCalls;
+  let maxWallClockMs = run.sheet.maxWallClockMs;
+  const maxCredits = run.sheet.maxCredits;
 
   // (goal rounds) The project's one durable objective, when it has an active
   // one and this run may chase it. The controller is the run's, and every read
@@ -224,6 +341,34 @@ export async function runTask(taskText, ctx = {}) {
   const budgets = createBudgets(run);
   const gates = createDoneGates(run);
   const sender = createSender(run);
+
+  // Dynamic budget (run/budgets.mjs): scale the allowance by task difficulty
+  // (simple / standard / complex) and record the tier. The locals above are
+  // re-read here so the whole loop sees the scaled numbers.
+  budgets.applyDynamicBudget();
+  maxToolCalls = run.sheet.maxToolCalls;
+  maxWallClockMs = run.sheet.maxWallClockMs;
+
+  // Loop state persistence (harness/loop-state.mjs): restore the guard
+  // counters a dead run left behind, so the streaks continue instead of
+  // starting over. Only with a session (the snapshot is per-project, and a
+  // session-less run is a helper/checker — a bounded subtask that must not
+  // inherit a parent’s streaks). A stale or torn snapshot is ignored.
+  // A RETRY (attempt 2+ of a check-failed run) is an intentional fresh run,
+  // not a crash: its contract is a cleared overlay and a fresh checker
+  // bound. Restoring the previous attempt's `checks` would starve the
+  // retry of the very check the attempts loop is waiting for (the run
+  // reports `check: null` and the caller stops early).
+  const loopStateOn = run.sheet.loopStatePersist !== false && !ctx.retry && Boolean(session) && Boolean(overlay?.root);
+  if (loopStateOn) {
+    const saved = loadLoopState(overlay.root);
+    if (saved && saved.taskText && String(saved.taskText).slice(0, 200) === String(taskText).slice(0, 200)) {
+      const landed = restoreLoopState(run, saved);
+      run.loopStateRestored = true;
+      run.note(`loop state restored: ${landed.toolsRun} tool call(s), err streak ${landed.errStreak}, ${landed.todo} todo item(s) — continuing where the previous run died`);
+      events?.emit('note', { text: `loop state restored (${landed.toolsRun} tool call(s)) — resuming the guards where they died` });
+    }
+  }
 
   // (preflight) The catalog check runs first — before overlay.clear, the task
   // entry and any setup — so a run that cannot run (model gone) leaves no task
@@ -482,79 +627,9 @@ export async function runTask(taskText, ctx = {}) {
    * 'rotated', or 'failed' (the error is already emitted; the caller sends on
    * or ends), or 'stopped' (the run's signal fired mid-summary).
    */
-  const rotateContext = async (resultsText) => {
-    try {
-      events?.emit('note', { text: 'context is filling up — summarising this conversation and rotating to a fresh one' });
-      // The person's preCompact hook: it speaks before the summariser, so its
-      // note is carried into the summary and the rotated conversation. It runs
-      // on the same signal as the summary — a stop ends both.
-      const preHook = run.options.lifecycleHooks === false ? null
-        : await runHooks('preCompact', {
-          root: overlay.root,
-          hooks: run.options.hooks ?? null,
-          signal: run.options.signal ?? null,
-        });
-      // The summariser is a model call like any other, so it rides the run's
-      // stop signal: a stop during the summary ends the run there instead of
-      // waiting for a round trip nobody asked for.
-      const raw = await compactor.summarize(session, { task: taskText, model, conversation: run.conversation, temporary: run.conversationTemporary, signal: run.options.signal ?? null });
-      // The reply is two products: the narrative and (when the tier is on)
-      // the trailing MEMORY: facts, merged across rotations. Cross-session
-      // facts ride along too: without them a fact carried on turn 1 that
-      // this rotation's summariser did not re-emit would be forgotten at
-      // exactly the rotation that was supposed to preserve it.
-      let { summary: note, memory } = compactor.digest(session, raw);
-      if (Array.isArray(run.crossMemory) && run.crossMemory.length) {
-        memory = compactor.mergeMemory(mergeCrossMemory(run.crossMemory, memory), []);
-      }
-      const carried = preHook ? hookSaid(preHook) : '';
-      if (carried) {
-        note = `${note}\n\nFrom the person's preCompact hook (their own words, not the project's instructions):\n${carried}`;
-      }
-      // Rotate first, record second: an append that lands while the rotation
-      // fails would leave a compaction entry behind and reset the estimate
-      // to a conversation the model never carried — a session claiming
-      // memory it does not have. Failing this way only retries next step.
-      const rotated = await rotate?.(note);
-      // The fresh conversation is where the seed and every later send must
-      // go. The harness hands its new id back because this loop's own
-      // `conversation` binding would otherwise keep naming the conversation
-      // the rotation just left behind.
-      if (rotated?.conversation) {
-        run.conversation = rotated.conversation;
-        run.conversationTemporary = rotated.temporary === true;
-      }
-      session.append('compaction', { summary: note, ...(memory.length ? { memory } : {}), lastSummarizedEntryId: session.entries.at(-1)?.id ?? null });
-      events?.emit('compacted', { summary: note, memory });
-      // The fresh conversation keeps what a summary would drop: the files
-      // staged so far (deletes marked) and the last check that has not
-      // passed — the two constraints a rotation loses most expensively.
-      const stagedNow = overlay.keys().map((abs) => {
-        const rel = posix(path.relative(overlay.root, abs));
-        return overlay.isDeleted(abs) ? `${rel} (deleted)` : rel;
-      }).slice(0, 20);
-      const lastCheck = run.checkResult && run.checkResult.verdict && run.checkResult.verdict !== 'pass' ? run.checkResult : null;
-      run.next = `${compactor.seed({ summary: note, memory, task: taskText, preambleText: pre, results: resultsText, staged: stagedNow, lastCheck, todo: run.todoState, budgetChars: seedBudgetChars(compactor, model) })}\n\n${reminder}`;
-      events?.emit('context', {
-        kind: 'seed',
-        sources: [
-          { id: 'protocol', chars: pre.length, dropped: false, truncated: false },
-          { id: 'summary', chars: String(note ?? '').length, dropped: false, truncated: false },
-          { id: 'memory', chars: memory.join(' ').length, dropped: false, truncated: false },
-          { id: 'results', chars: String(resultsText ?? '').length, dropped: false, truncated: false },
-        ],
-        totalChars: run.next.length,
-        budgetChars: seedBudgetChars(compactor, model),
-      });
-      return 'rotated';
-    } catch (err) {
-      // A stop during the summary is not a compaction failure: the run ends
-      // as cancelled, and the error line would only be noise.
-      if (run.stopped()) return 'stopped';
-      events?.emit('error', { message: `compaction failed, sending the results without it: ${err.message}` });
-      return 'failed';
-    }
-  };
+  const rotateContext = (resultsText) => performRotateContext({
+    run, resultsText, taskText, model, compactor, session, overlay, rotate, pre, reminder, events,
+  });
 
   for (let step = 1; !blocked && step <= maxSteps; step++) {
     // A stop ends the run here, before the next reply: the tools of the last
@@ -646,7 +721,7 @@ export async function runTask(taskText, ctx = {}) {
       run.note(`the send failed: ${sent.overflow}`);
       events?.emit('error', { message: sent.overflow });
     }
-    if (sent.stopReason) { run.stopReason = sent.stopReason; break; }
+    if (sent.stopReason) { run.stopReason = sent.stopReason; break; } else if (sent.truncated) { run.next = truncatedContinuation(); run.stepMs.push(Math.round((Date.now() - stepStart))); continue; }
     let reply = sent.reply;
 
     reply = run.waf ? decode(reply) : reply;
@@ -743,6 +818,9 @@ export async function runTask(taskText, ctx = {}) {
         break;
       }
       run.nudges += 1;
+      // A reply with nothing actionable is a model-shaped failure: the
+      // classification counts it, so the stats line names what the model did.
+      run.failureCounts.model = (run.failureCounts.model ?? 0) + 1;
       if (++run.nudgeStreak > 2) {
         // (checker) A run that keeps answering nothing still gets what a DONE
         // gets: if it staged code nothing checked, run the check now. A fail
@@ -772,38 +850,6 @@ export async function runTask(taskText, ctx = {}) {
       continue;
     }
     run.nudgeStreak = 0;
-
-    // Helpers fan out when the run opts in (P2-B): each carries its own
-    // conversation, so several can work beside each other. Results are
-    // reassembled in marker order either way. The fan-out happens before the
-    // serial loop, so the budgets are enforced here as well — a reply with a
-    // hundred SUBAGENT lines must trip the cap before it starts a hundred
-    // helper runs, not after.
-    // The background-job table rides in the context: execute() is a
-    // module-level function, so the map the run owns is not in its scope, and
-    // a helper started in the background needs the very map the run injects
-    // results from — a copy would start a job nothing could ever poll.
-    let helperResults = null;
-    // Parallel SUBAGENTs fan out before the serial loop, so their wall time is
-    // measured here — keyed by the call — and added to the stats when the
-    // serial loop walks past that call.
-    const helperMs = new Map();
-    if (run.options.parallelHelpers && work.some((c) => c.kind === 'subagent')) {
-      const helpers = work.filter((c) => c.kind === 'subagent').length;
-      if (run.toolsRun + helpers > maxToolCalls) budgets.spendBudget('tools-limited');
-      else if (budgets.overTime()) budgets.spendBudget('time-limited');
-      else if (await budgets.overCredits()) budgets.spendBudget('credit-limited');
-      else {
-        helperResults = await Promise.all(work.map(async (c) => {
-          if (c.kind !== 'subagent') return null;
-          const t0 = Date.now();
-          const out = await execute(c, run).catch((err) => `err: ${err.message}`);
-          helperMs.set(c, Date.now() - t0);
-          return out;
-        }));
-      }
-    }
-    if (run.budgetHit) break;
 
     // (Thai pack) The pre-tool guard. The call always runs as written first;
     // the guard corrects evidence, never intent:
@@ -894,6 +940,38 @@ export async function runTask(taskText, ctx = {}) {
       return out;
     };
 
+    // Helpers fan out when the run opts in (P2-B): each carries its own
+    // conversation, so several can work beside each other. Results are
+    // reassembled in marker order either way. The fan-out happens before the
+    // serial loop, so the budgets are enforced here as well — a reply with a
+    // hundred SUBAGENT lines must trip the cap before it starts a hundred
+    // helper runs, not after.
+    // The background-job table rides in the context: execute() is a
+    // module-level function, so the map the run owns is not in its scope, and
+    // a helper started in the background needs the very map the run injects
+    // results from — a copy would start a job nothing could ever poll.
+    let helperResults = null;
+    // Parallel SUBAGENTs fan out before the serial loop, so their wall time is
+    // measured here — keyed by the call — and added to the stats when the
+    // serial loop walks past that call.
+    const helperMs = new Map();
+    if (run.options.parallelHelpers && work.some((c) => c.kind === 'subagent')) {
+      const helpers = work.filter((c) => c.kind === 'subagent').length;
+      if (run.toolsRun + helpers > maxToolCalls) budgets.spendBudget('tools-limited');
+      else if (budgets.overTime()) budgets.spendBudget('time-limited');
+      else if (await budgets.overCredits()) budgets.spendBudget('credit-limited');
+      else {
+        helperResults = await Promise.all(work.map(async (c) => {
+          if (c.kind !== 'subagent') return null;
+          const t0 = Date.now();
+          const out = await guarded(c).catch((err) => `err: ${err.message}`);
+          helperMs.set(c, Date.now() - t0);
+          return out;
+        }));
+      }
+    }
+    if (run.budgetHit) break;
+
     const results = [];
     const prefetched = new Map(); // index → { text, ms } for a read group run beside itself
     let brokenBy = null;    // the first change that failed in this reply …
@@ -904,13 +982,16 @@ export async function runTask(taskText, ctx = {}) {
       // The one in flight cannot be recalled — it ends on its own (a RUN dies
       // with the signal, tools.mjs) — but nothing new starts.
       if (run.stopped()) { run.stopReason = 'cancelled'; break; }
+      const call = work[i];
       // One reply can carry a hundred markers; each one is checked against
       // every budget before it executes (tool calls, wall clock, and the
       // credit cap when the run has one).
-      if (run.toolsRun >= maxToolCalls) { budgets.spendBudget('tools-limited'); break; }
-      if (budgets.overTime()) { budgets.spendBudget('time-limited'); break; }
-      if (await budgets.overCredits()) { budgets.spendBudget('credit-limited'); break; }
-      const call = work[i];
+      const alreadyRanHelper = Boolean(helperResults && call.kind === 'subagent');
+      if (!alreadyRanHelper) {
+        if (run.toolsRun >= maxToolCalls) { budgets.spendBudget('tools-limited'); break; }
+        if (budgets.overTime()) { budgets.spendBudget('time-limited'); break; }
+        if (await budgets.overCredits()) { budgets.spendBudget('credit-limited'); break; }
+      }
       // A RUN's label is its command: the parser puts the command in the body,
       // so `arg` alone leaves a row that says "run" and nothing else — in the
       // window, in the replayed session, and in the step result the model reads
@@ -1027,13 +1108,30 @@ export async function runTask(taskText, ctx = {}) {
       // exactly what the exact-match guard cannot see.
       let loopNote = null;
       if (refused) {
+        // Failure classification (harness/failure.mjs): the failure is read
+        // before it is counted, so the correction can name the class — a
+        // missing binary and a malformed marker are not fixed the same way.
+        const classification = classifyFailure(call, text);
+        run.failureCounts[classification.klass] = (run.failureCounts[classification.klass] ?? 0) + 1;
+        run.lastFailure = { call, text, classification };
         const key = errKindOf(call, text);
         if (key === run.errKindKey) run.errStreak += 1; else { run.errKindKey = key; run.errStreak = 1; }
+        // Adaptive retry: the hint for this attempt inside the streak, so
+        // attempt 2 is a different approach, not the same bytes again. The
+        // first two attempts ride silently (the streak counts them); the
+        // third earns the correction that carries the hint.
+        if (run.errStreak === 2 || run.errStreak === 3) run.adaptiveRetries += 1;
         if (run.errStreak === 3) {
           run.errLoops += 1;
-          session?.append('note', { text: 'err-loop guard: three calls in a row failed the same way — sending a correction' });
-          events?.emit('note', { text: 'err-loop guard: the same failure three times in a row — asking for a different move' });
-          loopNote = `\n\nnote: that is the third call in a row to fail the same way — the arguments changed, the failure did not. Repeating the shape cannot move it: change something material (another path, another command), or say DONE and name what blocks the run.`;
+          const hint = retryHint(classification, run.errStreak, call.kind);
+          const plan = recoveryPlanText([{ call, text, classification }]);
+          run.recoveryPlan = plan;
+          session?.append('note', { text: `err-loop guard: three calls in a row failed the same way (${classification.klass}) — sending an adaptive correction` });
+          events?.emit('note', { text: `err-loop guard: the same failure three times in a row — asking for a different move (${classification.klass})` });
+          loopNote = `\n\nnote: that is the third call in a row to fail the same way — the arguments changed, the failure did not. Repeating the shape cannot move it: change something material (another path, another command), or say DONE and name what blocks the run.\n\nAdaptive retry (${classification.klass}, attempt ${run.errStreak}): ${hint.hint}${plan ? `\n\n${plan}` : ''}`;
+        } else if (run.errStreak === 2) {
+          const hint = retryHint(classification, run.errStreak, call.kind);
+          loopNote = `\n\nnote: that is the second call in a row to fail the same way (${classification.klass}).\nAdaptive retry (${classification.klass}, attempt 2): ${hint.hint}`;
         } else if (run.errStreak > repeatGuardMax) {
           run.errTrip = true;
         }
@@ -1123,6 +1221,9 @@ export async function runTask(taskText, ctx = {}) {
     // A budget spent mid-step ends the run here — before the DONE handling,
     // so a "DONE" riding the same reply cannot mask why the run stopped. The
     // diff event above still went out: whatever was staged is still staged.
+    if (run.toolsRun >= maxToolCalls && !run.budgetHit) {
+      budgets.spendBudget('tools-limited');
+    }
     if (run.budgetHit) break;
 
     const stillLooking = work.some((c) => READING.has(c.kind));
@@ -1302,6 +1403,20 @@ export async function runTask(taskText, ctx = {}) {
       const outcome = await rotateContext(results.join('\n\n'));
       if (outcome === 'stopped') { run.stopReason = 'cancelled'; break; }
     }
+    // Loop state persistence (harness/loop-state.mjs): snapshot the guard
+    // counters after every step, so a process that dies here resumes them.
+    // Best effort — a snapshot that fails to write never fails the step.
+    if (loopStateOn && session && overlay?.root) {
+      if (saveLoopState(overlay.root, snapshotFromRun(run, { step }))) run.loopStateSaved += 1;
+    }
+    // Overlay persistence (harness/overlay-persist.mjs): the staged edits,
+    // beside the session file, so a backend that dies mid-run leaves the
+    // work — not just the words — for the next run to restore. Best effort
+    // like the counters; an empty overlay is not written (it is the clean
+    // state, and a missing file is what clearOverlayState removes).
+    if (session?.file && overlay?.size) {
+      saveOverlayState(session.file, overlay);
+    }
     if (step === maxSteps) events?.emit('step_limit', {});
   }
 
@@ -1388,6 +1503,26 @@ export async function runTask(taskText, ctx = {}) {
     langPrompts: run.langPrompts,
     novelResults: run.novelResults,
     repeatedResults: run.repeatedResults,
+    // Loop intelligence (failure.mjs / verify-evidence.mjs / run/budgets.mjs /
+    // loop-state.mjs): what the failures were, what the verification audited,
+    // and what tier the budget went in at.
+    failureCounts: { ...(run.failureCounts ?? {}) },
+    adaptiveRetries: run.adaptiveRetries ?? 0,
+    independentChecks: run.independentChecks ?? 0,
+    independentVerdict: run.independentVerdict ?? null,
+    // Verification by task type + test evidence: what the DONE stood on.
+    taskType: run.taskType ?? null,
+    unverified: Boolean(run.checkResult && run.taskType === 'code' && run.checkResult.verdict === 'none'),
+    acceptanceCriteria: run.acceptanceCriteria ?? null,
+    checkEvidence: run.checkResult
+      ? { command: run.checkResult.declared ?? run.declaredCheckCommand() ?? null, ran: run.checkResult.ran ?? 0, tail: String(run.checkResult.text ?? '').slice(0, 800) }
+      : null,
+    budgetTier: run.budgetTier ?? 'standard',
+    budgetScore: run.budgetScore ?? 0,
+    helperSteps: run.helperSteps ?? 0,
+    helperMs: run.helperMs ?? 0,
+    loopStateSaved: run.loopStateSaved ?? 0,
+    loopStateRestored: run.loopStateRestored ?? false,
     // The run's closing context size, in the compactor's own estimate — the
     // number that decides when the next run rotates. Real upstream tokens are
     // not observable from a browser tab; this is the same yardstick the
@@ -1430,6 +1565,16 @@ export async function runTask(taskText, ctx = {}) {
         events?.emit('note', { text: said });
       }
     } catch { /* a hook that cannot run is not the run's end */ }
+  }
+
+  // Loop state persistence: any run that actually ran and ended cleanly
+  // (done, stalled, error — every ending that reached here) clears its
+  // snapshot, so the next run starts fresh. The snapshot only survives a
+  // death that never reached here: a crash, a kill, a power cut. A run
+  // that never started (blocked preflight, no steps) clears nothing, so
+  // a leftover crash snapshot survives it.
+  if (loopStateOn && session && overlay?.root && run.loopStateSaved > 0) {
+    clearLoopState(overlay.root);
   }
 
   return {
@@ -1503,6 +1648,22 @@ export function resolveHelperPreset(role, presets = {}) {
 /** One marker: run it behind the permission gate, or handle it here. */
 async function execute(call, run) {
   const { tools, permissions, events, subagent, todoState, session, options, runPluginTool, backgroundJobs } = run;
+  // (multi-agent budget) A helper's answer is text plus the usage it spent:
+  // steps count against the parent's tool budget, so delegating work does
+  // not make it free. A string return (an error, a stubbed helper, the
+  // checker's own helpers) spends nothing.
+  const helperInfo = (res) => {
+    if (res && typeof res === 'object') {
+      return { text: String(res.text ?? ''), steps: Number.isFinite(Number(res.steps)) ? Math.floor(Number(res.steps)) : 0, ms: Number.isFinite(Number(res.ms)) ? Number(res.ms) : 0 };
+    }
+    return { text: String(res ?? ''), steps: 0, ms: 0 };
+  };
+  const chargeHelper = (info) => {
+    if (!info.steps && !info.ms) return;
+    run.toolsRun += info.steps;
+    run.helperSteps = (run.helperSteps ?? 0) + info.steps;
+    run.helperMs = (run.helperMs ?? 0) + info.ms;
+  };
 
   // VERIFY — the model asks for a check. Its shape is checked here (the
   // generic shape check knows the tool table's kinds, and VERIFY is the
@@ -1594,9 +1755,11 @@ async function execute(call, run) {
       const promise = (async () => {
         events?.emit('subagent_start', { id, task, role: role || null, background: true });
         try {
-          const out = await subagent(task, role || null, id);
+          const res = await subagent(task, role || null, id);
+          const info = helperInfo(res);
+          chargeHelper(info);
           job.status = 'done';
-          job.result = String(out ?? '');
+          job.result = info.text;
           events?.emit('subagent_end', { id, task, role: role || null, out: job.result, background: true });
           session?.append('note', { text: `background helper ${id}${role ? ` (${role})` : ''}: ${task}\n${job.result.slice(0, 2000)}` });
         } catch (e) {
@@ -1615,10 +1778,12 @@ async function execute(call, run) {
     if (run.helperSeq == null) run.helperSeq = 0;
 const helperId = `h${++run.helperSeq}`;
 events?.emit('subagent_start', { id: helperId, task, role: role || null });
-    const out = await subagent(task, role || null, helperId);
-    events?.emit('subagent_end', { id: helperId, task, role: role || null, out });
-    session?.append('note', { text: `helper${role ? ` (${role})` : ''}: ${task}\n${String(out).slice(0, 2000)}` });
-    return out;
+    const res = await subagent(task, role || null, helperId);
+    const info = helperInfo(res);
+    chargeHelper(info);
+    events?.emit('subagent_end', { id: helperId, task, role: role || null, out: info.text });
+    session?.append('note', { text: `helper${role ? ` (${role})` : ''}: ${task}\n${info.text.slice(0, 2000)}` });
+    return info.text;
   }
 
   if (call.kind === 'jobs') {

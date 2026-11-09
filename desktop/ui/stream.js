@@ -19,11 +19,35 @@
 export async function createEventStream(ctx) {
   const { $, state, rpc, client, setLogBusy, setHint, setWorking, addNote, refreshMeter } = ctx;
 
-  // EventSource cannot set headers, so the token (when there is one) rides the
-  // URL — rpc.mjs accepts `?token=` on /events. This resolves before the stream
-  // opens: a window under auth never starts in a 401 reconnect loop.
-  const token = await client.ensureToken();
-  const stream = new EventSource(token ? `/events?token=${encodeURIComponent(token)}` : '/events');
+  // The token never rides a URL. fetch('/token') mints it into the
+  // HttpOnly aipass_token cookie (rpc.mjs), and the EventSource below,
+  // being same-origin, sends that cookie by itself — the URL stays plain
+  // `/events`, and nothing token-shaped goes into a log or a proxy.
+  await client.ensureToken();
+  // A stable proxy over the current EventSource: a terminal 401 (CLOSED
+  // after a backend restart rotated the token) never retries on its own,
+  // so the stream is replaced from within — and every listener registered
+  // through this proxy (including the window's `open` listener) is
+  // re-attached to the fresh instance instead of dying with the old one.
+  /** @type {any} */
+  let current = null;
+  const registered = /** @type {Array<{ name: string, fn: Function }>} */ ([]);
+  /** @type {any} */
+  let onerrorHandler = null;
+  let reconnectAttempts = 0;
+  const openStream = () => {
+    current = new EventSource('/events');
+    for (const { name, fn } of registered) current.addEventListener(name, fn);
+    if (onerrorHandler) current.onerror = onerrorHandler;
+  };
+  const stream = {
+    get readyState() { return current?.readyState ?? 2; },
+    addEventListener(/** @type {string} */ name, /** @type {Function} */ fn) { registered.push({ name, fn }); current?.addEventListener(name, fn); },
+    close() { current?.close(); },
+    set onerror(/** @type {any} */ fn) { onerrorHandler = fn; if (current) current.onerror = fn; },
+    get onerror() { return onerrorHandler; },
+  };
+  openStream();
 
   // The transport, not the run. When the backend process goes away the stream
   // drops and the window used to sit there with a live spinner on a run that no
@@ -40,7 +64,7 @@ export async function createEventStream(ctx) {
   let askedQuiet90 = false;
   /** Refresh the watchdog clock: any frame — or the run's own first frame —
    *  is proof the transport is alive. */
-  const beat = () => { lastEventAt = Date.now(); quietSince = 0; warnedSilence = false; silenceSince = 0; warnedQuiet60 = false; askedQuiet90 = false; };
+  const beat = () => { reconnectAttempts = 0; lastEventAt = Date.now(); quietSince = 0; warnedSilence = false; silenceSince = 0; warnedQuiet60 = false; askedQuiet90 = false; };
   stream.addEventListener('open', beat);
   stream.addEventListener('message', beat);
   // rpc.mjs sends a named ping every 15 s precisely so this watchdog reads
@@ -51,7 +75,21 @@ export async function createEventStream(ctx) {
   stream.onerror = () => {
     if (stream.readyState === EventSource.CONNECTING) {
       addNote('backend ตัดการเชื่อม — กำลังลองเชื่อมใหม่…');
+      return;
     }
+    if (stream.readyState !== EventSource.CLOSED) return;
+    // CLOSED is terminal (a 401 after the backend rotated its token): the
+    // browser will not retry, so the window re-mints the cookie via /token
+    // and opens a fresh stream. Bounded, so a backend that keeps refusing
+    // does not spin /token fetches forever; any live frame resets the count.
+    reconnectAttempts += 1;
+    if (reconnectAttempts > 3) { addNote('เชื่อม backend ไม่ได้หลังลองหลายครั้ง — ลองรีโหลดหน้า'); return; }
+    addNote('เชื่อม backend ถูกปฏิเสธ (401) — กำลังขอ token ใหม่และเชื่อมอีกครั้ง…');
+    void (async () => {
+      try { await client.fetchToken(); } catch { /* the new stream will fail and count again */ }
+      current?.close();
+      openStream();
+    })();
   };
 
   // Every event refreshes the watchdog; a run that stops sending anything is
@@ -240,7 +278,7 @@ export async function createEventStream(ctx) {
   }
 
   function onRun(/** @type {any} */ name, /** @type {any} */ fn) {
-    stream.addEventListener(name, (e) => {
+    stream.addEventListener(name, (/** @type {any} */ e) => {
       const data = JSON.parse(e.data);
       if (data.project && state.root && !isOwnProject(data.project)) return;
       // A run's frames name the session that run writes to (rpc.mjs tags them
@@ -256,7 +294,7 @@ export async function createEventStream(ctx) {
   }
 
   function onAny(/** @type {any} */ name, /** @type {any} */ fn) {
-    stream.addEventListener(name, (e) => fn(JSON.parse(e.data), e));
+    stream.addEventListener(name, (/** @type {any} */ e) => fn(JSON.parse(e.data), e));
   }
 
   return { stream, onRun, onAny, sameProject, isOwnProject, foreignProject, beat };

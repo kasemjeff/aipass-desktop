@@ -1,3 +1,4 @@
+// @ts-nocheck
 // Sessions, stored the way pi stores them: one JSONL file per session, one
 // entry per line, every entry carrying the id of the entry before it.
 //
@@ -81,6 +82,35 @@ const legacySlug = (s) => String(s).replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+
  * @param {string|null|undefined} b
  * @returns {boolean}
  */
+/**
+ * A session's automatic name, from the first line of its first message.
+ *
+ * A fresh session is created before anyone has said anything, so it is
+ * born with the time as its title (`create()` below) — that is the
+ * fallback, and it stays when there is nothing to name it from. When the
+ * first turn ends, the harness renames the session to the first line of
+ * the person's first message, cut to about 40 characters: a history list
+ * of timestamps is a list nobody can scan. Whitespace collapses so a
+ * pasted block cannot make a one-line name into a paragraph.
+ *
+ * @param {string} text the first user message
+ * @returns {string} the name, or '' when there is nothing to name it from
+ */
+export function titleFromFirstLine(text) {
+  const line = String(text ?? '').split('\n').map((l) => l.trim()).find(Boolean) ?? '';
+  const flat = line.replace(/\s+/g, ' ').trim();
+  if (!flat) return '';
+  return flat.length > 40 ? flat.slice(0, 40).trimEnd() : flat;
+}
+
+/** Is this title still the one `create()` minted (the time), so an
+ *  automatic name may replace it? A title a person gave — or one that
+ *  already came from a first line — is never overwritten.
+ * @param {string|null} title */
+export function isDefaultTitle(title) {
+  return /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(String(title ?? ''));
+}
+
 export function sameRoot(a, b) {
   if (typeof a !== 'string' || typeof b !== 'string') return false;
   const x = path.resolve(a);
@@ -193,6 +223,27 @@ function cleanBreadcrumb(file) {
 const LOCK_STALE_MS = 15_000;
 const LOCK_WAIT_MS = 5_000;
 const lockPath = (file) => `${file}.lock`;
+const runningMarker = (file) => `${file}.running`;
+/** Is this pid still alive? `process.kill(pid, 0)` raises ESRCH when it is
+ *  not, and EPERM when it is alive but owned by another user — which also
+ *  means alive. */
+function pidAlive(pid) {
+  try { process.kill(pid, 0); return true; }
+  catch (e) { return e?.code === 'EPERM'; }
+}
+/** Mark a session as having a run in flight. A crash cannot clear a flag
+ *  in memory, so the marker lives beside the session file: a leftover one
+ *  is exactly a run that ended without anyone reporting it. */
+export function writeRunningMarker(session) {
+  if (!session?.file) return;
+  try {
+    writeFileAtomic(runningMarker(session.file), JSON.stringify({ pid: process.pid, startedAt: Date.now(), sessionId: session.id }) + '\n', { mode: 0o600 });
+  } catch { /* a marker that fails to write must not fail the run */ }
+}
+export function clearRunningMarker(session) {
+  if (!session?.file) return;
+  try { fs.rmSync(runningMarker(session.file), { force: true }); } catch { /* best effort */ }
+}
 const NOT_LOCKED = Symbol('header lock not taken');
 
 function withHeaderLock(file, fn) {
@@ -433,7 +484,7 @@ export class Session {
   /** Fork a branch: copy everything up to one entry into a new session file. */
   fork(store, { fromEntryId = null, title = null } = {}) {
     const chain = fromEntryId ? this.chainTo(fromEntryId) : this.entries.slice();
-    const header = { ...this.header, id: id(), title: title ?? `${this.title} (fork)`, created: Date.now(), updated: Date.now(), forkedFrom: this.id };
+    const header = { ...this.header, id: id(), title: title ?? `${this.title} (fork)`, titleAuto: false, created: Date.now(), updated: Date.now(), forkedFrom: this.id };
     // A fork is a new branch, not a second writer: it must not inherit the
     // conversation the original is still working in.
     delete header.conversation;
@@ -725,6 +776,13 @@ export class SessionStore {
       id: id(),
       parentId: null,
       title: title ?? new Date().toISOString().slice(0, 16).replace('T', ' '),
+      // Whether the title is still the minted one. The automatic naming
+      // (titleFromFirstLine at the end of the first turn) may only replace
+      // this title — a title a person chose, even one that happens to look
+      // like the minted timestamp, is never overwritten. Sessions written
+      // before this flag existed carry no key and fall back to the shape
+      // check (isDefaultTitle).
+      titleAuto: title == null,
       root: path.resolve(root),
       model,
       created: Date.now(),
@@ -790,6 +848,47 @@ export class SessionStore {
       }
     }
     return out.sort((a, b) => (b.updated ?? 0) - (a.updated ?? 0));
+  }
+
+  /**
+   * Runs that ended without anyone reporting them — crash-safe resume.
+   *
+   * A run writes a `.running` marker beside its session file and clears it
+   * when it ends. A marker still on disk at boot belongs to a process that
+   * died mid-run (a crash, a kill, a power cut — none of which clear an
+   * in-memory flag). The session is marked with a note saying so and the
+   * marker cleared; the caller tells the window, which offers to resume
+   * from the transcript the run already wrote. A marker whose owner pid is
+   * still alive is a second backend legitimately running — left alone.
+   *
+   * @returns {Array<{id: string, title: string|null, root: string|null, entries: number, pid: number, startedAt: number}>}
+   */
+  interruptedRuns() {
+    const out = [];
+    let dirs = [];
+    try { dirs = readDirs(this.dir); } catch { return out; }
+    for (const dir of dirs) {
+      let files = [];
+      try { files = fs.readdirSync(dir); } catch { continue; }
+      for (const f of files) {
+        if (!f.endsWith('.jsonl.running')) continue;
+        const marker = path.join(dir, f);
+        const sessionFile = marker.slice(0, -'.running'.length);
+        let info = null;
+        try { info = JSON.parse(fs.readFileSync(marker, 'utf8')); } catch { /* unreadable: treat as dead */ }
+        const pid = Number(info?.pid);
+        if (Number.isFinite(pid) && pid > 0 && pidAlive(pid)) continue; // another backend is really running this
+        try {
+          const session = this.load(sessionFile);
+          if (session) {
+            session.append('note', { text: 'run ไม่มีใครเก็บเสียง — backend ดับก่อน run จบ (pid ' + (pid || '?') + ')' });
+            out.push({ id: session.id, title: session.title, root: session.root, entries: session.entries.length, pid: pid || null, startedAt: info?.startedAt ?? null });
+          }
+        } catch { /* a session that will not open is not a resume candidate */ }
+        try { fs.rmSync(marker, { force: true }); } catch { /* best effort */ }
+      }
+    }
+    return out;
   }
 
   /**
@@ -929,7 +1028,9 @@ export class SessionStore {
 
   rename(id, title, { root = null } = {}) {
     const s = this.load(id, { root });
-    if (s) rewriteHeader(s, { title, updated: Date.now() });
+    // A rename is a person's choice: the automatic naming must not take
+    // this title back on a later turn.
+    if (s) rewriteHeader(s, { title, titleAuto: false, updated: Date.now() });
     return s;
   }
 

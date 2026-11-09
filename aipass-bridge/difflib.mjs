@@ -1,3 +1,4 @@
+// @ts-nocheck
 // A unified diff computed in-process, so `npm run agent` can show its edits on
 // Windows too, where there is no `diff` binary to shell out to. Output follows
 // the GNU shape — @@ headers, ' ' context, '-' gone, '+' added — which is what

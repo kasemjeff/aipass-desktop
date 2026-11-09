@@ -1,3 +1,4 @@
+// @ts-nocheck
 // cache-store.mjs — the one on-disk cache framework (KNOWLEDGE_ARCHITECTURE §8).
 //
 // Retrieval, CAG, symbols, checkpoints and goal each re-implemented the

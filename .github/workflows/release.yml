@@ -13,6 +13,19 @@ name: release
 # The key must be in the keyring BEFORE the feed that names it is published.
 # The keyring ships with the app, so the order is: land the key in the
 # source, build an app that trusts it, and only then publish the feed.
+#
+# The feed's `sequence` is the rollback guard (`AGENTS.md` rule 15): the
+# app refuses a feed older than the one it has seen. The release lane must
+# therefore sign a sequence that only goes up. `github.run_number` is a
+# per-workflow counter that increases on every run of this workflow, so a
+# tag push cannot sign sequence 1 twice. A manual `workflow_dispatch` may
+# override it, but the override has to be higher than the last release —
+# the app is the thing that enforces it, this file only supplies the number.
+#
+# The publish job waits for tests as well as the build: a tag push does not
+# run `test.yml` (it triggers on branches and pull requests), so without the
+# `test` job below a tag could publish a feed from a tree the suite has
+# never run on.
 
 on:
   push:
@@ -20,20 +33,30 @@ on:
   workflow_dispatch:
     inputs:
       sequence:
-        description: 'the feed sequence number (must only go up)'
+        description: 'optional feed sequence override (must only go up; defaults to github.run_number)'
         required: false
-        default: '1'
+      notes:
+        description: 'optional feed notes for this release (defaults to the head commit message)'
+        required: false
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
+  # The suite is the reusable test.yml workflow, not a copy of its steps: a
+  # copy drifts from the real lane the day someone edits one and not the
+  # other. `uses` needs workflow_call in test.yml (added there) — without
+  # it the call is refused and the release lane has no gate at all.
+  test:
+    uses: ./.github/workflows/test.yml
+
   build:
     name: build ${{ matrix.label }}
+    needs: test
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     strategy:
@@ -50,8 +73,8 @@ jobs:
             label: linux x64
             artifact: aipass-desktop-linux
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 24
       - name: Install dev dependencies
@@ -67,10 +90,10 @@ jobs:
             libxdo-dev \
             libssl-dev \
             patchelf
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
       - name: Install the Tauri CLI
         run: cargo install tauri-cli --version "^2" --locked
-      - uses: actions/cache@v4
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             ~/.cargo/registry
@@ -89,7 +112,7 @@ jobs:
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: npm run desktop:build
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ${{ matrix.artifact }}
           path: dist/*
@@ -97,19 +120,21 @@ jobs:
 
   publish:
     name: publish the feed
-    needs: build
+    needs: [build, test]
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 24
       - name: Install dev dependencies
         run: npm ci
 
       - name: Collect every platform's artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: aipass-desktop-*
           path: dist
@@ -127,12 +152,17 @@ jobs:
 
       # The signing key is a secret and never in the repository. The public
       # half is in the source; this is the private one.
+      # The sequence comes from github.run_number on a tag push so every
+      # feed the app sees is newer than the last. The notes come from the
+      # head commit: on a tag push github.event.release.body is always
+      # empty (there is no release yet), which is why the feed used to
+      # carry empty notes.
       - name: Sign the feed
         env:
           AIPASS_RELEASE_KEY: ${{ secrets.AIPASS_RELEASE_KEY }}
           AIPASS_RELEASE_KEY_ID: ${{ secrets.AIPASS_RELEASE_KEY_ID || 'aipass-release-2026' }}
-          AIPASS_RELEASE_SEQUENCE: ${{ github.event.inputs.sequence || '1' }}
-          AIPASS_RELEASE_NOTES: ${{ github.event.release.body || '' }}
+          AIPASS_RELEASE_SEQUENCE: "${{ github.event.inputs.sequence || github.run_number }}"
+          AIPASS_RELEASE_NOTES: "${{ github.event.inputs.notes || github.event.head_commit.message || '' }}"
         run: npm run desktop:feed
 
       # The feed is signed, and the app verifies it — so the public key in the
@@ -141,7 +171,7 @@ jobs:
       # the app would turn down, so a mismatch stops the release here rather
       # than at the first person whose app fetches the feed.
       - name: Publish the release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           files: |
             dist/*

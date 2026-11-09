@@ -48,7 +48,7 @@ claimed:
 
 | row | state | proof |
 |---|---|---|
-| 3.1 OS sandbox | **phase 1 landed** — `harness/boundary.mjs` (policy resolver, `backendFor`, `boundaryFor`), fail-closed refusal, `sandbox` option on the run sheet, `docs/CONFIG.md`; platform adapters (Seatbelt/bubblewrap) and the Windows helper are still pending | `test/boundary-policy.test.mjs`, `test/run-sandbox.test.mjs` |
+| 3.1 OS sandbox | **phase 2 landed (P0, 2026-11-09)** — `harness/shell-worker.mjs` (the shell runs in a forked worker: sanitized env, confined cwd, timeout/tree-kill, output cap, worker-slot gate), `sandbox.mjs` shared-dir read-only lock + post-run audit (`err:` naming what a RUN changed), PATH-probed `backendFor`; kernel adapters (Seatbelt/bubblewrap argv, Windows helper) still pending — enforcing modes refuse until they land | `test/shell-worker.test.mjs`, `test/sandbox.test.mjs`, `test/boundary-policy.test.mjs`, `test/run-sandbox.test.mjs` |
 | 3.2 background RUN + `JOBS` | landed | `test/background-run.test.mjs` |
 | 3.3 `REVIEW` | landed | `test/review.test.mjs` |
 | 3.4 hooks: three moments become nine | landed | `test/hooks-events.test.mjs` |

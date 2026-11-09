@@ -1,3 +1,4 @@
+// @ts-nocheck
 // corpus.mjs — corpus drivers (KNOWLEDGE_ARCHITECTURE §10, Phase 3).
 //
 // A driver turns bytes into Documents behind one shape, and owns the

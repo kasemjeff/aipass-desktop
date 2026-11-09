@@ -1,3 +1,4 @@
+// @ts-nocheck
 // cag.mjs — Cache-Augmented Generation: a standing context pack, built
 // once and reused byte-identically.
 //

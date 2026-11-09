@@ -1,10 +1,10 @@
-# ✳ AiPASS Desktop — AI coding agent ภาษาไทย สำหรับ Windows, macOS, Linux
+# ✳ AiPASS Desktop — AI coding agent แบบ local-first ตรวจทุกการเปลี่ยนไฟล์ก่อนลงโปรเจกต์
 
 [English](./README.md) · **ไทย**
 
-> **หน้าต่างเดสก์ท็อปและ agent harness สำหรับ [de.aipass.net](https://de.aipass.net/chat)** —
-> agent ที่แก้ไฟล์ได้และดูได้ทุกขั้นตอน หยุด/อนุมัติ/ทำงานต่อได้ ผ่าน bridge ที่คุยกับเว็บ
-> ด้วยแท็บเบราว์เซอร์ที่คุณล็อกอินอยู่แล้ว
+> **AiPASS Desktop** คือ AI coding agent แบบ **local-first** ที่ให้คุณตรวจทุกการเปลี่ยนไฟล์ก่อนจะลงโปรเจกต์ของคุณ — เปิดโอเพนซอร์ส · Thai-first · Windows, macOS, Linux · MIT · ไม่มี dependencies
+>
+> **หน้าต่างเดสก์ท็อปและ agent harness สำหรับ [de.aipass.net](https://de.aipass.net/chat)** — agent ที่แก้ไฟล์ได้ ดูได้ทุกขั้นตอน อนุมัติและทำงานต่อได้ คุยกับเว็บผ่านแท็บเบราว์เซอร์ที่คุณล็อกอินอยู่แล้ว
 
 > **โปรเจกต์ชุมชนอิสระ** ไม่ได้เกี่ยวข้อง ไม่ได้รับการรับรอง และไม่ได้สนับสนุนโดยผู้ให้บริการ
 > de.aipass.net ดู [TRADEMARK.md](./TRADEMARK.md)
@@ -12,7 +12,7 @@
 ![หน้าต่าง AiPASS Desktop โหมดสว่าง: sessions และไฟล์โปรเจกต์อยู่ซ้าย บทสนทนากับ tool rows อยู่กลาง composer มีโหมด/provider/model/effort ด้านล่าง](./public/screenshots/desktop-light.png)
 
 <p align="center">
-  <em>ธีมสว่าง (v0.2.0) — sessions อยู่ซ้าย ต้นไม้ไฟล์อยู่ใต้ แล้วบทสนทนาอยู่กลาง ทุก tool call เป็นแถวที่เปิดดูได้ แผง pending การเปลี่ยน (ติ๊กไฟล์ + diff) และภาพ dark อยู่ระหว่างถ่ายใหม่ — ไม่มีในภาพนี้</em>
+  <em>ธีมสว่าง — sessions กับต้นไม้ไฟล์อยู่ซ้าย บทสนทนาอยู่กลาง ทุก tool call เป็นแถวที่เปิดดูได้ การแก้ไขจะค้างในแผง pending จนกว่าคุณจะอนุมัติ</em>
 </p>
 
 > **สถานะ: pre-1.0 ยังไม่มี installer** — ตอนนี้ติดตั้งจาก source (ดูด้านล่าง) แอป native

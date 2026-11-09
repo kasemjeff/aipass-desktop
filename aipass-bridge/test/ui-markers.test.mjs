@@ -29,6 +29,11 @@ const REPLIES = [
   'CREATE c.txt\nhello\nworld\nEND',
   'RUN\nnode test.mjs\nEND\nResults were green.',
   'RUN\nnode x.mjs',
+  'RUN background\nnode watch.mjs\nEND',
+  'Create a summary of the changes.',
+  'Ask me if anything is unclear.',
+  'CREATE never-closed.txt\nbody to the end',
+  'CREATE a.rb\ndef a\nend\nCREATE b.rb\nputs 1\nEND',
   'PLAN\n- [ ] one\n- [x] two\nEND\nTODO\n- [ ] three\nEND',
   'SUBAGENT\ntask: do the thing\nEND',
   'SYMBOLS src/index.ts\nDEF someName\nREFS someName\nJOBS',
@@ -93,6 +98,8 @@ test('transcript() keeps the prose and drops the blocks', () => {
   assert.equal(transcript('DONE fixed it'), '', 'a marker-only reply leaves an empty bubble');
   assert.equal(transcript('RUN\nls\nEND\nall green'), 'all green');
   assert.equal(transcript('I saw it.\nEDIT a.js\nFIND\nold'), 'I saw it.', 'a block still streaming to EOF is already hidden');
+  assert.equal(transcript('Create a summary of the changes.'), 'Create a summary of the changes.', 'a plain sentence is prose in the bubble too');
+  assert.equal(transcript('Done with that.'), 'Done with that.', 'sentence-case Done is prose, not a wire line');
 });
 
 test('a fenced example is a quotation, never a call', () => {

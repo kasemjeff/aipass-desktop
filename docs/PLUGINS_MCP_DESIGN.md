@@ -51,9 +51,13 @@ The state P1 started from; the implementations above resolved every row.
 ## 3. Principles
 
 1. **Install is the consent moment.** Plugins and MCP servers are trusted, not
-   sandboxed — the user is about to run someone's code in the backend process.
-   Every install surface shows what will run, from where, and what it can
-   reach, then asks. Nothing installs itself.
+   sandboxed by default — the user is about to run someone's code in the
+   backend process. Every install surface shows what will run, from where,
+   and what it can reach, then asks. Nothing installs itself. A plugin may
+   opt into isolation (`isolated: true` + `capabilities`, § 9): it then runs
+   in a forked worker, may only touch the surfaces it declared, and its
+   setup/calls are time-bounded. `AIPASS_PLUGIN_ISOLATION=all` forks every
+   plugin; `off` keeps every one in-process.
 2. **One module, three doors.** `harness/install.mjs` holds the logic. The RPC
    handlers and the CLI both call it; the window talks RPC. No surface gets a
    private code path, the way `rules.get/set` and `aipass agent` already share
@@ -329,6 +333,39 @@ confirm, and it prints the trust sentence either way. The removed `aipass doctor
 CLI used to carry both extension channels: plugins that failed to load (named, with the fix)
 and MCP servers — live connect state when a desktop backend is running,
 otherwise the enabled-config count marked "not tested" rather than spawned.
+
+## 8b. Plugin isolation (opt-in, P1)
+
+A plugin that declares `isolated: true` (read from its source text before
+anything runs, like its name) never executes in the backend process:
+`PluginManager` forks `harness/plugin-worker.mjs` and the worker does the
+importing. `AIPASS_PLUGIN_ISOLATION` selects the mode — `off` (every
+plugin in-process, trusted: today's behaviour), `all` (every plugin
+forks), `declared` (the default: only the ones that say so).
+
+- **Capability-based permissions.** An isolated plugin declares
+  `capabilities` — a subset of `tools`, `rpc`, `panels`, `settings`,
+  `preamble`, `events`, `env`. Using a surface it did not declare fails
+  the load, rolls back, and registers nothing. Absent entirely, the
+  plugin gets every surface except `env`. `env` widens the child's
+  environment to the parent's, still minus secret-named variables. The
+  live `ctx.settings` is a read-only snapshot inside the worker; writing
+  a setting is an RPC method away.
+- **Resource limits.** The worker is forked with a memory cap
+  (`AIPASS_PLUGIN_MEMORY_MB`, 512) and a concurrency cap
+  (`AIPASS_PLUGIN_WORKERS`, 8); over the cap the plugin fails to load with
+  a named error. Setup has a timeout (`AIPASS_PLUGIN_TIMEOUT_MS`,
+  30 s) and each call has one (`AIPASS_PLUGIN_CALL_TIMEOUT_MS`, 30 s) — a
+  timed-out call leaves the plugin alive.
+- **Crash recovery.** A dead worker rejects every pending call with
+  `plugin <name> crashed`, restarts once, and the next call works; a
+  second death fails the plugin and unregisters it (rolled back, in
+  `failed[]`, said out loud). A dead backend takes its workers with it.
+- **Residuals, same as the shell boundary.** This is a process boundary,
+  not a kernel one: the child runs as the same user and `fs` stays
+  reachable — what it buys is crash/timeout safety, no inherited secrets
+  without an explicit `env` ask, and no silent surface creep. In-process
+  remains the default for plugins that never declare isolation.
 
 ## 9. The window
 

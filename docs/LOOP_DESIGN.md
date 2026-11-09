@@ -583,6 +583,29 @@ the helper keeps its original behaviour. The three built-ins
 may define more in settings (`helperPresets`) — same rule, same limits; a
 preset can narrow the parent's powers, never widen them.
 
+## Loop intelligence
+
+Six readings on top of the guards above, each with its own module and
+off-switch — the full account is [`LOOP_INTELLIGENCE.md`](LOOP_INTELLIGENCE.md):
+
+- **Failure classification** (`harness/failure.mjs`): every `err:` result is
+  read as model, tool, environment or unknown and counted (`failureCounts`).
+- **Adaptive retry**: attempt 1 diagnoses, attempt 2 tries a different
+  approach, attempt 3 escalates — the hint is never the same sentence twice
+  (`adaptiveRetries`).
+- **Recovery planning**: the third failure rides an ordered plan —
+  isolate → diagnose → alternatives → fallback — after the err-loop
+  correction’s unchanged sentence.
+- **Independent verification** (`harness/verify-evidence.mjs`): the checker’s
+  verdict is audited against staged files, ran executions and the declared
+  command; only a `pass` is downgraded, to `none` (`independentChecks`).
+- **Dynamic budget** (`run/budgets.mjs`): the allowance scales 0.3× / 1× / 2×
+  by task difficulty, recorded as `budgetTier`/`budgetScore`.
+  Off via `dynamicBudget: false`.
+- **Loop state persistence** (`harness/loop-state.mjs`): an atomic snapshot
+  of the guard counters after every step, outside the project; a crash
+  leaves it, a clean end clears it (`loopStateSaved`/`loopStateRestored`).
+
 ## Tests that pin this
 
 | file | what it locks |
@@ -611,3 +634,7 @@ preset can narrow the parent's powers, never widen them.
 | `test/config-catalog.test.mjs` | docs/CONFIG.md names exactly the env vars, settings keys and harness options the code reads |
 | `test/secret-screen.test.mjs` | the secret screen past the file tools — RUN bodies, GIT args, SEARCH walks |
 | `test/desktop-window.test.mjs` · `test/ui.test.mjs` | the whole run through the backend — plan gate, permissions, todos — and the window's handlers |
+| `test/failure-adaptive.test.mjs` | classification (model/tool/environment), adaptive hints, the recovery plan, and the streak-2/3 corrections end to end |
+| `test/dynamic-budget.test.mjs` | difficulty tiers, the 0.3×/1×/2× scaling, and the `dynamicBudget` switch |
+| `test/verify-evidence.test.mjs` | the verdict audit — a pass without runs is `none`, a backed pass stands — and one lying-checker run end to end |
+| `test/loop-state.test.mjs` | the snapshot round-trip, torn/stale/foreign files ignored, save-every-step with clear-on-clean-end, restore into a second run |

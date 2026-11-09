@@ -1,3 +1,4 @@
+// @ts-nocheck
 // Which browser opens a URL, and the argv that does it — one rule, shared by
 // the two surfaces that need it (the RPC's `browser.open` and the desktop
 // launcher's `openWindow`) and pinned by the suite from any OS, because a

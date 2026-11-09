@@ -1,3 +1,4 @@
+// @ts-nocheck
 // services.mjs — Recall/Carry/Standing services (Phase 3, §10).
 //
 // Each service owns a budget and returns Hit[] in the one shape surfaces

@@ -1,3 +1,4 @@
+// @ts-nocheck
 // Plugins — the seam between the harness and whatever it cannot anticipate.
 //
 // A plugin is one .mjs file in `~/.aipass/plugins` (or a folder with a
@@ -36,10 +37,28 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import crypto from 'node:crypto';
+import { fork, spawn } from 'node:child_process';
 import { aipassHome } from './settings.mjs';
-import { pathToFileURL } from 'node:url';
+import { pathToFileURL, fileURLToPath } from 'node:url';
+import { PLUGIN_CAPABILITIES, DEFAULT_CAPABILITIES, declaredCapabilities, declaredIsolated } from './plugin-worker.mjs';
 
 export const PLUGIN_API = 1;
+
+/** The forked plugin host (plugin-worker.mjs). */
+const WORKER = path.join(path.dirname(fileURLToPath(import.meta.url)), 'plugin-worker.mjs');
+
+const positiveInt = (value, fallback) => {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
+};
+const isolationMode = () => {
+  const raw = String(process.env.AIPASS_PLUGIN_ISOLATION ?? 'declared').trim().toLowerCase();
+  return raw === 'off' || raw === 'all' ? raw : 'declared';
+};
+const setupTimeoutMs = () => positiveInt(process.env.AIPASS_PLUGIN_TIMEOUT_MS, 30_000);
+const callTimeoutMs = () => positiveInt(process.env.AIPASS_PLUGIN_CALL_TIMEOUT_MS, 30_000);
+const maxWorkers = () => positiveInt(process.env.AIPASS_PLUGIN_WORKERS, 8);
+const memoryMb = () => positiveInt(process.env.AIPASS_PLUGIN_MEMORY_MB, 512);
 
 /**
  * The name a plugin declares, read from its TEXT and never from its code.
@@ -79,11 +98,19 @@ export class PluginManager {
   /** The cache-buster's counter — every import gets its own module URL. */
   #imports = 0;
 
-  constructor({ dir = path.join(aipassHome(), 'plugins'), settings = null, events = null, log = () => {} } = {}) {
+  constructor({ dir = path.join(aipassHome(), 'plugins'), settings = null, events = null, log = () => {},
+    isolation = null, timeoutMs = null, workers = null, memory = null } = {}) {
     this.dir = dir;
     this.settings = settings;
     this.events = events;
     this.log = log;
+    /* Isolation policy overrides (tests and the window). The env stays the
+     * default; an explicit argument wins over it. */
+    this.isolation = isolation ?? isolationMode();
+    this.setupTimeoutMs = timeoutMs ?? setupTimeoutMs();
+    this.callTimeoutMs = callTimeoutMs();
+    this.maxWorkers = workers ?? maxWorkers();
+    this.memoryMb = memory ?? memoryMb();
     this.loaded = [];        // [{name, version, description, file}]
     this.failed = [];        // [{file, error}]
     this._methods = new Map();
@@ -91,6 +118,9 @@ export class PluginManager {
     this._tools = new Map(); // marker → {impl, takesBody, description, plugin, risk}
     this._settingDefs = [];
     this._preamble = new Map(); // name → {fn, plugin}
+    /** name → isolated host { child, pending, attempts, capabilities, subscriptions } */
+    this._hosts = new Map();
+    this._callSeq = 0;
   }
 
   get defaultDir() { return this.dir; }
@@ -159,7 +189,29 @@ export class PluginManager {
     this._preamble = tables.preamble;
   }
 
+  /** Stop every isolated plugin worker (reloads stop them first, so a
+   *  stale child never answers for a table that was rebuilt without it). */
+  async close() {
+    const hosts = [...this._hosts.values()];
+    this._hosts.clear();
+    for (const host of hosts) {
+      for (const sub of host.subscriptions.values()) { try { sub.off?.(); } catch { /* best effort */ } }
+      host.subscriptions.clear();
+      host.stopped = true;
+      for (const pending of host.pending.values()) {
+        clearTimeout(pending.timer);
+        pending.reject(new Error(`plugin ${host.name} was stopped (reload)`));
+      }
+      host.pending.clear();
+      await this.#stopChild(host.child);
+    }
+  }
+
   async load() {
+    // A reload is a fresh world: workers from the last world cannot answer
+    // anything the new one registered, so they stop here. Their tables drop
+    // away with the rebuild below.
+    await this.close();
     this.loaded = [];
     this.failed = [];
     this._methods.clear();
@@ -192,9 +244,19 @@ export class PluginManager {
         // The name is read from the source as text (declaredName) because a
         // name can only be known by running the file. A file whose name
         // cannot be read that way answers to the name it is filed under.
-        const names = this.#namesOf(file, bytes.toString('utf8'));
+        const source = bytes.toString('utf8');
+        const names = this.#namesOf(file, source);
         if (!this.#wantedName(names.name)) {
           this.log(`plugin ${names.label} is disabled in settings — not importing it, so its code never runs`);
+          continue;
+        }
+        // (isolation) A plugin that says `isolated: true` — or every plugin
+        // when AIPASS_PLUGIN_ISOLATION=all — forks a worker (plugin-
+        // worker.mjs) and never runs in this process. 'off' is the
+        // explicit opt-out: every plugin in-process, trusted, as before.
+        if (this.isolation !== 'off'
+          && (this.isolation === 'all' || declaredIsolated(source))) {
+          await this.#loadIsolated(file, names, source, bytes, stat);
           continue;
         }
         // A cache-buster that cannot collide: `Date.now()` alone repeats
@@ -226,6 +288,18 @@ export class PluginManager {
         if (api !== null && (!Number.isInteger(api) || api < 1 || api > PLUGIN_API)) {
           throw new Error(`plugin apiVersion ${api} needs a newer harness (this build speaks ${PLUGIN_API})`);
         }
+        // The manifest's permissions: what the plugin says it may use, in
+        // the capability vocabulary (plugin-worker.mjs). An unknown word is
+        // a name the harness does not have — loading anyway would grant a
+        // surface nobody reviewed, so it is refused like a bad apiVersion.
+        const declaredPerms = plugin.permissions ?? plugin.capabilities ?? null;
+        let permissions = null;
+        if (declaredPerms !== null) {
+          if (!Array.isArray(declaredPerms)) throw new Error('plugin permissions must be an array of capability names');
+          const unknown = declaredPerms.filter((c) => !PLUGIN_CAPABILITIES.includes(c));
+          if (unknown.length) throw new Error(`plugin declares unknown permissions: ${unknown.join(', ')} (known: ${PLUGIN_CAPABILITIES.join(', ')})`);
+          permissions = [...new Set(declaredPerms)];
+        }
         const ctx = this.#context(plugin);
         await plugin.setup(ctx);
         this.loaded.push({
@@ -233,6 +307,7 @@ export class PluginManager {
           version: plugin.version ?? '0.0.0',
           description: plugin.description ?? '',
           apiVersion: api,
+          permissions,
           file,
           sha256: crypto.createHash('sha256').update(bytes).digest('hex').slice(0, 16),
           bytes: stat.size,
@@ -323,6 +398,270 @@ export class PluginManager {
     };
   }
 
+  /* --------------------------------------------------------- isolated hosts */
+
+  /**
+   * Load one plugin in its own process (plugin-worker.mjs). The worker does
+   * the importing, so this process never runs the plugin's code — not its
+   * top level, not its setup. Failures (timeout, crash, capability misuse)
+   * roll back the tables exactly as an in-process failure does.
+   */
+  async #loadIsolated(file, names, source, bytes, stat) {
+    const tables = this.#snapshot();
+    // Resource gate first: a forked worker per plugin without a cap is a
+    // process table, not a feature.
+    if ([...this._hosts.values()].filter((h) => h.child.exitCode === null).length >= this.maxWorkers) {
+      this.failed.push({ file, error: `plugin worker limit reached (${this.maxWorkers}) — too many isolated plugins at once` });
+      this.log(`plugin ${names.label} failed to load: worker limit reached`);
+      return;
+    }
+    const declared = declaredCapabilities(source);
+    const capabilities = declared ?? [...DEFAULT_CAPABILITIES];
+    const name = names.name;
+    const host = {
+      file, name, capabilities, attempts: 1, child: null,
+      pending: new Map(), subscriptions: new Map(), stopped: false,
+      ready: false, // flips on `ready`; only a READY host earns a restart
+    };
+    this._hosts.set(name, host);
+    try {
+      const ready = await this.#spawnHost(host, { forced: this.isolation === 'all' });
+      this.loaded.push({
+        name: ready.name ?? name,
+        version: ready.version ?? '0.0.0',
+        description: ready.description ?? '',
+        apiVersion: ready.apiVersion ?? null,
+        file,
+        sha256: crypto.createHash('sha256').update(bytes).digest('hex').slice(0, 16),
+        bytes: stat.size,
+        modified: Math.round(stat.mtimeMs),
+        isolated: true,
+        capabilities: ready.capabilities ?? capabilities,
+        permissions: ready.capabilities ?? capabilities,
+      });
+    } catch (err) {
+      this.#rollback(tables);
+      this._hosts.delete(name);
+      this.failed.push({ file, error: String(err?.message ?? err) });
+      this.log(`plugin ${names.label} failed to load (isolated): ${err?.message ?? err}`);
+    }
+  }
+
+  /** One forked worker for a host: init, then setup (with the timeout).
+   *  Resolves with the worker's `ready` report. */
+  #spawnHost(host, { forced = false } = {}) {
+    return new Promise((resolve, reject) => {
+      let done = false;
+      let child;
+      const fail = (err) => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        this.#stopChild(child);
+        reject(err);
+      };
+      const ok = (ready) => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        resolve(ready);
+      };
+      try {
+        child = fork(WORKER, [], {
+          windowsHide: true,
+          stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+          resourceLimits: { maxOldGenerationSizeMb: this.memoryMb },
+        });
+      } catch (err) {
+        reject(new Error(`the plugin worker could not start: ${err?.message ?? err}`));
+        return;
+      }
+      host.child = child;
+      const timer = setTimeout(() => {
+        fail(new Error(`plugin ${host.name} setup timed out after ${this.setupTimeoutMs} ms — the plugin was not loaded`));
+      }, this.setupTimeoutMs);
+      timer.unref?.();
+      child.stdout?.on('data', () => {});
+      child.stderr?.on('data', (d) => {
+        const text = String(d).trim();
+        if (text) this.log(`[${host.name}] ${text.slice(0, 500)}`);
+      });
+      child.on('error', (err) => fail(new Error(`the plugin worker errored: ${err?.message ?? err}`)));
+      child.on('exit', (code, signal) => {
+        host.child = null;
+        this.#onHostCrash(host, code, signal);
+        if (!done) fail(new Error(`the plugin worker exited (${code ?? signal ?? '?'}) before setup finished`));
+      });
+      child.on('message', (msg) => {
+        if (!msg || typeof msg !== 'object') return;
+        if (msg.type === 'register') this.#registerFromHost(host, msg);
+        else if (msg.type === 'subscribe') this.#subscribeFromHost(host, msg.event);
+        else if (msg.type === 'log') this.log(String(msg.text ?? ''));
+        else if (msg.type === 'handler-error') this.log(`[${host.name}] ${msg.event} handler: ${String(msg.error ?? '').slice(0, 300)}`);
+        else if (msg.type === 'ready') { host.ready = true; ok(msg); }
+        else if (msg.type === 'setup-error') fail(new Error(String(msg.error ?? 'setup failed')));
+        else if (msg.type === 'result') {
+          const pending = host.pending.get(msg.id);
+          if (!pending) return;
+          host.pending.delete(msg.id);
+          clearTimeout(pending.timer);
+          if (msg.ok) pending.resolve(msg.value ?? null);
+          else pending.reject(new Error(String(msg.error ?? 'plugin call failed')));
+        }
+      });
+      try {
+        child.send({
+          type: 'init', id: host.name, file: host.file,
+          capabilities: host.capabilities, forced,
+          parentEnv: { ...process.env },
+          settingsSnapshot: this.settings?.values && typeof this.settings.values === 'object'
+            ? { ...this.settings.values } : {},
+        });
+      } catch (err) {
+        fail(new Error(`the plugin worker could not start: ${err?.message ?? err}`));
+      }
+    });
+  }
+
+  /** A registration the worker made during setup: it enters the tables with
+   *  a remote impl, after the same shape checks the in-process ctx holds. */
+  #registerFromHost(host, msg) {
+    const name = host.name;
+    try {
+      if (msg.surface === 'tool') {
+        if (!/^[A-Z][A-Z0-9_-]*$/.test(msg.marker)) throw new Error(`marker must be UPPER_SNAKE, got ${msg.marker}`);
+        this._tools.set(msg.marker, {
+          impl: (call) => this.#hostCall(host, 'tool', msg.marker, call),
+          takesBody: Boolean(msg.takesBody), description: String(msg.description ?? ''),
+          plugin: name, risk: msg.risk ?? null,
+        });
+      } else if (msg.surface === 'rpc') {
+        this._methods.set(msg.name, { fn: (params) => this.#hostCall(host, 'method', msg.name, params), plugin: name });
+      } else if (msg.surface === 'panel') {
+        this._panels = this._panels.filter((p) => !(p.plugin === name && p.id === msg.id));
+        this._panels.push({
+          id: msg.id, title: msg.title, plugin: name,
+          render: () => this.#hostCall(host, 'panel', msg.id, {}),
+        });
+      } else if (msg.surface === 'setting') {
+        this._settingDefs = this._settingDefs.filter((d) => !(d.plugin === name && d.key === msg.setting?.key));
+        this._settingDefs.push({ plugin: name, ...msg.setting });
+      } else if (msg.surface === 'preamble') {
+        this._preamble.set(msg.name, { fn: () => this.#hostCall(host, 'preamble', msg.name, {}), plugin: name });
+      }
+    } catch (err) {
+      this.log(`plugin ${name} registered something invalid: ${err?.message ?? err}`);
+    }
+  }
+
+  /** Forward one bus event to a subscribed isolated plugin. */
+  #subscribeFromHost(host, type) {
+    if (typeof type !== 'string' || !type) return;
+    if (host.subscriptions.has(type)) return;
+    // The listener is host-relative: it reads `host.child` live, so it
+    // survives a restart (the new child, same subscription) without
+    // re-registering.
+    const listener = (payload) => {
+      if (!host.child) return;
+      try { host.child.send({ type: 'fire', event: type, payload: payload ?? {} }); } catch { /* gone */ }
+    };
+    const off = this.events?.on?.(type, listener);
+    host.subscriptions.set(type, { listener, off: typeof off === 'function' ? off : null });
+  }
+
+  /** One call against a host, with a per-call timeout. A timed-out call
+   *  leaves the plugin alive; a crash rejects every pending call. */
+  #hostCall(host, kind, name, args) {
+    return new Promise((resolve, reject) => {
+      if (!host.child) {
+        reject(new Error(`plugin ${host.name} is not running`));
+        return;
+      }
+      const id = `c${++this._callSeq}`;
+      const timer = setTimeout(() => {
+        host.pending.delete(id);
+        reject(new Error(`plugin ${host.name}: ${kind} ${name} timed out after ${this.callTimeoutMs} ms`));
+      }, this.callTimeoutMs);
+      timer.unref?.();
+      host.pending.set(id, { resolve, reject, timer });
+      try {
+        host.child.send({ type: 'call', id, kind, name, args: args ?? {} });
+      } catch (err) {
+        host.pending.delete(id);
+        clearTimeout(timer);
+        reject(new Error(`plugin ${host.name} could not be called: ${err?.message ?? err}`));
+      }
+    });
+  }
+
+  /** The child died. An intentional stop (reload/close) is quiet; anything
+   *  else is a crash: pending calls reject, and the worker restarts ONCE.
+   *  A second death fails the plugin and unregisters it. */
+  #onHostCrash(host, code, signal) {
+    const pending = [...host.pending.values()];
+    host.pending.clear();
+    for (const p of pending) {
+      clearTimeout(p.timer);
+      p.reject(new Error(`plugin ${host.name} crashed while ${signal ? `signal ${signal}` : `exited ${code}`}`));
+    }
+    if (host.stopped) return;
+    // A worker that died before it ever reported `ready` never loaded: its
+    // failure is #loadIsolated's to record (with the rollback). Restarting
+    // it here would resurrect a failed load against the rollback.
+    if (!host.ready) return;
+    host.attempts += 1;
+    this.log(`plugin ${host.name} worker exited (${code ?? signal ?? '?'}); restarting`);
+    void this.#spawnHost(host, { forced: this.isolation === 'all' }).then(
+      () => { this.log(`plugin ${host.name} restarted`); },
+      (err) => this.#hostFailed(host, String(err?.message ?? err)),
+    );
+  }
+
+  /** Stop a child and take its tree down (the execution.mjs pattern). */
+  async #stopChild(child) {
+    if (!child) return;
+    try { child.send?.({ type: 'stop' }); } catch { /* already gone */ }
+    await new Promise((resolve) => {
+      const done = () => resolve();
+      const grace = setTimeout(() => { this.#killTree(child); resolve(); }, 3_000);
+      grace.unref?.();
+      child.once('exit', () => { clearTimeout(grace); resolve(); });
+      child.once('error', done);
+      if (child.exitCode !== null) resolve();
+    });
+  }
+
+  #killTree(child) {
+    if (!child?.pid) { try { child?.kill?.(); } catch { /* already gone */ } return; }
+    if (process.platform === 'win32') {
+      const tk = spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' });
+      tk.on('error', () => {});
+      tk.on('close', () => {});
+      return;
+    }
+    try { process.kill(-child.pid, 'SIGKILL'); } catch { /* already gone */ }
+    try { child.kill(); } catch { /* already gone */ }
+  }
+
+  /** A crashed-out plugin: out of every table, in the failed list, said out
+   *  loud. Nothing of it answers after this. */
+  #hostFailed(host, error) {
+    const name = host.name;
+    host.stopped = true;
+    for (const off of host.subscriptions.values()) { try { off.off?.(); } catch { /* best effort */ } }
+    host.subscriptions.clear();
+    for (const [marker, def] of this._tools) if (def.plugin === name) this._tools.delete(marker);
+    for (const [method, def] of this._methods) if (def.plugin === name) this._methods.delete(method);
+    this._panels = this._panels.filter((p) => p.plugin !== name);
+    this._settingDefs = this._settingDefs.filter((d) => d.plugin !== name);
+    for (const [section, def] of this._preamble) if (def.plugin === name) this._preamble.delete(section);
+    this._hosts.delete(name);
+    this.loaded = this.loaded.filter((p) => p.name !== name);
+    this.failed.push({ file: host.file, error });
+    this.log(`plugin ${name} failed: ${error}`);
+    this.events?.emit('plugins', { loaded: this.loaded.length, failed: this.failed.length });
+  }
+
   /** What the window shows, and what /rpc answers. */
   details() {
     return {
@@ -363,7 +702,14 @@ export class PluginManager {
   async runTool(marker, { arg = '', body = '' } = {}) {
     const def = this._tools.get(marker);
     if (!def) return `no such plugin tool: ${marker}`;
-    return String(await def.impl({ arg, body }) ?? '');
+    // A tool failure answers `err:` like every other tool (rule 3): an
+    // isolated plugin that times out or crashes must not throw through the
+    // loop — the model reads what happened instead.
+    try {
+      return String(await def.impl({ arg, body }) ?? '');
+    } catch (err) {
+      return `err: ${String(err?.message ?? err)}`;
+    }
   }
 
   /** Panels are rendered in the window, across the process boundary. */

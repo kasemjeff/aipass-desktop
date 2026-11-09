@@ -62,6 +62,14 @@ drift this file exists to catch.
 | `AIPASS_SPILL_KEEP` | `200` | how many spill files are kept before pruning | `tools.mjs` |
 | `AIPASS_SPILL_PRUNE_EVERY` | `25` | prune the spill dir every this-many appends | `tools.mjs` |
 | `AIPASS_SANDBOX_MAX_FILE_MB` | `64` | the projection's per-file copy cap | `sandbox.mjs` |
+| `AIPASS_SANDBOX_LOCK_SHARED` | on | `0` disables the read-only lock on shared heavy dirs during a RUN (a build that writes into `dist/` needs this opt-out) | `sandbox.mjs` |
+| `AIPASS_SANDBOX_LOCK_MAX_FILES` | `100000` | the shared-dir lock's per-tree file cap; past it the lock stops and the RUN says so | `sandbox.mjs` |
+| `AIPASS_SHELL_WORKERS` | `8` | how many forked shell workers may run at once; the excess is refused with `err:` | `execution.mjs` |
+| `AIPASS_PLUGIN_ISOLATION` | `declared` | `off` keeps plugins in-process (trusted), `all` forks every one, `declared` forks the ones that say `isolated: true` | `plugins.mjs` |
+| `AIPASS_PLUGIN_TIMEOUT_MS` | `30000` | an isolated plugin's setup timeout | `plugins.mjs` |
+| `AIPASS_PLUGIN_CALL_TIMEOUT_MS` | `30000` | one isolated plugin call's timeout (the plugin stays alive) | `plugins.mjs` |
+| `AIPASS_PLUGIN_WORKERS` | `8` | how many forked plugin workers may run at once; the excess fails to load | `plugins.mjs` |
+| `AIPASS_PLUGIN_MEMORY_MB` | `512` | an isolated plugin worker's memory cap | `plugins.mjs` |
 | `AIPASS_FETCH_MAX_BYTES` | `2000000` | the largest body a model-chosen fetch may read | `tools.mjs` |
 | `AIPASS_FETCH_ALLOW_PRIVATE` | off | `1` lifts the private-host deny for fetch and media (a check against a local server) | `tools.mjs`, `media.mjs` |
 | `AIPASS_MEDIA_TIMEOUT_MS` | computed | the media generation's wait | `media.mjs` |
@@ -73,11 +81,15 @@ drift this file exists to catch.
 | `AIPASS_RECOVER_WAITS_MS` | built-in ladder | the loop's own send-recovery waits, comma-separated | `bridge.mjs` |
 | `AIPASS_RATE_BUCKET` | `4,45000` | the send token bucket `capacity,refillMs`, or `off` | `bridge.mjs` |
 | `AIPASS_PROVIDER_MODELS_TIMEOUT_MS` | computed | the provider model-list fetch timeout | `provider-client.mjs` |
+| `AIPASS_PROVIDER_FIRST_BYTE_TIMEOUT_MS` | `120000` | how long a provider chat turn may wait for its first byte before it times out (a provider spec's `firstByteTimeoutMs` wins) | `provider-client.mjs` |
+| `AIPASS_PROVIDER_STALL_TIMEOUT_MS` | `180000` | how long a provider chat stream may remain silent between transport bytes before it times out (a provider spec's `stallTimeoutMs` wins) | `provider-client.mjs` |
 | `AIPASS_POLICY_DIR` | `~/.aipass/harness/policy` | where the meta policy documents live | `meta/policy.mjs` |
 | `AIPASS_UPDATE_FEED` | shipped URL | the signed update feed | `update.mjs` |
 | `AIPASS_BROWSER_PROFILE` | temp dir | the coverage gate's browser profile (scripts) | `scripts/coverage-gate.mjs` |
 | `AIPASS_BROWSER_PIDFILE` | temp file | the coverage gate's browser pid file (scripts) | `scripts/coverage-gate.mjs` |
 | `AIPASS_TEST_TIMEOUT_MS` | `1200000` on Windows | the suite's per-test timeout | `scripts/test.mjs` |
+| `AIPASS_TAB_DEGRADED_MS` | `300000` | how long the chat tab may stay unreachable before `tab_degraded` warns (tests shrink it) | `rpc.mjs` |
+| `AIPASS_TAB_DEGRADED_TICK_MS` | `30000` | the degraded-watchdog tick cadence (tests shrink it) | `rpc.mjs` |
 
 ## Environment variables — the bridge
 
@@ -110,7 +122,7 @@ drift this file exists to catch.
 | `AIPASS_RELEASE_KEY` | — | the ed25519 private key that signs an update feed | `scripts/build-update-feed.mjs` |
 | `AIPASS_RELEASE_KEY_ID` | — | the key id recorded beside the signature | `scripts/build-update-feed.mjs` |
 | `AIPASS_RELEASE_NOTES` | — | the notes carried into a release pack | `scripts/build-update-feed.mjs` |
-| `AIPASS_RELEASE_SEQUENCE` | last + 1 | the feed's monotonic sequence number | `scripts/build-update-feed.mjs` |
+| `AIPASS_RELEASE_SEQUENCE` | required (`github.run_number` in CI) | the feed's monotonic sequence number | `scripts/build-update-feed.mjs` |
 
 ## Settings keys (`~/.aipass/settings.json`)
 
@@ -122,12 +134,15 @@ drift this file exists to catch.
 | `allowRun` | `false` | may the model reach the shell |
 | `allowGitWrite` | `false` | may the model stage, commit, branch |
 | `allowVerify` | `false` | may the model ask for a check (VERIFY) |
-| `sandbox` | `off` | the sandbox a RUN runs in: `off` / `read-only` / `workspace-write` / `danger-full-access` |
+| `sandbox` | `off` | the sandbox a RUN runs in: `off` / `read-only` / `workspace-write` / `danger-full-access` — Phase 1 has no OS-enforcing backend: `read-only`/`workspace-write` refuse (`err:`) until the Seatbelt/bubblewrap adapters land; only `off`/`danger-full-access` run, without a boundary. `backendFor` probes PATH, so an installed tool is named, never silently downgraded |
 | `allowFetch` | `false` | may the model send data out |
 | `maxSteps` | `0` | the step cap; 0 = no cap |
 | `maxToolCalls` | shipped | the per-run tool-call budget |
 | `maxWallClockMs` | shipped | the per-run wall-clock budget |
 | `maxCredits` | `0` | the optional credit cap; 0 = off |
+| `dynamicBudget` | `true` | scale the allowance by task difficulty (simple 0.3x, complex 2x) |
+| `independentVerify` | `true` | audit the checker verdict against real evidence |
+| `loopStatePersist` | `true` | write a resumption snapshot after every step |
 | `plan` | `false` | plan mode |
 | `requirePlanApproval` | `false` | wait for a human before the work starts |
 | `subagent` | `true` | may the run call a helper |
@@ -179,12 +194,16 @@ drift this file exists to catch.
 | `maxToolCalls` | shipped | the per-run tool-call budget |
 | `maxWallClockMs` | shipped | the per-run wall-clock budget |
 | `maxCredits` | `0` | the optional credit cap; 0 = off |
+| `dynamicBudget` | `true` | scale the allowance by task difficulty (simple 0.3x, complex 2x) |
+| `independentVerify` | `true` | audit the checker verdict against real evidence |
+| `loopStatePersist` | `true` | write a resumption snapshot after every step |
+| `acceptanceCriteria` | `null` | the criteria this run's DONE must back with executions |
 | `mode` | `ask` | the permission mode |
 | `allowRun` | `false` | may this run reach the shell |
 | `allowFetch` | `false` | may this run send data out |
 | `allowGitWrite` | `false` | may this run stage, commit, branch |
 | `allowVerify` | `false` | may this run ask for a check (VERIFY) |
-| `sandbox` | `off` | the sandbox mode for this run: `off` / `read-only` / `workspace-write` / `danger-full-access` |
+| `sandbox` | `off` | the sandbox mode for this run: `off` / `read-only` / `workspace-write` / `danger-full-access` (Phase 1: enforcing modes refuse, adapters pending — see the settings row above) |
 | `plan` | `false` | plan mode |
 | `requirePlanApproval` | `false` | wait for a human before the work starts |
 | `subagent` | `false` | may the run call a helper |

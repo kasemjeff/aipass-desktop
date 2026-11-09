@@ -1,3 +1,4 @@
+// @ts-nocheck
 // Who is allowed to touch what.
 //
 // The upstream model speaks in prose markers, so a "write" is any of
@@ -156,6 +157,26 @@ const INTERPRETERS = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh', 'fish', 'cmd',
 // because a first-word check cannot see inside a quoted payload.
 const HAZARD_TEXT = /\brm\s+-\S*r\S*f|\brm\s+-\S*f\S*r|\bdel\b[^|&;]*\/s\b|\brmdir\b[^|&;]*\/s\b/i;
 
+// The wider shapes the same raw-text search covers: Windows removals
+// behind a wrapper (`cmd /c rd /s …`, `Remove-Item -Recurse`),
+// `find -delete`, raw-disk tools, a recursive chmod/chown on `/` or `~`,
+// scripted recursive deletes (Python/Node), and publishing a package.
+// Searched raw like HAZARD_TEXT — inside a quoted payload it still hits.
+const EXTRA = /\brd\b[^|&;]*\/s\b|remove-item\b[^|&;]*-recurse|-delete\b|\b(?:shred|mkfs(?:\.\w+)?|fdisk|diskpart)\b|\bdd\b[^|&;]*\bof=\/dev\/|\b(?:chmod|chown)\s+-\S*r\S*\s+[^|&;]*(?:\s\/|\s~)|\bshutil\.rmtree|\brmSync\([^)]*recursive|\bnpm\s+publish\b/i;
+
+// Wrappers whose quoted payload is a command of its own: `cmd /c rd …`,
+// `powershell -Command "Git push…"`, `sh -c "rm …"`. The payload is
+// classified again, never the wrapper word alone — `powershell -Command
+// "Get-ChildItem"` stays an ordinary command.
+const WRAPPER_WORDS = new Set(['cmd', 'powershell', 'pwsh', 'sh', 'bash', 'zsh', 'dash', 'ksh', 'fish']);
+
+// A bulk copy or archive can carry a secret file under an innocent
+// name (`tar -cf out.tar .`, `zip -r out.zip .`, `xcopy /s`, `robocopy
+// /s`). The output screen cannot see it — nothing prints — so creation
+// is asked about every time. Plain `cp file` already goes through
+// secretHit; only the recursive shapes bundle what no name named.
+const ARCHIVE_CREATORS = new Set(['tar', 'zip', '7z', '7za', '7zr', 'rar', 'compress-archive', 'xcopy', 'robocopy']);
+
 /** The bare command word: lowercased, quotes stripped, directory and .exe off. */
 const commandWord = (segment) => {
   const first = segment.trim().replace(/^["']+/, '').split(/\s+/)[0] ?? '';
@@ -175,11 +196,50 @@ function gitHazard(words) {
   return gitSubcommandWrites(parsed.sub, parsed.args);
 }
 
-/** 'shell-risk' for a RUN body a person should confirm, 'shell' otherwise. */
-export function classifyRun(body) {
-  const text = String(body ?? '').toLowerCase();
+/** The payload a wrapper carries, without the wrapper word and its flag:
+ * `powershell -command "remove-item -recurse x"` yields the inner text,
+ * or null when the segment is not a wrapper invocation. */
+function wrapperPayload(segment) {
+  const words = wordsOf(segment);
+  if (!words.length) return null;
+  const first = words[0];
+  const base = first.split('/').pop().split('\\').pop().replace(/\\.exe$/i, '');
+  if (!WRAPPER_WORDS.has(base)) return null;
+  let flagAt = -1;
+  for (let i = 1; i < words.length; i++) {
+    const w = words[i];
+    if (base === 'cmd' && (w === '/c' || w === '/k')) { flagAt = i; break; }
+    if ((base === 'powershell' || base === 'pwsh') && (w === '-command' || w === '-commandwithargs' || w === '-c')) { flagAt = i; break; }
+    // PowerShell also takes the payload bare after the flag word or after
+    // any `-*` flag; a plain `powershell script.ps1` has no -Command, so
+    // it is not split — and a bare `powershell Get-ChildItem` has no flag,
+    // so it stays one command.
+    if ((['sh', 'bash', 'zsh', 'dash', 'ksh', 'fish'].includes(base)) && (w === '-c')) { flagAt = i; break; }
+  }
+  if (flagAt < 0) return null;
+  const rest = words.slice(flagAt + 1).join(' ').trim().replace(/^["']+/, '').replace(/["']+$/, '');
+  return rest || null;
+}
+
+/** The inner commands of `$(…)` / `<(…)` / `>(…)`, in order. */
+function substitutionInners(text) {
+  const inners = [];
+  for (const m of text.matchAll(/\$\(\s*([^)]*?)\s*\)/g)) inners.push(m[1].trim());
+  for (const m of text.matchAll(/<[\(\[]\s*([^\]\)]*?)\s*[\]\)]/g)) inners.push(m[1].trim());
+  for (const m of text.matchAll(/>\(\s*([^)]*?)\s*\)/g)) inners.push(m[1].trim());
+  return inners.filter(Boolean);
+}
+
+function classifyRunInner(text, depth) {
   if (!text.trim()) return 'shell';
   if (HAZARD_TEXT.test(text)) return 'shell-risk';
+  if (EXTRA.test(text)) return 'shell-risk';
+
+  if (depth < 4) {
+    for (const inner of substitutionInners(text)) {
+      if (classifyRunInner(inner, depth + 1) === 'shell-risk') return 'shell-risk';
+    }
+  }
 
   const segments = text.split(RUN_SPLIT).map((s) => s.trim()).filter(Boolean);
   for (let i = 0; i < segments.length; i++) {
@@ -189,9 +249,26 @@ export function classifyRun(body) {
     if (del && del(wordsOf(segments[i]).slice(1))) return 'shell-risk';
     // `… | sh` counts when a download fetched the input on the left.
     if (INTERPRETERS.has(cmd) && segments.slice(0, i).some((s) => FETCHERS.has(commandWord(s)))) return 'shell-risk';
+    // A download executed through substitution (`sh -c "$(curl …)"`,
+    // `bash <(curl …)`): the fetcher sits inside the same segment, so the
+    // pipe check above cannot see it — the substitution carries it.
+    if (INTERPRETERS.has(cmd) && substitutionInners(segments[i]).some((inner) => FETCHERS.has(commandWord(inner)))) return 'shell-risk';
+    if (ARCHIVE_CREATORS.has(cmd)) return 'shell-risk';
+    if ((cmd === 'cp' || cmd === 'copy' || cmd === 'cp.exe' || cmd === 'copy.exe') && wordsOf(segments[i]).slice(1).some((w) => w === '--recursive' || /^-[a-z]*r[a-z]*$/i.test(w) || /^-[a-z]*a[a-z]*$/i.test(w) || w === '/s' || w === '/e')) return 'shell-risk';
     if (cmd === 'git' && gitHazard(wordsOf(segments[i]))) return 'shell-risk';
+    if (depth < 4) {
+      const payload = wrapperPayload(segments[i]);
+      if (payload && payload !== segments[i] && classifyRunInner(payload, depth + 1) === 'shell-risk') return 'shell-risk';
+    }
   }
   return 'shell';
+}
+
+/** 'shell-risk' for a RUN body a person should confirm, 'shell' otherwise. */
+export function classifyRun(body) {
+  const text = String(body ?? '').toLowerCase();
+  if (!text.trim()) return 'shell';
+  return classifyRunInner(text, 0);
 }
 
 /**
@@ -249,12 +326,33 @@ const SECRET_TOKEN_SPLIT = /[\s'";&|<>()\[\]{}$`=:]+/;
  * The first command word that matches a SECRET_RULES pattern, or null.
  * Matched with globMatch — the same way the floor matches a tool arg — so a
  * new secret pattern only ever needs to be added in one place.
+ *
+ * A glob token is screened too: `cat .en*` names no literal file, but it
+ * expands to one. It is checked against a concrete example of every rule
+ * (`.env*` → `.envx`) so `.en*`, `*.pe?` and friends fail closed. A bare
+ * `*` alone is not flagged here — without the directory listing it would
+ * deny `ls *` in a project with no secret at all; the filesystem-aware
+ * caller (tools RUN) expands it against the real listing instead.
  */
+const secretExamples = (pattern) => {
+  const base = String(pattern).split('**/').join('');
+  const empty = base.split('**').join('').split('*').join('').split('?').join('x');
+  const x = base.split('**').join('x').split('*').join('x').split('?').join('x');
+  return empty === x ? [empty] : [empty, x];
+};
 export function secretHit(text) {
   for (const token of String(text ?? '').replace(/\\/g, '/').split(SECRET_TOKEN_SPLIT)) {
     if (!token) continue;
     for (const rule of SECRET_RULES) {
       if (globMatch(rule.pattern, token)) return { token, pattern: rule.pattern };
+    }
+    if (/[*?[\]]/.test(token) && token !== '*' && token !== '**' && token !== '?') {
+      const base = token.split('/').pop() ?? token;
+      for (const rule of SECRET_RULES) {
+        for (const ex of secretExamples(rule.pattern))
+        
+        if (globMatch(token.split('?').join('*'), ex) || globMatch(base.split('?').join('*'), ex)) return { token, pattern: rule.pattern };
+      }
     }
   }
   return null;

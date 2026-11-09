@@ -1,3 +1,4 @@
+// @ts-nocheck
 // hooks.mjs — the person's own commands, at the points that matter.
 //
 // The harness has rules, skills and plugins, but no place for "run this after

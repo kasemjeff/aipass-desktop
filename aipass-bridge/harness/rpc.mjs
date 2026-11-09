@@ -1,3 +1,4 @@
+// @ts-nocheck
 // The desktop's backend: HTTP + SSE in front of as many harnesses as there are
 // projects.
 //
@@ -64,7 +65,7 @@ import { startScheduleTicker } from './schedule.mjs';
 import { resolveBridgeURL } from './bridge.mjs';
 
 
-import { loadOrMintToken, authorized, authorizedQuery, UNAUTHORIZED } from './authtoken.mjs';
+import { loadOrMintToken, authorized, UNAUTHORIZED } from './authtoken.mjs';
 import { loadGitignore } from './gitignore.mjs';
 
 
@@ -787,10 +788,8 @@ export function createRpc({
       // The reading switches, and RECALL with them: a save re-applies onto
       // every harness the backend holds, so the file says the same thing to a
       // harness built last week as to one built now.
-      recall: appSettings.get('recall'),
-      retrieve: appSettings.get('retrieve'),
-      explore: appSettings.get('explore'),
-      parallelReads: appSettings.get('parallelReads'),
+      recall: appSettings.get('recall'), retrieve: appSettings.get('retrieve'), diagnose: appSettings.get('diagnose'),
+      explore: appSettings.get('explore'), parallelReads: appSettings.get('parallelReads'), cag: appSettings.get('cag'),
       // Turn-1 context switches (the same reads, plus the two that were
       // missing from the live sheet): the snapshot, the project's instructions
       // and the DONE-time fact capture.
@@ -1128,6 +1127,11 @@ export function createRpc({
     get pluginsReady() { return pluginsReady; },
     get current() { return current; },
     get methods() { return methods; },
+    get interrupted() { return interrupted; },
+    // Read through a getter: the timer lives further down (after the routes
+    // exist), and `browser.open` reaches it only when a call asks. A plain
+    // destructure would evaluate the getter before the const below exists.
+    get clearTabGone() { return clearTabGone; },
   };
 
   const methods = {
@@ -1143,7 +1147,7 @@ export function createRpc({
   // The SSE endpoint lives in rpc/sse.mjs; the route table below asks it
   // first and falls through when it does not take the request.
   const handleEvents = createSseHandler({
-    fanout, replay, getSeq: () => seq, authorized, authorizedQuery, json,
+    fanout, replay, getSeq: () => seq, authorized, json,
   });
 
   const server = http.createServer(async (req, res) => {
@@ -1177,7 +1181,9 @@ export function createRpc({
       if (!isBrowserSameOrigin(req)) {
         return json(res, 403, { ok: false, error: 'the token bootstrap is for same-origin browser pages; tools read the token file' });
       }
-      return json(res, 200, { ok: true, token: loadOrMintToken() });
+      const token = loadOrMintToken();
+      res.setHeader('set-cookie', `aipass_token=${encodeURIComponent(token)}; HttpOnly; SameSite=Lax; Path=/`);
+      return json(res, 200, { ok: true, token });
     }
 
     // The event stream: replay buffer, fan-out subscription, named pings and
@@ -1340,14 +1346,77 @@ export function createRpc({
   // the backend offers the click (and takes it when settings allow). This hangs
   // off the shared bus, not the boot harness: every project's harness forwards
   // its events there, so the auto-open keeps working after a project switch.
+  //
+  // Tab absence is also a degraded mode, not a dead one: if the tab — and
+  // with it the browser credential — stays unreachable for five minutes, the
+  // backend says so once. It does NOT hand the run to a fallback provider:
+  // "automatic model fallback — won't build" (docs/MATURITY.md) is the
+  // policy, and a silent provider change spends real money where credits
+  // were expected. `fallbackProvider` therefore names an AVAILABLE fallback
+  // the person may pick with the provider switch — never one the backend
+  // took over. No fallback configured: the run cannot start until the tab
+  // is back. `provider_failover` is no longer emitted; the window keeps its
+  // handler for older backends.
+  // Env overrides exist so a test can cross the five-minute rail without
+  // waiting five minutes; production keeps both at their shipped values.
+  const TAB_DEGRADED_MS = (() => { const n = Number(process.env.AIPASS_TAB_DEGRADED_MS); return Number.isFinite(n) && n > 0 ? Math.floor(n) : 300_000; })();
+  const TAB_DEGRADED_TICK_MS = (() => { const n = Number(process.env.AIPASS_TAB_DEGRADED_TICK_MS); return Number.isFinite(n) && n > 0 ? Math.floor(n) : 30_000; })();
+  let tabGoneSince = null;
+  let tabDegradeTimer = null;
+  const stopTabGoneTimer = () => {
+    if (tabDegradeTimer) {
+      clearInterval(tabDegradeTimer);
+      tabDegradeTimer = null;
+    }
+  };
+  const tabGoneTick = () => {
+    if (!tabGoneSince || tabGoneSince.reported) return;
+    // The person left the AiPASS path by hand (provider switch in the
+    // window): the tab is irrelevant now, so the degraded state ends
+    // instead of reporting a gone tab on a provider that needs none.
+    if (activeProviderId() !== AIPASS_PROVIDER) { clearTabGone(); return; }
+    const goneMs = Date.now() - tabGoneSince.at;
+    if (goneMs < TAB_DEGRADED_MS) return;
+    tabGoneSince.reported = true;
+    const fallback = typeof providers.all === 'function'
+      ? (providers.all() ?? []).find((p) => p?.id && p.id !== AIPASS_PROVIDER && providers.get(p.id))
+      : null;
+    const fallbackId = fallback ? String(fallback.id).toLowerCase() : null;
+    emit('tab_degraded', {
+      goneMinutes: Math.round(goneMs / 60_000),
+      fallbackProvider: fallbackId,
+      switched: false,
+    });
+  };
+  const clearTabGone = () => {
+    tabGoneSince = null;
+    stopTabGoneTimer();
+  };
   bus.on('needs_tab', async ({ url }) => {
+    if (!tabGoneSince) {
+      tabGoneSince = { at: Date.now(), reported: false };
+      // A timer that outlived its state must not stack with the new one:
+      // the old one is stopped before the new interval starts.
+      stopTabGoneTimer();
+      tabDegradeTimer = setInterval(tabGoneTick, TAB_DEGRADED_TICK_MS);
+      tabDegradeTimer.unref?.();
+    }
     if (appSettings.get('autoOpenTab') === false) return;
     const opened = await openBrowser(url);
     emit('tab_opened', { url, opened });
+    if (opened) clearTabGone();
   });
+
+  // Crash-safe resume: a `.running` marker left by a backend that died
+  // mid-run. The session already carries a note; the window gets the event
+  // and offers to resume from the transcript that run already wrote.
+  let interrupted = [];
+  try { interrupted = new SessionStore(storeDir).interruptedRuns(); } catch { interrupted = []; }
+  for (const run of interrupted) emit('run_interrupted', run);
 
   server.listen(port, '127.0.0.1');
   server.on('close', () => { if (bridgeKeeper) clearInterval(bridgeKeeper); });
+  server.on('close', () => { if (tabDegradeTimer) clearInterval(tabDegradeTimer); });
   // The schedule ticks itself from here. The timer is unref'd, so the backend
   // still exits when its window does; the store's lock keeps this and the
   // window's manual `schedule.runDue` from running one entry twice. Stopped

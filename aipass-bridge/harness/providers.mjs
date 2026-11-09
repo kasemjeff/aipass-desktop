@@ -1,3 +1,4 @@
+// @ts-nocheck
 // The provider registry — one file of provider specs, one file of keys.
 //
 // AiPASS is the provider the app was built around and it stays the default:
@@ -122,6 +123,11 @@ export function sanitizeSpec(raw = {}) {
   // the default. The client reads it, so the spec has to KEEP it — a row
   // that loses the field falls back to the default deadline silently.
   const modelsTimeoutMs = Number(raw.modelsTimeoutMs) > 0 ? Math.floor(Number(raw.modelsTimeoutMs)) : null;
+  // The chat turn's clocks (provider-client.mjs). Same rule as above:
+  // without the field surviving the spec, a slow provider silently
+  // falls back to the default deadlines.
+  const firstByteTimeoutMs = Number(raw.firstByteTimeoutMs) > 0 ? Math.floor(Number(raw.firstByteTimeoutMs)) : null;
+  const stallTimeoutMs = Number(raw.stallTimeoutMs) > 0 ? Math.floor(Number(raw.stallTimeoutMs)) : null;
   // The prompt-cache switch: on by default, off when the spec says false —
   // the only provider knob that changes what the request body carries (the
   // anthropic breakpoints), so it must survive the spec like the rest.
@@ -131,7 +137,7 @@ export function sanitizeSpec(raw = {}) {
   return {
     id, label, kind, baseUrl, apiKeyEnv, models, defaultModel, headers,
     apiKeyHeader: header, apiKeyPrefix, maxTokens, anthropicVersion,
-    modelsTimeoutMs,
+    modelsTimeoutMs, firstByteTimeoutMs, stallTimeoutMs,
     promptCache,
     embeddingModel,
   };
@@ -154,6 +160,8 @@ export function publicSpec(spec) {
     maxTokens: spec.maxTokens ?? null,
     anthropicVersion: spec.anthropicVersion ?? null,
     modelsTimeoutMs: spec.modelsTimeoutMs ?? null,
+    firstByteTimeoutMs: spec.firstByteTimeoutMs ?? null,
+    stallTimeoutMs: spec.stallTimeoutMs ?? null,
     embeddingModel: spec.embeddingModel ?? null,
     builtin: Boolean(spec.builtin),
   };

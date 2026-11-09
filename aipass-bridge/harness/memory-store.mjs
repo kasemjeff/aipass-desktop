@@ -1,3 +1,4 @@
+// @ts-nocheck
 // memory-store.mjs — cross-session memory for a project, and the recall over
 // what the project said before.
 //
@@ -24,6 +25,8 @@ import { writeFileAtomic } from './atomic-write.mjs';
 // header's `root` is the authority on which project a session belongs to,
 // and the store is what knows that.
 import { SessionStore } from './session.mjs';
+import { FACTS_UNVERIFIED } from './memory-frame.mjs';
+export { FACTS_UNVERIFIED };
 import { tokenize, queryWords, excerptOf, bm25Idf, bm25Term } from './text.mjs'; // shared BM25 kernel (Phase 3, P2)
 // The store's directory is resolved when it is used, not when this module
 // loads. AIPASS_HOME is the switch every surface reads, and a caller that
@@ -97,7 +100,19 @@ export function loadMemory(root, dir = defaultDir()) {
   try { return read(legacyFile); } catch { return []; }
 }
 
-export function saveMemory(root, facts, dir = defaultDir()) {
+/**
+ * Save facts, merging with what is already on disk. Never throws (the
+ * data-integrity suite pins that contract): a save that cannot land leaves
+ * the previous facts in place, and the caller learns about it through
+ * `onError` instead of a throw it would have to swallow anyway. A caller
+ * that passes no `onError` keeps the silent best-effort behaviour.
+ *
+ * @param {string} root
+ * @param {string[]} facts
+ * @param {string} [dir]
+ * @param {{ onError?: (err: any) => void }} [opts]
+ */
+export function saveMemory(root, facts, dir = defaultDir(), { onError } = {}) {
   const merged = mergeFacts(loadMemory(root, dir), facts).slice(0, CAP);
   const next = JSON.stringify(merged, null, 2) + '\n';
   const file = storePath(root, dir);
@@ -110,7 +125,7 @@ export function saveMemory(root, facts, dir = defaultDir()) {
   // direct overwrite this replaces could empty the file, and loadMemory reads
   // a broken file as "no facts" — the loss would look like a fresh project.
   // The mode is pinned on the new file, so the facts are the owner's alone.
-  try { writeFileAtomic(file, next, { mode: 0o600 }); } catch {}
+  try { writeFileAtomic(file, next, { mode: 0o600 }); } catch (err) { try { onError?.(err); } catch { /* a reporter must not break the never-throws contract */ } }
   // Legacy sweep (Phase 3): once the sha256 file exists, the sha1 legacy
   // file is dead weight — delete it so the dual-read ends. Only after a
   // successful write to the new path, never before.
@@ -118,9 +133,62 @@ export function saveMemory(root, facts, dir = defaultDir()) {
   return merged;
 }
 
+/**
+ * Forget a project's facts. Returns whether both files actually went.
+ *
+ * The return is the point: `saveMemory` merges with `loadMemory` from disk,
+ * so a clear that silently failed would resurrect the facts the person
+ * ordered forgotten on the very next save. Callers that act on a clear
+ * (the harness, the memory.clear RPC) surface a `false` instead of
+ * reporting success, so the person can retry instead of believing the
+ * store is empty when it is not.
+ *
+ * @param {string} root
+ * @param {string} [dir]
+ * @returns {boolean}
+ */
+// FACTS_UNVERIFIED lives in memory-frame.mjs (the leaf) and is
+// re-exported at the top of this file: compact.mjs must carry the
+// frame without closing the memory-store → settings → compact cycle.
+
 export function clearMemory(root, dir = defaultDir()) {
-  try { fs.rmSync(storePath(root, dir), { force: true }); } catch {}
-  try { fs.rmSync(legacyStorePath(root, dir), { force: true }); } catch {}
+  let ok = true;
+  for (const f of [storePath(root, dir), legacyStorePath(root, dir)]) {
+    try { fs.rmSync(f, { force: true }); } catch { ok = false; }
+  }
+  return ok;
+}
+
+/**
+ * Forget ONE fact, and make it stick. Returns false when the disk did
+ * not take the removal (same contract as the clear above): the harness
+ * keeps the in-memory copy only when this says true, so a removal that
+ * failed can never read as done.
+ *
+ * Removal matches the store's own identity — normalised text, the same
+ * fold mergeFacts dedups on — so forgetting a fact matches it across
+ * case and spacing exactly as saving does.
+ *
+ * @param {string} root
+ * @param {string} fact the fact to forget
+ * @param {string} [dir]
+ * @returns {boolean}
+ */
+export function forgetMemory(root, fact, dir = defaultDir()) {
+  const target = norm(String(fact ?? ''));
+  if (!target) return false;
+  const kept = loadMemory(root, dir).filter((f) => norm(f) !== target);
+  const next = JSON.stringify(kept, null, 2) + '\n';
+  const file = storePath(root, dir);
+  try {
+    if (kept.length === 0) fs.rmSync(file, { force: true });
+    else writeFileAtomic(file, next, { mode: 0o600 });
+  } catch { return false; }
+  // The legacy file holds the same facts the same way: a copy left
+  // behind would resurrect the forgotten fact on the dual-read, so it
+  // goes with the removal whenever the new one lands.
+  try { const leg = legacyStorePath(root, dir); if (leg !== file) fs.rmSync(leg, { force: true }); } catch {}
+  return true;
 }
 
 /**

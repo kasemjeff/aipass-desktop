@@ -1,3 +1,4 @@
+// @ts-nocheck
 // Language servers, the machine's own.
 //
 // A regex cannot say whether a file type-checks, and a wrong definition

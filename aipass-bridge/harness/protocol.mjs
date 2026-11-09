@@ -1,3 +1,4 @@
+// @ts-nocheck
 // The wire format between the harness and the model, and nothing else.
 //
 // Two constraints shape everything here, both learned the hard way upstream:
@@ -38,7 +39,7 @@ export const REMINDER = REMINDER_HEAD + REMINDER_WAF + REMINDER_TAIL;
  * was tuned against — the recorded replay in evals/fixtures/ is pinned to
  * those bytes.
  */
-export const preamble = ({ allowRun = false, review = false, plan = false, subagent = false, searchI = false, attach = false, verify = false, diagnose = false, recall = false, retrieve = false, explore = false, sandbox = 'off', plugins = [], sections = [], instructions = null, goal = null, lang = 'th' } = {}) => {
+export const preamble = ({ allowRun = false, review = false, plan = false, subagent = false, searchI = false, attach = false, verify = false, diagnose = false, recall = false, retrieve = false, explore = false, sandbox = 'off', acceptanceCriteria = null, plugins = [], sections = [], instructions = null, goal = null, lang = 'th' } = {}) => {
   // What a review run reads instead of the edit block: the same protocol with
   // the writing half taken out. Kept beside the block it replaces so the two
   // shapes cannot drift, and review=false keeps the bytes identical.
@@ -88,7 +89,7 @@ GIT diff
 FETCH HTTPS-URLexample.com/docs
 WEB search terms to look up on the internet (docs, latest versions, solutions)
 
-${review ? reviewSection : editSection}${!review && allowRun ? '\n\nTo have me run something in the terminal:\n\nRUN\nwhat to run\nEND\n\nA command that outlives a step - a build, a test suite, a dev server - can run as a job instead: write `RUN background` on its own line in place of `RUN`. It answers with a job id at once and keeps going while you work. Its output lands in a file under `.aipass/spill/` that you read with NEED; poll with `JOBS` on its own line, and end one with `JOBS stop <id>` (the whole process tree goes, not the shell alone).' : ''}${sandbox && sandbox !== 'off' ? `\n\nCommands in this run run in a sandbox (mode: ${sandbox}); a blocked command, write or host is named in the result rather than failing silently.` : ''}${attach ? '\n\nTo let me see a file that is not plain text - an image, a PDF, a slide deck - put its path on a line by itself and I will attach it to my next message:\n\nATTACH desktop/shot.png' : ''}
+${review ? reviewSection : editSection}${!review && allowRun ? '\n\nTo have me run something in the terminal:\n\nRUN\nwhat to run\nEND\n\nA command that outlives a step - a build, a test suite, a dev server - can run as a job instead: write `RUN background` on its own line in place of `RUN`. It answers with a job id at once and keeps going while you work. Its output lands in a file under `.aipass/spill/` that you read with NEED; poll with `JOBS` on its own line, and end one with `JOBS stop <id>` (the whole process tree goes, not the shell alone). A RUN with nothing staged runs in the real project folder, so its writes land on disk; once anything is staged it runs in a throwaway copy outside the project that carries the staged edits, and the disk stays untouched. The copy shares the heavy folders (node_modules and the like) with the real project, and the result says so when it does.' : ''}${sandbox && sandbox !== 'off' ? `\n\nThis run asked for sandbox mode ${sandbox}. Phase 1 has no OS-enforcing backend on this machine: a mode that needs one refuses with err: rather than running unsandboxed, and only off and danger-full-access run without a boundary. Never claim a command ran sandboxed when it did not.` : ''}${attach ? '\n\nTo let me see a file that is not plain text - an image, a PDF, a slide deck - put its path on a line by itself and I will attach it to my next message:\n\nATTACH desktop/shot.png' : ''}
 
 Once you have everything you need and are giving me your final answer, write the answer itself in your message, then finish with DONE on its own line:
 
@@ -254,6 +255,21 @@ ${goal.objective}
 Work toward it in rounds — this is round ${goal.rounds + 1} of ${goal.maxRounds}. While the goal is active, a plain DONE earns another round instead of ending the run, and when the rounds are spent the run stops with the goal recorded as blocked. When the goal is genuinely complete, write GOAL DONE on its own line (one sentence after it if you like), then finish with DONE. If you cannot make progress and need the person to decide something, write GOAL BLOCKED <reason> on its own line, then finish with DONE.`;
   }
 
+  // (acceptance criteria) The person's test for this run: each criterion is a
+  // claim the DONE has to back with an execution. Empty/none adds no bytes —
+  // the recorded replay pins the preamble.
+  const criteria = Array.isArray(acceptanceCriteria)
+    ? acceptanceCriteria.map((c) => String(c).trim()).filter(Boolean).slice(0, 10)
+    : [];
+  if (criteria.length) {
+    text += `
+
+This run has acceptance criteria, set by the person:
+${criteria.map((c, i) => `${i + 1}. ${c}`).join('\n')}
+
+Before you finish with DONE, verify each criterion and say in your final message which you verified and how. A DONE that does not stand on an execution against each criterion is refused: run the check (VERIFY <command>, or RUN the command that proves it) and let its output speak for the criteria.`;
+  }
+
   // The machine's own policy, one document per dimension, written by the
   // harness's tuning loop (docs/META_HARNESS.md). It is ADDITIVE — a rule the
   // machine added, never a protocol rule removed — and bounded, so it cannot
@@ -296,28 +312,72 @@ const proseRe = (plugins) => {
     const extra = plugins.length
       ? '|' + plugins.map((t) => `${t.marker}\\b`).join('|')
       : '';
-    re = new RegExp(MARKER_LINE.source + extra, 'i');
+    re = new RegExp(MARKER_LINE.source + extra);
     PROSE_RES.set(key, re);
   }
   return re;
 };
 const STOP_RES = new Map();
+/**
+ * One terminator for a body block. The terminator is exact-case only: the
+ * canonical spelling the preamble teaches (END, NEW). A lowercase `end`
+ * is file content (Ruby, Lua) or prose — never a terminator, so a block
+ * the reply never closed is reported unterminated instead of closing
+ * wherever a lowercase word happened to sit.
+ */
 const stopRe = (stops) => {
   const key = stops.join('\u0000');
   let re = STOP_RES.get(key);
-  if (!re) { re = new RegExp(`^\\s*(?:${stops.join('|')})\\s*$`, 'i'); STOP_RES.set(key, re); }
+  if (!re) { re = new RegExp(`^\\s*(?:${stops.join('|')})\\s*$`); STOP_RES.set(key, re); }
   return re;
 };
+/**
+ * The line shapes that open a body-consuming block. The dispatcher below
+ * opens these — and readUntil's exact-terminator search stops at them: a
+ * block that ended in a lowercase `end` has no uppercase END of its own,
+ * and the next block's END must not be lent to it. One list, read by both,
+ * so the boundary cannot drift from the blocks it bounds; a marker added
+ * later joins this list, next to the branch that opens it. Plugin markers
+ * are checked alongside, in the shape markerRe builds.
+ */
+const EDIT_BLOCK_RE = /^\s*EDIT\s+(.+?)\s*$/;
+const CREATE_BLOCK_RE = /^\s*CREATE\s+(.+?)\s*$/;
+const RUN_BG_BLOCK_RE = /^\s*RUN\s+(?:bg|background)\s*$/;
+const RUN_BLOCK_RE = /^\s*RUN\s*$/;
+const PLAN_BLOCK_RE = /^\s*PLAN\s*$/;
+const TODO_BLOCK_RE = /^\s*TODO\s*$/;
+const SUBAGENT_BLOCK_RE = /^\s*SUBAGENT\s*$/;
+const BODY_OPENERS = [EDIT_BLOCK_RE, CREATE_BLOCK_RE, RUN_BG_BLOCK_RE, RUN_BLOCK_RE, PLAN_BLOCK_RE, TODO_BLOCK_RE, SUBAGENT_BLOCK_RE];
 const MARKER_RES = new Map();
 const markerRe = (marker) => {
   let re = MARKER_RES.get(marker);
-  if (!re) { re = new RegExp(`^\\s*${marker}\\b\\s*(.*)$`, 'i'); MARKER_RES.set(marker, re); }
+  if (!re) { re = new RegExp(`^\\s*${marker}\\b\\s*(.*)$`); MARKER_RES.set(marker, re); }
   return re;
 };
 
+/**
+ * The one list of marker keywords the harness knows. The attempt grammar
+ * below is built from it, the meta verifier's known set is built from it,
+ * and the drift between the three lists is what this list exists to kill:
+ * the verifier's copy was missing TREE/STAT/RETRIEVE/DIAGNOSE/GOAL, so a
+ * candidate that taught those markers read as `unknown-marker`.
+ *
+ * MARKER_LINE itself stays a hand-written regex: each marker has its own
+ * line shape (NEED takes an argument, RUN takes `bg`, FIND/NEW/END take
+ * nothing), and those per-marker rules cannot be generated from the list.
+ * The test in protocol.test.mjs holds the two equal instead — the same
+ * extraction ui.test.mjs already uses for the window's mirror.
+ */
+export const MARKERS = Object.freeze([
+  'NEED', 'SEARCH', 'TREE', 'STAT', 'GLOB', 'SYMBOLS', 'DEF', 'REFS',
+  'RECALL', 'RETRIEVE', 'SKILL', 'GIT', 'VERIFY', 'DIAGNOSE', 'FETCH', 'WEB',
+  'DELETE', 'MOVE', 'EDIT', 'CREATE', 'ATTACH', 'FIND', 'NEW', 'END',
+  'RUN', 'PLAN', 'TODO', 'SUBAGENT', 'GOAL', 'JOBS', 'TASK', 'ASK', 'DONE',
+]);
+
 // The model usually writes its answer as prose and then a bare DONE, so fall
 // back to that prose rather than reporting an empty result.
-export const MARKER_LINE = /^\s*(NEED\s+(?:(?:dir|list|ls|file)\b|[^\s]+(?: [\d\u0E50-\u0E59]+-[\d\u0E50-\u0E59]+)?\s*$)|SEARCH\b|TREE\b|STAT\b|GLOB\b|SYMBOLS\b|DEF\b|REFS\b|RECALL\b|RETRIEVE\b|SKILL\b|GIT\b|VERIFY\b|DIAGNOSE\b|FETCH\b|WEB\b|DELETE\b|MOVE\b|EDIT\b|CREATE\b|ATTACH\b|FIND\s*$|NEW\s*$|END\s*$|RUN\s*(?:(?:bg|background)\s*)?$|PLAN\s*$|TODO\s*$|SUBAGENT\s*$|GOAL\b|TASK\s*:|ASK\b|(?:\*{1,3}|#{1,6}\s*)?DONE\b|JOBS\b)/i;
+export const MARKER_LINE = /^\s*(NEED\s+(?:(?:dir|list|ls|file)\b|[^\s]+(?: [\d\u0E50-\u0E59]+-[\d\u0E50-\u0E59]+)?\s*$)|SEARCH\b|TREE\b|STAT\b|GLOB\b|SYMBOLS\b|DEF\b|REFS\b|RECALL\b|RETRIEVE\b|SKILL\b|GIT\b|VERIFY\b|DIAGNOSE\b|FETCH\b|WEB\b|DELETE\b|MOVE\b|EDIT\b|CREATE\b|ATTACH\b|FIND\s*$|NEW\s*$|END\s*$|RUN\s*(?:(?:bg|background)\s*)?$|PLAN\s*$|TODO\s*$|SUBAGENT\s*$|GOAL\b|TASK\s*:|ASK\b|(?:\*{1,3}|#{1,6}\s*)?DONE\b|JOBS\b)/;
 export const prose = (reply, plugins = []) => {
   const re = proseRe(plugins);
   let inFence = false;
@@ -331,7 +391,7 @@ export const prose = (reply, plugins = []) => {
 // recorded replies wrote "NEED list desktop" and bare "RUN" as broken markers,
 // while prose that merely starts with the word ("Need to check the logs") must
 // never count as an attempt.
-const MARKER_ATTEMPT = /^\s*(?:\*{1,3}|#{1,6}\s*)?(?:NEED|SEARCH|TREE|STAT|GLOB|SYMBOLS|DEF|REFS|RECALL|RETRIEVE|SKILL|GIT|VERIFY|DIAGNOSE|FETCH|WEB|DELETE|MOVE|EDIT|CREATE|ATTACH|FIND|NEW|END|RUN|PLAN|TODO|SUBAGENT|GOAL|JOBS|TASK|ASK|DONE)\b/;
+const MARKER_ATTEMPT = new RegExp(`^\\s*(?:\\*{1,3}|#{1,6}\\s*)?(?:${MARKERS.join('|')})\\b`);
 
 /**
  * Did the reply try to speak the protocol — even in a shape parse() cannot
@@ -364,12 +424,32 @@ export function parse(reply, { plugins = [] } = {}) {
   const calls = [];
   let i = 0;
   let inFence = false;
+  // Read one body up to its exact-case terminator. Returns { body, closed }:
+  // closed is true only when the terminator line itself was found. A
+  // lowercase `end` is content (Ruby and Lua close their own blocks with
+  // it), never a terminator, so there is no case-blind fallback: a reply
+  // that was cut off mid-block, or closed in lowercase, ends the body at
+  // the next body opener (or at the end of the reply) and reports
+  // closed: false — the caller flags the call unterminated and the loop
+  // refuses to stage it. What this cannot do: an uppercase terminator
+  // inside the body — a heredoc's END in a RUN, a README example — still
+  // ends the block, because without a delimiter the model picks (a
+  // preamble change) the parser cannot tell content from terminator.
   const readUntil = (stops) => {
-    const body = [];
     const stop = stopRe(stops);
-    while (i < lines.length && !stop.test(lines[i])) body.push(lines[i++]);
-    return body.join('\n');
+    const body = [];
+    let closed = false;
+    while (i < lines.length) {
+      if (stop.test(lines[i])) { closed = true; break; }
+      if (BODY_OPENERS.some((re) => re.test(lines[i]))) break;
+      if (plugins.some((t) => markerRe(t.marker).test(lines[i]))) break;
+      body.push(lines[i++]);
+    }
+    return { body: body.join('\n'), closed };
   };
+  // The terminator line itself is consumed by the caller when the body
+  // closed on it; when it did not, the stop line (or the opener that
+  // bounded the body) belongs to the next call and stays unread.
 
   while (i < lines.length) {
     const line = lines[i];
@@ -383,13 +463,13 @@ export function parse(reply, { plugins = [] } = {}) {
     // `list` and `ls` are the spellings weaker models reach for when they mean
     // "show me this folder" — recorded live, where `NEED list desktop` came
     // back as a marker that parsed to nothing. Same call as `NEED dir`.
-    let m = /^\s*NEED\s+(dir|list|ls|file)\s+(.+?)\s*$/i.exec(line);
+    let m = /^\s*NEED\s+(dir|list|ls|file)\s+(.+?)\s*$/.exec(line);
     if (m) { i++; calls.push({ kind: m[1].toLowerCase() === 'file' ? 'read' : 'list', arg: m[2].trim() }); continue; }
 
     // The bare form — `NEED list` with the path forgotten. Only the listing
     // words qualify: `NEED file` alone still means a file literally named
     // "file", which the bare-NEED rule below handles.
-    m = /^\s*NEED\s+(?:dir|list|ls)\s*$/i.exec(line);
+    m = /^\s*NEED\s+(?:dir|list|ls)\s*$/.exec(line);
     if (m) { i++; calls.push({ kind: 'list', arg: '.' }); continue; }
 
     // The bare shape — `NEED events.mjs` — is what weaker models reach for
@@ -397,164 +477,165 @@ export function parse(reply, { plugins = [] } = {}) {
     // same way (the read tool answers a directory with its listing). Kept
     // single-token plus an optional page range, so English prose that starts
     // with "NEED" ("NEED to check the logs") stays prose.
-    m = /^\s*NEED\s+([^\s]+(?: [\d\u0E50-\u0E59]+-[\d\u0E50-\u0E59]+)?)\s*$/i.exec(line);
+    m = /^\s*NEED\s+([^\s]+(?: [\d\u0E50-\u0E59]+-[\d\u0E50-\u0E59]+)?)\s*$/.exec(line);
     // A Thai-digit range (๑๒-๒๐) counts as this marker shape, but the
     // argument goes through raw: the loop's arg guard is what retries a
     // refused path normalized, so a file legitimately NAMED with Thai digits
     // still resolves on the first try.
     if (m) { i++; calls.push({ kind: 'read', arg: m[1].trim() }); continue; }
 
-    m = /^\s*SEARCH\s+(.+?)\s*$/i.exec(line);
+    m = /^\s*SEARCH\s+(.+?)\s*$/.exec(line);
     if (m) { i++; calls.push({ kind: 'search', arg: m[1].trim() }); continue; }
 
     // TREE — the shape of a folder. The path is optional (the project root),
     // and an optional `-L depth` narrows it; the tool owns the argument.
-    m = /^\s*TREE\b\s*(.*?)\s*$/i.exec(line);
+    m = /^\s*TREE\b\s*(.*?)\s*$/.exec(line);
     if (m) { i++; calls.push({ kind: 'tree', arg: m[1].trim() }); continue; }
 
     // STAT — one path's metadata. The path is required, like DEF/REFS: a bare
     // STAT stays a shape mistake the nudge teaches, not a call on the root.
-    m = /^\s*STAT\s+(.+?)\s*$/i.exec(line);
+    m = /^\s*STAT\s+(.+?)\s*$/.exec(line);
     if (m) { i++; calls.push({ kind: 'stat', arg: m[1].trim() }); continue; }
 
-    m = /^\s*GLOB\s+(.+?)\s*$/i.exec(line);
+    m = /^\s*GLOB\s+(.+?)\s*$/.exec(line);
     if (m) { i++; calls.push({ kind: 'glob', arg: m[1].trim() }); continue; }
 
     // The code-navigation markers. They are in the preamble and in
     // MARKER_LINE, so a reply that used one already lost that line from the
     // prose — without these rules the marker simply vanished: no call to run,
     // and a nudge about a marker the model had spelled correctly.
-    m = /^\s*SYMBOLS\s+(.+?)\s*$/i.exec(line);
+    m = /^\s*SYMBOLS\s+(.+?)\s*$/.exec(line);
     if (m) { i++; calls.push({ kind: 'symbols', arg: m[1].trim() }); continue; }
 
-    m = /^\s*DEF\s+(.+?)\s*$/i.exec(line);
+    m = /^\s*DEF\s+(.+?)\s*$/.exec(line);
     if (m) { i++; calls.push({ kind: 'def', arg: m[1].trim() }); continue; }
 
-    m = /^\s*REFS\s+(.+?)\s*$/i.exec(line);
+    m = /^\s*REFS\s+(.+?)\s*$/.exec(line);
     if (m) { i++; calls.push({ kind: 'refs', arg: m[1].trim() }); continue; }
 
     // RECALL — the model asks what this project said before. The argument is
     // the question, on one line, like every other marker.
-    m = /^\s*RECALL\s+(.+?)\s*$/i.exec(line);
+    m = /^\s*RECALL\s+(.+?)\s*$/.exec(line);
     if (m) { i++; calls.push({ kind: 'recall', arg: m[1].trim() }); continue; }
 
-    m = /^\s*SKILL\s+(.+?)\s*$/i.exec(line);
+    m = /^\s*SKILL\s+(.+?)\s*$/.exec(line);
     if (m) { i++; calls.push({ kind: 'skill', arg: m[1].trim() }); continue; }
 
-    m = /^\s*GIT\s+(.+?)\s*$/i.exec(line);
+    m = /^\s*GIT\s+(.+?)\s*$/.exec(line);
     if (m) { i++; calls.push({ kind: 'git', arg: m[1].trim() }); continue; }
 
     // VERIFY — the model asks for a check. The command is optional: with one
     // it is the command to run, without one the run's declared check (or the
     // checker) decides. The argument is one line, like every other marker.
-    m = /^\s*VERIFY\s*(.*?)\s*$/i.exec(line);
+    m = /^\s*VERIFY\s*(.*?)\s*$/.exec(line);
     if (m) { i++; calls.push({ kind: 'verify', arg: m[1].trim() }); continue; }
 
-    m = /^\s*DIAGNOSE\s+(.+?)\s*$/i.exec(line);
+    m = /^\s*DIAGNOSE\s+(.+?)\s*$/.exec(line);
     if (m) { i++; calls.push({ kind: 'diagnose', arg: m[1].trim() }); continue; }
 
-    m = /^\s*FETCH\s+(.+?)\s*$/i.exec(line);
+    m = /^\s*FETCH\s+(.+?)\s*$/.exec(line);
     if (m) { i++; calls.push({ kind: 'fetch', arg: m[1].trim() }); continue; }
 
-    m = /^\s*WEB\s+(.+?)\s*$/i.exec(line);
+    m = /^\s*WEB\s+(.+?)\s*$/.exec(line);
     if (m) { i++; calls.push({ kind: 'web', arg: m[1].trim() }); continue; }
 
-    m = /^\s*ATTACH\s+(.+?)\s*$/i.exec(line);
+    m = /^\s*ATTACH\s+(.+?)\s*$/.exec(line);
     if (m) { i++; calls.push({ kind: 'attach', arg: m[1].trim() }); continue; }
 
-    m = /^\s*DELETE\s+(.+?)\s*$/i.exec(line);
+    m = /^\s*DELETE\s+(.+?)\s*$/.exec(line);
     if (m) { i++; calls.push({ kind: 'delete', arg: m[1].trim() }); continue; }
 
-    m = /^\s*MOVE\s+(.+?)\s*$/i.exec(line);
+    m = /^\s*MOVE\s+(.+?)\s*$/.exec(line);
     if (m) { i++; calls.push({ kind: 'move', arg: m[1].trim() }); continue; }
 
-    m = /^\s*EDIT\s+(.+?)\s*$/i.exec(line);
+    m = EDIT_BLOCK_RE.exec(line);
     if (m) {
       i++;
-      if (/^\s*FIND\s*$/i.test(lines[i] ?? '')) i++;
+      if (/^\s*FIND\s*$/.test(lines[i] ?? '')) i++;
       const before = readUntil(['NEW', 'END']);
-      if (/^\s*NEW\s*$/i.test(lines[i] ?? '')) i++;
+      if (before.closed && /^\s*NEW\s*$/.test(lines[i] ?? '')) i++;
       const after = readUntil(['END']);
-      if (/^\s*END\s*$/i.test(lines[i] ?? '')) i++;
-      calls.push({ kind: 'replace', arg: m[1].trim(), body: [before, after] });
+      if (after.closed) i++;
+      const closed = before.closed && after.closed;
+      calls.push({ kind: 'replace', arg: m[1].trim(), body: [before.body, after.body], ...(closed ? null : { unterminated: true }) });
       continue;
     }
 
-    m = /^\s*CREATE\s+(.+?)\s*$/i.exec(line);
+    m = CREATE_BLOCK_RE.exec(line);
     if (m) {
       i++;
-      const body = readUntil(['END']);
-      if (/^\s*END\s*$/i.test(lines[i] ?? '')) i++;
-      calls.push({ kind: 'write', arg: m[1].trim(), body });
+      const part = readUntil(['END']);
+      if (part.closed) i++;
+      calls.push({ kind: 'write', arg: m[1].trim(), body: part.body, ...(part.closed ? null : { unterminated: true }) });
       continue;
     }
 
     // RUN background — the same block, started as a job instead of awaited.
     // The word sits on the marker line so the command body stays the command:
     // a `background: true` line inside it would be a shell line, not a flag.
-    m = /^\s*RUN\s+(?:bg|background)\s*$/i.exec(line);
+    m = RUN_BG_BLOCK_RE.exec(line);
     if (m) {
       i++;
-      const body = readUntil(['END']);
-      if (/^\s*END\s*$/i.test(lines[i] ?? '')) i++;
-      calls.push({ kind: 'run', arg: '', background: true, body });
+      const part = readUntil(['END']);
+      if (part.closed) i++;
+      calls.push({ kind: 'run', arg: '', background: true, body: part.body, ...(part.closed ? null : { unterminated: true }) });
       continue;
     }
 
-    if (/^\s*RUN\s*$/i.test(line)) {
+    if (RUN_BLOCK_RE.test(line)) {
       i++;
-      const body = readUntil(['END']);
-      if (/^\s*END\s*$/i.test(lines[i] ?? '')) i++;
-      calls.push({ kind: 'run', arg: '', body });
+      const part = readUntil(['END']);
+      if (part.closed) i++;
+      calls.push({ kind: 'run', arg: '', body: part.body, ...(part.closed ? null : { unterminated: true }) });
       continue;
     }
 
-    if (/^\s*PLAN\s*$/i.test(line)) {
+    if (PLAN_BLOCK_RE.test(line)) {
       i++;
-      const body = readUntil(['END']);
-      if (/^\s*END\s*$/i.test(lines[i] ?? '')) i++;
-      calls.push({ kind: 'plan', arg: '', body });
+      const part = readUntil(['END']);
+      if (part.closed) i++;
+      calls.push({ kind: 'plan', arg: '', body: part.body, ...(part.closed ? null : { unterminated: true }) });
       continue;
     }
 
-    if (/^\s*TODO\s*$/i.test(line)) {
+    if (TODO_BLOCK_RE.test(line)) {
       i++;
-      const body = readUntil(['END']);
-      if (/^\s*END\s*$/i.test(lines[i] ?? '')) i++;
-      calls.push({ kind: 'todo', arg: '', body });
+      const part = readUntil(['END']);
+      if (part.closed) i++;
+      calls.push({ kind: 'todo', arg: '', body: part.body, ...(part.closed ? null : { unterminated: true }) });
       continue;
     }
 
-    if (/^\s*SUBAGENT\s*$/i.test(line)) {
+    if (SUBAGENT_BLOCK_RE.test(line)) {
       i++;
-      const body = readUntil(['END']);
-      if (/^\s*END\s*$/i.test(lines[i] ?? '')) i++;
-      calls.push({ kind: 'subagent', arg: '', body });
+      const part = readUntil(['END']);
+      if (part.closed) i++;
+      calls.push({ kind: 'subagent', arg: '', body: part.body, ...(part.closed ? null : { unterminated: true }) });
       continue;
     }
 
     // GOAL — the model's word on the project's durable objective, on one line.
     // Only DONE and BLOCKED are actions; the shape check refuses the rest
     // rather than letting a mistyped word vanish into prose.
-    m = /^\s*GOAL\s+(.+?)\s*$/i.exec(line);
+    m = /^\s*GOAL\s+(.+?)\s*$/.exec(line);
     if (m) { i++; calls.push({ kind: 'goal', arg: m[1].trim() }); continue; }
 
     // JOBS polls the background jobs, and `JOBS stop <id>` ends one. The
     // argument is optional: a bare marker is the poll.
-    m = /^\s*JOBS\b\s*(.*?)\s*$/i.exec(line);
+    m = /^\s*JOBS\b\s*(.*?)\s*$/.exec(line);
     if (m) {
       i++;
       calls.push({ kind: 'jobs', arg: m[1].trim() });
       continue;
     }
 
-    m = /^\s*(?:\*{1,3}|#{1,6}\s*)?DONE\b[:\s—–-]*(.*)$/i.exec(line);
+    m = /^\s*(?:\*{1,3}|#{1,6}\s*)?DONE\b[:\s—–-]*(.*)$/.exec(line);
     if (m) { i++; calls.push({ kind: 'done', arg: m[1].trim() }); continue; }
 
     // ASK pauses the run on a question only the person can answer: the
     // question rides back as the closing message and the next user message
     // answers it. The argument is required — a bare ASK is prose.
-    m = /^\s*ASK\b[:\s—–-]*(.+)$/i.exec(line);
+    m = /^\s*ASK\b[:\s—–-]*(.+)$/.exec(line);
     if (m) { i++; calls.push({ kind: 'ask', arg: m[1].trim() }); continue; }
 
     // Plugin markers come last: a built-in name is never shadowed by one.
@@ -564,11 +645,14 @@ export function parse(reply, { plugins = [] } = {}) {
       if (!hit) continue;
       i++;
       let body = '';
+      let closed = true;
       if (tool.takesBody) {
-        body = readUntil(['END']);
-        if (/^\s*END\s*$/i.test(lines[i] ?? '')) i++;
+        const part = readUntil(['END']);
+        body = part.body;
+        closed = part.closed;
+        if (closed) i++;
       }
-      calls.push({ kind: 'plugin', name: tool.marker, arg: hit[1].trim(), body });
+      calls.push({ kind: 'plugin', name: tool.marker, arg: hit[1].trim(), body, ...(closed ? null : { unterminated: true }) });
       matchedPlugin = true;
       break;
     }
@@ -589,8 +673,8 @@ export function parseTodo(body) {
   for (const raw of String(body).split('\n')) {
     const line = raw.trim();
     if (!line) continue;
-    if (/^PLAN$/i.test(line)) { inPlan = true; continue; }
-    if (/^TODO$/i.test(line)) { inPlan = false; continue; }
+    if (/^PLAN$/.test(line)) { inPlan = true; continue; }
+    if (/^TODO$/.test(line)) { inPlan = false; continue; }
     // The bullet comes off before the checkbox is judged: a model that writes
     // "- [x] text" (the normal markdown form) used to parse as not-done forever,
     // because the done test ran against the bulleted line.

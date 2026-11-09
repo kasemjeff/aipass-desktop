@@ -7,12 +7,19 @@ on:
   push:
     branches: [master, main]
   pull_request:
+  # The release lane calls this file as a reusable workflow: a tag push does
+  # not trigger push/pull_request, so without workflow_call a tag could
+  # publish a feed from a tree the suite has never run on.
+  workflow_call:
 
 # A push supersedes its predecessors: cancel their runs so a hung runner
 # cannot queue every newer run behind it (five runs piled up on 2026-10-17).
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
   test:
@@ -35,9 +42,9 @@ jobs:
         node: [24]
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: ${{ matrix.node }}
 
@@ -109,7 +116,7 @@ jobs:
         # untested and nobody notices which half.
         os: [ubuntu-latest, windows-latest]
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       # Tauri on Linux needs the webkit2gtk development packages; without
       # them the shell does not compile — the same list the build lane uses.
@@ -129,7 +136,7 @@ jobs:
       # for `cargo test`, and a clean checkout has no sidecar: the ~90 MB
       # executable is gitignored on purpose. Without this the shell tests fail
       # in `build.rs` before the first test runs.
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 24
 
@@ -137,10 +144,10 @@ jobs:
         run: npm run desktop:sidecar
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
 
       - name: Cache the cargo build
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             ~/.cargo/registry
@@ -163,11 +170,21 @@ jobs:
         continue-on-error: true
         run: cargo clippy --all-targets
 
+      # The Rust supply chain: the shell's zero-npm-dependencies story does
+      # not cover the ~440 crates in Cargo.lock. cargo-deny reads
+      # deny.toml, which fails on new advisories and new licenses; the
+      # install mirrors the tauri-cli one above (from cargo, locked).
+      - name: Check the shell's supply chain
+        working-directory: desktop/src-tauri
+        run: |
+          cargo install --locked cargo-deny
+          cargo deny check
+
   shellcheck:
     name: deploy scripts
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Syntax-check the deployment scripts
         run: for f in aipass-bridge/deploy/*.sh; do bash -n "$f"; done
 
@@ -175,8 +192,8 @@ jobs:
     name: smoke e2e
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           # The floor: the smoke lane proves the oldest supported Node
           # (24, same as engines/.nvmrc/sidecar) runs the whole chain.

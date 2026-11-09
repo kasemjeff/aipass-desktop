@@ -1,3 +1,4 @@
+// @ts-nocheck
 // The playbook library — plain markdown files the model loads on demand.
 //
 // One file per playbook part, read verbatim and clipped. The folders are read

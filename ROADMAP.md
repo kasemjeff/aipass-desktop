@@ -6,8 +6,8 @@ they are actually done; the detailed capability status is in
 
 ## Now — release readiness
 
-- [ ] Green CI on `main` (the coverage floors currently fail; see
-      [the audit](https://github.com/kasemjeff/TH-aipassport-desktop/issues)).
+- [x] Green CI on `main`, including the coverage floors
+      (`npm run coverage:gate` runs in CI).
 - [ ] Tag and publish `v0.2.0` with installers, `SHA256SUMS`, release notes and
       the signed update feed.
 - [ ] Wire Apple signing/notarization secrets into the release workflow.
@@ -22,11 +22,13 @@ they are actually done; the detailed capability status is in
 - [ ] Run the Rust shell tests on macOS in CI (today the matrix covers Ubuntu
       and Windows).
 - [ ] Add a clean-machine installer smoke test for NSIS, DMG and deb/AppImage.
-- [ ] Decide the Node floor: Node 20 is EOL, so either move to 22/24 or write
-      down why 20 stays supported.
+- [x] Node floor decided: 24 (`engines`, `.nvmrc`, sidecar pin, guarded by
+      `node-floor:check`). Node 20 is EOL and no longer supported.
 - [ ] Add a second maintainer with release access, or document a tested
       handover procedure.
-- [ ] Pin GitHub Actions to commit SHAs and add an SBOM/provenance step.
+- [x] Pinned GitHub Actions to commit SHAs (the version rides as a
+      `# vX` comment for Dependabot).
+- [ ] Add an SBOM/provenance step.
 - [ ] Enable the repository's dependency graph (Settings → Security) and add
       dependency review to pull requests; the graph is currently disabled, so
       the action refuses to run.

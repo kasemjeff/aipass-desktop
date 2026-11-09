@@ -2,7 +2,22 @@
 // and the preamble's honesty about what a helper actually does.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parse, prose, preamble, attemptedMarker, MARKER_LINE } from '../harness/protocol.mjs';
+import { parse, prose, preamble, attemptedMarker, MARKER_LINE, MARKERS } from '../harness/protocol.mjs';
+import { KNOWN_MARKERS } from '../harness/meta/verify.mjs';
+
+test('MARKERS is the parser list, keyword for keyword', () => {
+  // MARKER_LINE has a per-marker shape (NEED takes an argument, RUN takes
+  // `bg`) that cannot be generated from the list, so the two are held equal
+  // by extraction — the same read ui.test.mjs uses for the window's mirror:
+  // every capital keyword in the regex source, sorted.
+  const fromLine = [...new Set([...MARKER_LINE.source.matchAll(/\b([A-Z]{2,})\b/g)].map((m) => m[1]))].sort();
+  assert.deepEqual([...MARKERS].sort(), fromLine, 'the one list is every keyword MARKER_LINE knows');
+  assert.equal(MARKERS.length, 33, 'and it is the whole protocol, not a subset');
+  for (const m of ['TREE', 'STAT', 'RETRIEVE', 'DIAGNOSE', 'GOAL']) {
+    assert.ok(MARKERS.includes(m), `${m} is in the list — the verifier copy used to lose it`);
+  }
+  assert.deepEqual([...KNOWN_MARKERS].sort(), [...MARKERS].sort(), 'the meta verifier knows the same list, not a copy');
+});
 
 test('markers inside a fenced block are a quotation, not a request', () => {
   const reply = [
@@ -186,4 +201,211 @@ test('the preamble keeps the answer itself in the message, above the DONE', () =
   assert.match(text, /write the answer itself in your message/);
   assert.match(text, /findings must not live only inside what I pasted back/);
   assert.match(text, /"finished" alone is not an answer/);
+});
+
+test('a CREATE body keeps its own lowercase end lines', () => {
+  // Ruby and Lua close blocks with a bare lowercase `end`; a case-blind
+  // terminator ends the CREATE in the middle of the file and the fragment
+  // is written silently. The canonical-uppercase terminator has to win.
+  const calls = parse([
+    'CREATE app.rb',
+    'def greet(name)',
+    '  if name',
+    '    puts "hi"',
+    '  end',
+    'end',
+    'END',
+  ].join('\n'));
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].kind, 'write');
+  assert.equal(calls[0].arg, 'app.rb');
+  assert.equal(calls[0].body, 'def greet(name)\n  if name\n    puts "hi"\n  end\nend');
+});
+
+test('a CREATE body keeps its own lowercase end lines in Lua', () => {
+  const calls = parse([
+    'CREATE main.lua',
+    'local function on_frame()',
+    '  if ready then',
+    '    return draw()',
+    '  end',
+    'end',
+    'END',
+  ].join('\n'));
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].arg, 'main.lua');
+  assert.equal(calls[0].body, 'local function on_frame()\n  if ready then\n    return draw()\n  end\nend');
+});
+
+test('a block closed only in lowercase is unterminated, not silently closed', () => {
+  // There is no case-blind fallback any more: a reply cut off mid-block (or
+  // one that closed in lowercase) cannot be told apart from a truncated
+  // file, so the body runs to the end of the reply and the call is flagged
+  // unterminated — the loop refuses to stage it instead of writing a
+  // fragment whose last line was a Ruby `end`.
+  const calls = parse([
+    'CREATE x.rb',
+    'def x',
+    '  puts 1',
+    'end',
+  ].join('\n'));
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].unterminated, true);
+  assert.equal(calls[0].body, 'def x\n  puts 1\nend');
+});
+
+test('an unclosed block does not borrow the next block\'s END', () => {
+  // The body stops at the next body opener: the second block's END is not
+  // lent to the first, and the first block is flagged unterminated with
+  // its own lines (its lowercase `end` included) instead of a fragment.
+  const calls = parse([
+    'CREATE a.rb',
+    'def a',
+    'end',
+    'CREATE b.rb',
+    'puts 1',
+    'END',
+  ].join('\n'));
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0].arg, 'a.rb');
+  assert.equal(calls[0].unterminated, true);
+  assert.equal(calls[0].body, 'def a\nend');
+  assert.equal(calls[1].arg, 'b.rb');
+  assert.equal(calls[1].body, 'puts 1');
+  assert.equal(calls[1].unterminated, undefined, 'the second block closed properly');
+});
+
+test('a RUN block closed in lowercase does not borrow the next block\'s END', () => {
+  // RUN is a body opener too: its boundary protects the block behind it
+  // from lending its END, the way CREATE's own boundary does — and the
+  // RUN is flagged unterminated rather than closing at its own `end`.
+  const calls = parse([
+    'RUN',
+    'for f in x; do',
+    '  echo $f',
+    'end',
+    'CREATE b.rb',
+    'puts 1',
+    'END',
+  ].join('\n'));
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0].kind, 'run');
+  assert.equal(calls[0].unterminated, true);
+  assert.equal(calls[0].body, 'for f in x; do\n  echo $f\nend');
+  assert.equal(calls[1].kind, 'write');
+  assert.equal(calls[1].arg, 'b.rb');
+  assert.equal(calls[1].body, 'puts 1');
+});
+
+test('an EDIT FIND body keeps its own lowercase end lines', () => {
+  // The same case decision serves the FIND half of an EDIT — a Ruby patch
+  // read through a case-blind terminator loses the file's own ends.
+  const calls = parse([
+    'EDIT app.rb',
+    'FIND',
+    'def x',
+    '  if y',
+    '    puts 1',
+    '  end',
+    'end',
+    'NEW',
+    'def x',
+    '  if y',
+    '    puts 2',
+    '  end',
+    'end',
+    'END',
+  ].join('\n'));
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].kind, 'replace');
+  assert.deepEqual(calls[0].body, [
+    'def x\n  if y\n    puts 1\n  end\nend',
+    'def x\n  if y\n    puts 2\n  end\nend',
+  ]);
+});
+
+test('plain sentences that start with a marker word stay prose', () => {
+  // The case-blind parser read 22 of 30 ordinary English sentences that
+  // begin with a marker word as commands — "Create a summary of the
+  // changes." became a write of a file named `a summary of the changes.`,
+  // "Ask me if anything is unclear." paused the run. Case is the whole
+  // point: only the exact uppercase keyword on its own line is a call.
+  const sentences = [
+    'Create a summary of the changes.',
+    'Delete the old build folder first.',
+    'Ask me if anything is unclear.',
+    'Done with the first half.',
+    'Move the discussion to the next topic.',
+    'Edit the sentence so it reads better.',
+    'Run the numbers again tomorrow.',
+    'Search me a better cat in the logs.',
+    'Fetch the latest from the board.',
+    'Need to check the logs before deciding.',
+    'Attach the receipts to the email.',
+    'Plan the trip for next month.',
+    'Web design is not my department.',
+    'Git is a distributed version control system.',
+    'Skill issue, honestly.',
+    'Verify the cake is in the oven.',
+    'Glob the whole thing in butter.',
+    'Recall the last time we did this.',
+    'Retrieve the file from the archive.',
+    'Diagnose the noise in the engine.',
+    'Symbols are a good way to start.',
+    'Def a variable before use.',
+    'Refs are missing from the bibliography.',
+    'Tree rings tell the age of a tree.',
+    'Stat the river before crossing.',
+    'Jobs are listed on the wall.',
+    'Goal settings are in the menu.',
+    'Subagent smith handled the photos.',
+    'Skip the step and continue.',
+    'Todo is done when it is done.',
+  ];
+  for (const sentence of sentences) {
+    assert.deepEqual(parse(sentence), [], `a sentence is not a call: ${sentence}`);
+    assert.equal(prose(sentence), sentence, `and it survives the prose filter: ${sentence}`);
+  }
+});
+
+test('lowercase markers are prose too — the keyword must be uppercase', () => {
+  for (const line of ['create notes.md', 'edit notes.md', 'delete old.txt', 'run the tests', 'need file a.txt', 'search the codebase', 'done for today', 'ask the user first']) {
+    assert.deepEqual(parse(line), [], `not a call: ${line}`);
+  }
+  // The exact uppercase shapes still parse.
+  assert.deepEqual(parse('NEED file a.txt').map((c) => c.kind), ['read']);
+  assert.deepEqual(parse('DONE finished').map((c) => c.kind), ['done']);
+  assert.deepEqual(parse('## DONE shipped').map((c) => c.kind), ['done']);
+  assert.deepEqual(parse('**DONE** shipped').map((c) => c.kind), ['done']);
+});
+
+test('DONE is uppercase-only: "Done." with no work is a nudge, not an ending', () => {
+  // Owner decision, pinned: keeping DONE case-insensitive would let a run
+  // that has used no tool at all end on the sentence "Done." — exactly the
+  // failure the case-blind parser had. The loop's closing-sentence rule
+  // (toolsRun > 0) still ends a run after real work; a bare "Done." first
+  // earns the nudge that teaches the uppercase shape.
+  assert.deepEqual(parse('Done.'), []);
+  assert.deepEqual(parse('Done with that.'), []);
+  assert.equal(prose('Done with that.'), 'Done with that.');
+  assert.deepEqual(parse('DONE with that.').map((c) => c.kind), ['done']);
+});
+
+test('a block whose END never arrives is flagged unterminated', () => {
+  const created = parse('CREATE notes.md\nline one\nline two');
+  assert.equal(created[0].kind, 'write');
+  assert.equal(created[0].unterminated, true);
+  assert.equal(created[0].body, 'line one\nline two', 'the body is everything the reply carried');
+
+  const edited = parse('EDIT a.js\nFIND\nold\nNEW\nnew');
+  assert.equal(edited[0].kind, 'replace');
+  assert.equal(edited[0].unterminated, true);
+
+  const ran = parse('RUN\nnode check.mjs');
+  assert.equal(ran[0].kind, 'run');
+  assert.equal(ran[0].unterminated, true);
+  assert.equal(ran[0].body, 'node check.mjs');
+
+  const closed = parse('CREATE notes.md\nline one\nEND');
+  assert.equal(closed[0].unterminated, undefined, 'a properly closed block carries no flag');
 });

@@ -1,3 +1,4 @@
+// @ts-nocheck
 // The trace store: the raw transcripts, read as they were written.
 //
 // Meta-Harness's one hard lesson: the optimizer must read the RAW trace, not

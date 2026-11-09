@@ -1,3 +1,4 @@
+// @ts-nocheck
 // Local bridge to de.aipass.net's chat.
 //
 // The bridge never sees a session cookie. It hands work to the Chrome
@@ -393,6 +394,26 @@ function extractModels(decoded) {
 
 const jobs = new Map();
 const extClients = new Set();
+
+/**
+ * 403s from the upstream edge, counted per bridge process (one `run` of
+ * this file). The edge itself is reached by the extension in the page, so
+ * the bridge only ever sees its refusals second-hand — as `[403]` notes
+ * the page pushes with every refused send, and as `aipass returned 403`
+ * errors. Counting them here is what lets /status say "the edge refused N
+ * sends since this bridge started", and the window turn that into the
+ * WAF-table banner: a refusal the outbound table should have encoded
+ * away is a table that may be stale. Exported for the suite.
+ */
+export const edge403 = { count: 0, lastAt: null };
+/** Count one delta/error text if it is an edge 403. Returns true when counted. */
+export function noteEdge403(part) {
+  const text = typeof part === 'string' ? part : (part?.kind === 'note' ? part.text : part?.message);
+  if (typeof text !== 'string' || !/\[403\]|aipass returned 403|refused at the edge/.test(text)) return false;
+  edge403.count += 1;
+  edge403.lastAt = Date.now();
+  return true;
+}
 /** The cache warm already ran for this process; see extEvents(). */
 let warmLoaded = false;
 let rr = 0;
@@ -508,6 +529,7 @@ class Job {
   delta(part) {
     if (this.settled) return;
     this.touch();
+    noteEdge403(part);
     (this.pending ??= []).push(part);
     if (this.flushTimer) return;
     this.flushTimer = setTimeout(() => { this.flushTimer = null; this.flush(); }, DELTA_FLUSH_MS);
@@ -1694,7 +1716,7 @@ async function extPost(req, res, kind) {
     else if (body.deleted) job.done('deleted');
     else if (body.assistantId) job.done(body.assistantId);
     else job.fail(body.message ?? 'assistant action failed');
-  } else job.fail(body.message ?? 'extension reported an error');
+  } else { noteEdge403(body.message); job.fail(body.message ?? 'extension reported an error'); }
   return json(res, 200, { ok: true });
 }
 
@@ -2140,6 +2162,10 @@ const server = http.createServer(async (req, res) => {
         catalog: { ...modelState },
         credits: quotaCache.value,
         cache: cacheStats,
+        // Edge 403s since this bridge started (see edge403 above): the
+        // window's WAF banner reads this on the status poll it already
+        // makes, so a table that stopped encoding shows up as a count.
+        edge403: { ...edge403 },
       });
     }
 

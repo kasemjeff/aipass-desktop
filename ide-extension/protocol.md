@@ -48,9 +48,7 @@ rather than believed. The same home holds the token: `~/.aipass/.token`
 
 - Read from `~/.aipass/.token`, trimmed.
 - Sent as `Authorization: Bearer <token>`.
-- **On both routes.** The `/events` stream accepts a header bearer as well as
-  `?token=`; the header is the better shape, because a URL is the shape that
-  ends up in a log.
+- **On both routes.** The `/events` stream accepts a header bearer or the HttpOnly `aipass_token` cookie minted by `/token`; a `?token=` on the stream is refused — the header (or cookie) is the shape, because a URL ends up in a log.
 - Never printed, never put in a URL, never given to a page. In this extension
   the token lives in the extension host and the webview never sees it.
 - `AIPASS_REQUIRE_AUTH=0` turns the whole thing off (a test escape hatch; the

@@ -1547,7 +1547,7 @@ test('a settings save writes only the keys the file knows', async (t) => {
   assert.equal('modde' in after, false, 'and the typo is not');
 });
 
-test('a home that cannot be written does not take the backend down', async (t) => {
+test('a home that cannot be written does not take the backend down', { skip: process.getuid?.() === 0 && process.platform !== 'win32' && 'root ข้าม chmod (root ignores read-only modes)' }, async (t) => {
   // The token is minted inside a request handler, and a throw there is an
   // unhandled rejection — which ends the backend for every window that is
   // open. A home that cannot be written must not be able to do that.
@@ -1597,3 +1597,47 @@ test('the checkpoints of a project are listed, restored and forgotten', async (t
   // A name that is not a checkpoint is refused, not guessed at.
   await assert.rejects(() => env.call('checkpoints.restore', {}), /which checkpoint/, 'a restore with no name says so');
 });
+
+test('status carries the interrupted runs for the window fallback', async (t) => {
+  const env = await startRpc({ files: {}, replies: [] });
+  t.after(() => env.stop());
+  const status = await env.call('status');
+  assert.ok(Array.isArray(status.interrupted), 'the snapshot fallback is present');
+  assert.deepEqual(await env.call('session.interrupted'), status.interrupted, 'and the dedicated method agrees');
+});
+
+test('a gone tab warns once and never switches the provider', async (t) => {
+  // The degraded rail with the production 5 minutes shrunk to test time
+  // (AIPASS_TAB_DEGRADED_* env in rpc.mjs). autoOpenTab is off so the
+  // needs_tab handler never spawns a real browser in the suite.
+  const prevMs = process.env.AIPASS_TAB_DEGRADED_MS;
+  const prevTick = process.env.AIPASS_TAB_DEGRADED_TICK_MS;
+  process.env.AIPASS_TAB_DEGRADED_MS = '150';
+  process.env.AIPASS_TAB_DEGRADED_TICK_MS = '40';
+  t.after(() => {
+    if (prevMs === undefined) delete process.env.AIPASS_TAB_DEGRADED_MS; else process.env.AIPASS_TAB_DEGRADED_MS = prevMs;
+    if (prevTick === undefined) delete process.env.AIPASS_TAB_DEGRADED_TICK_MS; else process.env.AIPASS_TAB_DEGRADED_TICK_MS = prevTick;
+  });
+  const settings = new Settings(tempDir(), 'settings.json');
+  settings.set({ autoOpenTab: false });
+  const env = await startRpc({ files: {}, replies: [], settings });
+  t.after(() => env.stop());
+  const req = http.get(`http://127.0.0.1:${env.rpc.port}/events`);
+  t.after(() => req.destroy());
+  const res = await new Promise((resolve, reject) => { req.on('response', resolve); req.on('error', reject); });
+  let body = '';
+  res.on('data', (chunk) => { body += chunk; });
+  await new Promise((r) => setTimeout(r, 50));
+  env.rpc.events.emit('needs_tab', { url: 'https://de.aipass.net/chat' });
+  const until = Date.now() + 3000;
+  while (!body.includes('event: tab_degraded') && Date.now() < until) {
+    await new Promise((r) => setTimeout(r, 25));
+  }
+  assert.ok(body.includes('event: tab_degraded'), 'the degraded frame arrived');
+  assert.match(body, /"switched":false/, 'it is a warning, not a switch');
+  const tail = body.split('event: tab_degraded')[1] ?? '';
+  assert.ok(!tail.includes('provider_failover'), 'no failover rides with the warning');
+  const status = await env.call('status');
+  assert.equal(status.provider, 'aipass', 'the provider stayed put');
+});
+

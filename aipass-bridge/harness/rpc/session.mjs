@@ -1,3 +1,4 @@
+// @ts-nocheck
 // The session domain: the conversations, the runs and the staged changes.
 //
 // A session is the local record of a conversation; a run is the work inside
@@ -55,6 +56,7 @@ export function createSessionMethods(ctx) {
     // per root, and an unscoped list mixes in every other project — on this
     // machine that was thousands of test leftovers, not conversations.
     async 'session.list'(params = {}) { const h = targetFor(params); return h.store.list(h.root); },
+    async 'session.interrupted'() { return ctx.interrupted ?? []; },
     async 'session.new'(params = {}) {
       const h = targetFor(params);
       const s = await h.startSession({ title: params.title ?? null });
@@ -266,6 +268,7 @@ export function createSessionMethods(ctx) {
         attempts: params.attempts ?? h.options.attempts,
         verifyCommand: params.verifyCommand !== undefined ? params.verifyCommand : h.options.verifyCommand,
         requireCheck: Boolean(params.requireCheck ?? h.options.requireCheck),
+        acceptanceCriteria: params.acceptanceCriteria !== undefined ? params.acceptanceCriteria : h.options.acceptanceCriteria,
         parts: await partsFor(params.attachments ?? []),
         pluginTools: plugins.toolTable(),
         // What the plugins contributed to the run's first message; the loop

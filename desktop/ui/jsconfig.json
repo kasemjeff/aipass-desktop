@@ -1,7 +1,7 @@
 {
-  "//": "Type-check the window (desktop/ui). DOM lib, because the window is DOM. checkJs stays false: files opt in with `// @ts-check`, one at a time. Run from the CLI with `npm run typecheck:ui`. The harness keeps its own config (aipass-bridge/jsconfig.json, Node-flavored); this one is the window's.",
+  "//": "Type-check the window (desktop/ui). DOM lib, because the window is DOM. checkJs is true: every included file is checked. Run from the CLI with `npm run typecheck:ui`. The harness keeps its own config (aipass-bridge/jsconfig.json, Node-flavored); this one is the window's.",
   "compilerOptions": {
-    "checkJs": false,
+    "checkJs": true,
     "allowJs": true,
     "noEmit": true,
     "target": "es2023",

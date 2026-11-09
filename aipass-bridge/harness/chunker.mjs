@@ -1,3 +1,4 @@
+// @ts-nocheck
 // chunker.mjs — text → passages (split from retrieval.mjs, KNOWLEDGE_ARCHITECTURE §9.1).
 // Pure: no IO. Imports only text.mjs + symbols. Chunk shapes are the
 // index's vocabulary; changing them bumps RETRIEVAL_VERSION.

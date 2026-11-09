@@ -311,13 +311,22 @@
               <option value="plan" title="ร่างแผนให้อนุมัติก่อน แล้วทำตามแผน">plan</option>
             </select>
           </span>
-          <span class="model-chip" title="ผู้ให้บริการ — ใครตอบรันนี้ (สลับได้ที่นี่)">
-            <select id="provider" aria-label="ผู้ให้บริการ" title="ผู้ให้บริการ — AiPASS หรือ API อื่น"></select>
-          </span>
           <span class="model-chip" title="โมเดลที่ใช้คุย">
             <select id="model" aria-label="โมเดล" title="โมเดล"></select>
             <button type="button" id="model-refresh" class="chip-btn" title="ดึงรายชื่อโมเดลใหม่จากเว็บ" aria-label="รีเฟรชรายชื่อโมเดล">↻</button>
             <span id="model-note" class="chip-note" hidden></span>
+          </span>
+          <!-- Provider, effort and temp ride the NEXT message but are not
+               read on every one, so they live in one popover instead of
+               three chips in the row: the model and the send button stay
+               visible always. -->
+          <button type="button" id="run-options-btn" class="hint-pill" aria-expanded="false" aria-controls="run-options" title="ตัวเลือกการรัน — ผู้ให้บริการ, effort, temp" aria-label="ตัวเลือกการรัน">ตัวเลือกการรัน</button>
+          <span class="grow"></span>
+          <button type="submit" id="send" class="primary send-btn">ส่ง</button>
+        </div>
+        <div id="run-options" class="run-options hidden" role="group" aria-label="ตัวเลือกการรัน">
+          <span class="model-chip" title="ผู้ให้บริการ — ใครตอบรันนี้ (สลับได้ที่นี่)">
+            <select id="provider" aria-label="ผู้ให้บริการ" title="ผู้ให้บริการ — AiPASS หรือ API อื่น"></select>
           </span>
           <span class="model-chip effort-chip" title="effort — ระดับการคิดก่อนตอบ ใช้กับโมเดลที่รองรับ">
             <select id="thinking" aria-label="ระดับการคิดก่อนตอบ (effort)" title="effort — ระดับการคิดก่อนตอบ">
@@ -328,8 +337,17 @@
               <option value="max">effort max</option>
             </select>
           </span>
-          <span class="grow"></span>
-          <button type="submit" id="send" class="primary send-btn">ส่ง</button>
+          <span class="model-chip" title="temp — ความสุ่มของคำตอบ (0 นิ่ง … 2 หลากหลาย)">
+            <select id="temperature" aria-label="อุณหภูมิ (temp)" title="temp — ความสุ่มของคำตอบ">
+              <option value="default">temp default</option>
+              <option value="0">temp 0</option>
+              <option value="0.3">temp 0.3</option>
+              <option value="0.7">temp 0.7</option>
+              <option value="1">temp 1</option>
+              <option value="1.5">temp 1.5</option>
+              <option value="2">temp 2</option>
+            </select>
+          </span>
         </div>
       </div>
       <p class="composer-foot">

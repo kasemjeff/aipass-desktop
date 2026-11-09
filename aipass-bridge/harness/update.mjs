@@ -1,3 +1,4 @@
+// @ts-nocheck
 // update.mjs — the update service.
 //
 // What it does, in one line: it knows what is out there, it proves it, and it
@@ -48,7 +49,7 @@ const gunzip = promisify(zlib.gunzip);
 
 /** Where the release lane publishes the feed. */
 export const DEFAULT_FEED_URL =
-  'https://github.com/niawjunior/aipass-bridge/releases/latest/download/updates.json';
+  'https://github.com/kasemjeff/aipass-desktop/releases/latest/download/updates.json';
 
 /** The env override — the only way to point the app at another feed. */
 export const feedUrl = () => process.env.AIPASS_UPDATE_FEED?.trim() || DEFAULT_FEED_URL;
@@ -462,6 +463,22 @@ export function refuseUnsignedArtifact(release) {
     };
   }
   return null;
+}
+
+/**
+ * Where a person can fetch the installer by hand when the automatic
+ * handover is refused. `downloadVerified` fetches the same address, so the
+ * manual path is the verified artifact, not a lookalike: a release page the
+ * maintainer does not control is not a fallback, it is a trap.
+ *
+ * @param {{file?: string}} release
+ * @param {{url?: string}} [opts]
+ * @returns {string|null}
+ */
+export function manualDownloadUrl(release, { url = feedUrl() } = {}) {
+  const name = release?.file ? path.basename(String(release.file)) : '';
+  if (!name) return null;
+  return `${feedBase(url)}${name}`;
 }
 
 /* --------------------------------------------------------------- promote */

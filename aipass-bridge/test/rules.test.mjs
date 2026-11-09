@@ -193,7 +193,7 @@ test('a corrupt project record is repaired on the next write, not thrown at', ()
   assert.deepEqual(store.forRoot(root).grants, [{ kind: 'write', arg: 'y.txt' }]);
 });
 
-test('a rules save that cannot complete leaves the previous rules intact', () => {
+test('a rules save that cannot complete leaves the previous rules intact', { skip: process.getuid?.() === 0 && 'root ข้าม chmod (root ignores read-only modes)' }, (t) => {
   const file = path.join(tempDir(), 'rules.json');
   const root = tempDir();
   const store = new RulesStore(file);

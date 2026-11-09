@@ -1,3 +1,4 @@
+// @ts-nocheck
 // The transport: one streaming call to the local bridge, plus the retry path
 // that keeps a run alive when the upstream edge refuses a payload.
 //

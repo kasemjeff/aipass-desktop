@@ -2,8 +2,23 @@
 // Misc command handlers (memory, goal, mcp, symbols, index).
 export function createMiscCommands(/** @type {any} */ ctx) {
 async function showMemory(/** @type {any} */ arg) {
-  if (arg && arg.trim().toLowerCase() === 'clear') {
-    await ctx.rpc('memory.clear').catch(() => {});
+  const trimmed = String(arg ?? '').trim();
+  const forgetMatch = /^forget\s+(.+)$/i.exec(trimmed);
+  if (forgetMatch) {
+    const res = await ctx.rpc('memory.forget', { fact: forgetMatch[1].trim() }).catch(() => null);
+    if (res?.ok === false) {
+      ctx.addCommandOut('ลบไม่ได้ — บันทึกยังอยู่บนดิสก์ ลองอีกครั้ง');
+      return;
+    }
+    ctx.addCommandOut('ลบบันทึกนั้นทิ้งแล้ว');
+    return;
+  }
+  if (trimmed.toLowerCase() === 'clear') {
+    const res = await ctx.rpc('memory.clear').catch(() => null);
+    if (res?.ok === false) {
+      ctx.addCommandOut('ล้างไม่สำเร็จ — facts ยังอยู่บนดิสก์ ลองอีกครั้ง');
+      return;
+    }
     ctx.addCommandOut('ลืม facts ข้าม session ทั้งหมดแล้ว');
     return;
   }
@@ -12,7 +27,8 @@ async function showMemory(/** @type {any} */ arg) {
   if (!facts.length) { ctx.addCommandOut('(ยังไม่มี facts ข้าม session — รัน /compact หรือให้ agent ทำงานสักพัก)'); return; }
   ctx.addCommandOut(`facts ข้าม session ${facts.length} รายการ:`);
   for (const f of facts) ctx.addCommandOut(`  - ${f}`);
-  ctx.addCommandOut('ลืมทั้งหมด: /memory clear');
+  ctx.addCommandOut('บันทึกเหล่านี้ยังไม่ได้ตรวจสอบ — มาจากบทสนทนาที่มีผลจากเครื่องมือและหน้าที่ดึงมา');
+  ctx.addCommandOut('ลบรายการเดียว: /memory forget <ข้อความบันทึก> · ลืมทั้งหมด: /memory clear');
 }
 
 /**
@@ -34,8 +50,32 @@ async function showGoal(/** @type {any} */ arg) {
       return;
     }
     if (verb === 'set') {
-      if (!text) { ctx.addCommandOut('ใส่เป้าหมายด้วย: /goal set "<สิ่งที่อยากทำให้เสร็จ>"'); return; }
-      const { goal } = await ctx.rpc('goal.set', { objective: text });
+      let force = false;
+      let maxRounds;
+      const tokens = [];
+      for (let i = 0; i < rest.length; i++) {
+        const token = rest[i];
+        if (token === '--force' || token === '-f') {
+          force = true;
+        } else if (token === '--rounds' || token === '-r') {
+          if (i + 1 < rest.length && /^\d+$/.test(rest[i + 1])) {
+            maxRounds = Number(rest[++i]);
+          }
+        } else if (/^--rounds=(\d+)$/.test(token)) {
+          maxRounds = Number(token.split('=')[1]);
+        } else {
+          tokens.push(token);
+        }
+      }
+      let objective = tokens.join(' ').trim();
+      if ((objective.startsWith('"') && objective.endsWith('"')) || (objective.startsWith("'") && objective.endsWith("'"))) {
+        objective = objective.slice(1, -1).trim();
+      }
+      if (!objective) { ctx.addCommandOut('ใส่เป้าหมายด้วย: /goal set "<สิ่งที่อยากทำให้เสร็จ>" [--rounds <N>] [--force]'); return; }
+      const params = /** @type {any} */ ({ objective });
+      if (force) params.force = true;
+      if (maxRounds) params.maxRounds = maxRounds;
+      const { goal } = await ctx.rpc('goal.set', params);
       ctx.addCommandOut(`ตั้งเป้าหมายแล้ว (รอบ 1-${goal.maxRounds}): ${goal.objective}`);
       return;
     }
@@ -44,7 +84,7 @@ async function showGoal(/** @type {any} */ arg) {
     if (verb === 'done') { const { goal } = await ctx.rpc('goal.done', { done: text }); ctx.addCommandOut(`ปิดเป้าหมายแล้ว: ${goal.objective}${goal.done ? ` — ${goal.done}` : ''}`); return; }
     if (verb === 'block') { const { goal } = await ctx.rpc('goal.block', { reason: text }); ctx.addCommandOut(`บันทึกว่าเป้าหมายติด: ${goal.blocked}`); return; }
     if (verb === 'clear') { await ctx.rpc('goal.clear'); ctx.addCommandOut('ลบเป้าหมายของโปรเจกต์นี้แล้ว'); return; }
-    ctx.addCommandOut('ใช้: /goal [set "<ข้อความ>"|pause|resume|done [ข้อความ]|block [เหตุผล]|clear]');
+    ctx.addCommandOut('ใช้: /goal [set "<ข้อความ>" [--rounds <N>] [--force]|pause|resume|done [ข้อความ]|block [เหตุผล]|clear]');
   } catch (/** @type {any} */ err) {
     ctx.addCommandOut(`goal: ${ctx.friendly(err.message)}`);
   }

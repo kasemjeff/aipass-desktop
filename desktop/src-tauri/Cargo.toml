@@ -1,6 +1,7 @@
 [package]
 name = "aipass-desktop"
 version = "0.2.0"
+license = "MIT"
 description = "AiPASS in a window — bridge, agent and chat, one command."
 edition = "2021"
 rust-version = "1.77"

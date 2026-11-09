@@ -1,3 +1,4 @@
+// @ts-nocheck
 // install.mjs — where plugins come from, and the only code that puts one
 // there. The design is in `docs/PLUGINS_MCP_DESIGN.md`; this is it, in order:
 //

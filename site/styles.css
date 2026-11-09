@@ -36,11 +36,11 @@
         "license": "https://opensource.org/licenses/MIT",
         "isAccessibleForFree": true,
         "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
-        "downloadUrl": "https://github.com/kasemjeff/TH-aipassport-desktop/releases/latest",
-        "codeRepository": "https://github.com/kasemjeff/TH-aipassport-desktop",
+        "downloadUrl": "https://github.com/kasemjeff/aipass-desktop/releases/latest",
+        "codeRepository": "https://github.com/kasemjeff/aipass-desktop",
         "url": "https://kasemjeff.github.io/aipass-desktop/",
         "screenshot": "https://kasemjeff.github.io/aipass-desktop/og.png",
-        "sameAs": ["https://github.com/kasemjeff/TH-aipassport-desktop"]
+        "sameAs": ["https://github.com/kasemjeff/aipass-desktop"]
       },
       {
         "@type": "FAQPage",
@@ -91,7 +91,7 @@
         <a href="#features">ความสามารถ</a>
         <a href="#install">ติดตั้ง</a>
         <a href="#faq">FAQ</a>
-        <a href="https://github.com/kasemjeff/TH-aipassport-desktop" rel="noopener">GitHub</a>
+        <a href="https://github.com/kasemjeff/aipass-desktop" rel="noopener">GitHub</a>
       </nav>
     </div>
   </header>
@@ -104,8 +104,8 @@
           <h1>AiPASS Desktop</h1>
           <p class="lead">AI coding agent ภาษาไทย สำหรับ Windows, macOS และ Linux — ตรวจ diff ทุกไฟล์ก่อนอนุมัติ ใช้ผ่าน Chrome ที่คุณล็อกอินอยู่ ไม่มี dependency ที่ต้องติดตั้ง</p>
           <div class="cta-row">
-            <a class="btn btn-primary" href="https://github.com/kasemjeff/TH-aipassport-desktop/releases/latest">ดาวน์โหลด (Releases)</a>
-            <a class="btn btn-ghost" href="https://github.com/kasemjeff/TH-aipassport-desktop">ดูบน GitHub</a>
+            <a class="btn btn-primary" href="https://github.com/kasemjeff/aipass-desktop/releases/latest">ดาวน์โหลด (Releases)</a>
+            <a class="btn btn-ghost" href="https://github.com/kasemjeff/aipass-desktop">ดูบน GitHub</a>
           </div>
           <p class="meta">Tauri + Node · zero dependencies · VS Code panel · CLI</p>
         </div>
@@ -141,12 +141,12 @@
       <div class="container">
         <h2>ติดตั้ง</h2>
         <p>ต้องมี Node ≥ 20, Chrome/Chromium และบัญชี de.aipass.net</p>
-        <pre><code>git clone https://github.com/kasemjeff/TH-aipassport-desktop.git
-cd TH-aipassport-desktop
+        <pre><code>git clone https://github.com/kasemjeff/aipass-desktop.git
+cd aipass-desktop
 npm run setup        # ตั้งค่าเครื่องครั้งแรก
 npm run desktop      # เปิดหน้าต่าง (port 8790)</code></pre>
-        <p>สำหรับ native app (installer): <code>npm run desktop:build</code> — ดูรายละเอียดใน <a href="https://github.com/kasemjeff/TH-aipassport-desktop/blob/main/docs/INSTALL.md">docs/INSTALL.md</a></p>
-        <p>ดาวน์โหลด installer ล่าสุด: <a href="https://github.com/kasemjeff/TH-aipassport-desktop/releases/latest">Releases</a></p>
+        <p>สำหรับ native app (installer): <code>npm run desktop:build</code> — ดูรายละเอียดใน <a href="https://github.com/kasemjeff/aipass-desktop/blob/main/docs/INSTALL.md">docs/INSTALL.md</a></p>
+        <p>ดาวน์โหลด installer ล่าสุด: <a href="https://github.com/kasemjeff/aipass-desktop/releases/latest">Releases</a></p>
       </div>
     </section>
 
@@ -180,11 +180,11 @@ npm run desktop      # เปิดหน้าต่าง (port 8790)</code></
       <div class="container">
         <h2>เอกสาร</h2>
         <ul>
-          <li><a href="https://github.com/kasemjeff/TH-aipassport-desktop/blob/main/README.md">README</a> — ภาพรวมทั้งหมด</li>
-          <li><a href="https://github.com/kasemjeff/TH-aipassport-desktop/blob/main/docs/INSTALL.md">INSTALL.md</a> — การติดตั้งแต่ละแพลตฟอร์ม</li>
-          <li><a href="https://github.com/kasemjeff/TH-aipassport-desktop/blob/main/docs/FAQ.md">FAQ.md</a> — คำถามที่พบบ่อย</li>
-          <li><a href="https://github.com/kasemjeff/TH-aipassport-desktop/blob/main/docs/TROUBLESHOOTING.md">TROUBLESHOOTING.md</a> — เมื่อ что-то พัง</li>
-          <li><a href="https://github.com/kasemjeff/TH-aipassport-desktop/blob/main/CHANGELOG.md">CHANGELOG.md</a> — ประวัติการเปลี่ยนแปลง</li>
+          <li><a href="https://github.com/kasemjeff/aipass-desktop/blob/main/README.md">README</a> — ภาพรวมทั้งหมด</li>
+          <li><a href="https://github.com/kasemjeff/aipass-desktop/blob/main/docs/INSTALL.md">INSTALL.md</a> — การติดตั้งแต่ละแพลตฟอร์ม</li>
+          <li><a href="https://github.com/kasemjeff/aipass-desktop/blob/main/docs/FAQ.md">FAQ.md</a> — คำถามที่พบบ่อย</li>
+          <li><a href="https://github.com/kasemjeff/aipass-desktop/blob/main/docs/TROUBLESHOOTING.md">TROUBLESHOOTING.md</a> — เมื่อ что-то พัง</li>
+          <li><a href="https://github.com/kasemjeff/aipass-desktop/blob/main/CHANGELOG.md">CHANGELOG.md</a> — ประวัติการเปลี่ยนแปลง</li>
         </ul>
       </div>
     </section>
@@ -192,8 +192,8 @@ npm run desktop      # เปิดหน้าต่าง (port 8790)</code></
 
   <footer class="site-footer">
     <div class="container">
-      <p>AiPASS Desktop — open-source (MIT). โปรเจกต์ชุมชน ไม่ได้รับการรับรองจากผู้ให้บริการ de.aipass.net ดู <a href="https://github.com/kasemjeff/TH-aipassport-desktop/blob/main/TRADEMARK.md">TRADEMARK.md</a></p>
-      <p><a href="https://github.com/kasemjeff/TH-aipassport-desktop">GitHub</a> · <a href="https://github.com/kasemjeff/TH-aipassport-desktop/releases/latest">Releases</a> · <a href="https://github.com/kasemjeff/TH-aipassport-desktop/blob/main/CONTRIBUTING.md">Contributing</a></p>
+      <p>AiPASS Desktop — open-source (MIT). โปรเจกต์ชุมชน ไม่ได้รับการรับรองจากผู้ให้บริการ de.aipass.net ดู <a href="https://github.com/kasemjeff/aipass-desktop/blob/main/TRADEMARK.md">TRADEMARK.md</a></p>
+      <p><a href="https://github.com/kasemjeff/aipass-desktop">GitHub</a> · <a href="https://github.com/kasemjeff/aipass-desktop/releases/latest">Releases</a> · <a href="https://github.com/kasemjeff/aipass-desktop/blob/main/CONTRIBUTING.md">Contributing</a></p>
     </div>
   </footer>
 </body>

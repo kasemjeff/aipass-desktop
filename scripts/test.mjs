@@ -124,7 +124,8 @@ if (swept) console.log(`swept ${swept} stale scratch director${swept === 1 ? 'y'
 const extra = process.argv.slice(2); // e.g. --test-name-pattern=…
 const coverage = extra.includes('--coverage');
 const passThrough = extra.filter((a) => a !== '--coverage');
-// Ten minutes is a stuck-run ceiling, not a budget — the suite runs in ~30 s.
+// Ten minutes is a stuck-run ceiling, not a budget — the suite runs in a
+// few minutes (measured ~4 min on Linux; CI runners take longer).
 // A leaked handle makes the runner wait forever (the Node 24 CI runners did,
 // for hours); a timeout fails the step instead of stalling it.
 const TEST_TIMEOUT_MS = Number(process.env.AIPASS_TEST_TIMEOUT_MS) || (process.platform === 'win32' ? 20 * 60 * 1000 : 10 * 60 * 1000);

@@ -109,6 +109,11 @@ the table says so, the same way a renamed test fails the `Verify:` anchors.
 | `goal_done` | loop | GOAL DONE: the closing words the model gave | window, plugins |
 | `goal_blocked` | loop | GOAL BLOCKED, or the round cap was reached: the reason | window, plugins |
 
+| `tab_degraded` | rpc | the chat tab stayed unreachable for 5 minutes: how long gone, and which fallback provider is available to switch to by hand (never taken over — an automatic provider change is not built, docs/MATURITY.md) | window (banner), plugins |
+| `run_interrupted` | rpc | a run the backend died in the middle of, found at boot: the session and the transcript it already wrote | window, plugins |
+
+Older backends emitted `provider_failover` when they handed a run to a fallback provider because the tab was unreachable. That is no longer emitted — the window keeps its handler only so a notice from an older backend still paints.
+
 ## Notes and backend state
 
 | event | fired by | what it says | read by |

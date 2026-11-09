@@ -532,12 +532,16 @@ test('an attempt pins the real home token and restores the environment', async (
   // AIPASS_TOKEN for the attempt (read-only: a missing file stays missing).
   // The RUN below observes the env DURING the run — the check runs after the
   // restore, so it reads the file the RUN wrote, not the environment.
+  // P0 (shell worker): the pinned token is for the BACKEND's loopback auth,
+  // never for the shell child — the worker's sanitized env keeps
+  // secret-named variables out of the child, so the RUN proves it by seeing
+  // 'no', and the pin/restore contract is what the test still pins.
   const SHOW_TOKEN = "import { writeFileSync } from 'node:fs';\nwriteFileSync('token.txt', process.env.AIPASS_TOKEN ?? 'no');\n";
   const TOKEN_CHECK = [
     "import fs from 'node:fs';",
     "const seen = fs.existsSync('token.txt') ? fs.readFileSync('token.txt', 'utf8').trim() : 'absent';",
-    "console.log(seen === 'pinned-token-123' ? 'PASS: the pinned token reached the run' : 'FAIL: token.txt holds ' + seen);",
-    'process.exit(seen === "pinned-token-123" ? 0 : 1);',
+    "console.log(seen === 'no' ? 'PASS: the shell child did not inherit the token' : 'FAIL: token.txt holds ' + seen);",
+    'process.exit(seen === "no" ? 0 : 1);',
     '',
   ].join('\n');
   const task = makeTask({ 'showtok.mjs': SHOW_TOKEN, 'check.mjs': TOKEN_CHECK }, { id: 'token-pin', budget: { maxSteps: 3 }, allowRun: true });
@@ -558,15 +562,8 @@ test('an attempt pins the real home token and restores the environment', async (
   }
 
   // A token the caller set wins over the file and is restored untouched —
-  // this check accepts any token, so the sentinel's own value passes.
-  const ANY_TOKEN_CHECK = [
-    "import fs from 'node:fs';",
-    "const seen = fs.existsSync('token.txt') ? fs.readFileSync('token.txt', 'utf8').trim() : 'absent';",
-    "console.log(seen !== 'no' && seen !== 'absent' ? 'PASS: a token reached the run' : 'FAIL: token.txt holds ' + seen);",
-    'process.exit(seen !== "no" && seen !== "absent" ? 0 : 1);',
-    '',
-  ].join('\n');
-  const callerTask = makeTask({ 'showtok.mjs': SHOW_TOKEN, 'check.mjs': ANY_TOKEN_CHECK }, { id: 'token-caller', budget: { maxSteps: 3 }, allowRun: true });
+  // and it still does not reach the shell child (same P0 rule).
+  const callerTask = makeTask({ 'showtok.mjs': SHOW_TOKEN, 'check.mjs': TOKEN_CHECK }, { id: 'token-caller', budget: { maxSteps: 3 }, allowRun: true });
   process.env.AIPASS_TOKEN = 'sentinel';
   try {
     const row = track(await runAttempt(callerTask, {

@@ -58,7 +58,9 @@ function fakeDeps(overrides = {}) {
       replay: [],
       getSeq: () => 7,
       authorized: () => true,
-      authorizedQuery: () => false,
+      // `authorizedQuery` is gone from the handler (a token in the URL is
+      // refused); the deps carry only what the handler reads.
+      
       json: (res, code, body) => jsonCalls.push({ res, code, body }),
       ...overrides,
     },
@@ -75,7 +77,7 @@ test('a non-events request falls through to the next route', () => {
 });
 
 test('an unauthorized listener gets a 401 and the request is taken', () => {
-  const { deps, jsonCalls } = fakeDeps({ authorized: () => false, authorizedQuery: () => false });
+  const { deps, jsonCalls } = fakeDeps({ authorized: () => false });
   const handle = createSseHandler(deps);
   const { req, res } = fakePair();
   assert.equal(handle(req, res, new URL('http://x/events')), true);
@@ -158,6 +160,42 @@ test('the named ping fires, and a dead socket or write error cleans up once', ()
   req.emit('close');
   res.emit('close');
   assert.equal(fanout.unsubs.length, 2, 'further signals do not clean up twice');
+});
+
+test('a stale Last-Event-ID from a dead process still delivers run_interrupted', () => {
+  // The backend restarted: the window's cursor (500) is past this process's
+  // seq (7), and the startup resume offer sits at seq 1. A plain `seq > since`
+  // replay would send nothing and the window would never offer the resume.
+  const { deps } = fakeDeps({
+    getSeq: () => 7,
+    replay: [
+      { seq: 1, event: 'run_interrupted', data: '{"seq":1,"id":"s9","title":"crashed"}' },
+      { seq: 2, event: 'note', data: '{"seq":2}' },
+    ],
+  });
+  const handle = createSseHandler(deps);
+  const { req, res } = fakePair();
+  req.headers['last-event-id'] = '500';
+  assert.equal(handle(req, res, new URL('http://x/events')), true);
+  const joined = res.written.join('');
+  assert.match(joined, /event: run_interrupted\nid: 1/, 'the startup alert is replayed to a stale cursor');
+  assert.doesNotMatch(joined, /event: note\nid: 2/, 'ordinary frames are not replayed to the stale cursor');
+});
+
+test('a fresh listener replays run_interrupted and nothing else', () => {
+  const { deps } = fakeDeps({
+    getSeq: () => 7,
+    replay: [
+      { seq: 1, event: 'run_interrupted', data: '{"seq":1,"id":"s9","title":"crashed"}' },
+      { seq: 2, event: 'note', data: '{"seq":2}' },
+    ],
+  });
+  const handle = createSseHandler(deps);
+  const { req, res } = fakePair();
+  assert.equal(handle(req, res, new URL('http://x/events')), true);
+  const joined = res.written.join('');
+  assert.match(joined, /event: run_interrupted\nid: 1/, 'the startup alert reaches the fresh window');
+  assert.doesNotMatch(joined, /event: note\nid: 2/, 'ordinary frames are not backfilled');
 });
 
 test('a write that throws during the ping cleans up too', () => {

@@ -367,7 +367,7 @@ ctx.refreshMeter = refreshMeter;
 // They are built after the transcript and the commands — they talk through
 // both — and the event wiring below hands the frames to them.
 banners = createBanners(ctx);
-const { syncExtensionToken, syncCatalogBanner, hasConversation, hideWelcome, refreshReadiness, checkForUpdate } = banners;
+const { syncExtensionToken, syncCatalogBanner, syncWafBanner, hasConversation, hideWelcome, refreshReadiness, checkForUpdate } = banners;
 
 /**
  * The one place that empties the transcript.
@@ -627,6 +627,11 @@ const events = await createEventStream(ctx);
 const { stream, onRun, onAny, sameProject, isOwnProject, foreignProject, beat } = events;
 ctx.sameProject = sameProject;
 stream.addEventListener('open', () => { void restoreFromSnapshot(); });
+// Interrupted runs seen by this window, by session id: the same resume offer
+// arrives twice by design — once as the `run_interrupted` SSE frame (replayed
+// to a fresh or stale-cursor listener) and once on `snapshot.status.interrupted`
+// — and the second path must not paint a second banner.
+const shownInterrupted = new Set();
 
 /**
  * Put the window back where it was after a reload or a reconnect.
@@ -657,7 +662,7 @@ async function restoreFromSnapshot() {
   // since moved the backend (rpc.mjs run binds runs to the window's root).
   if (!painted && snap.status?.root) state.root = snap.status.root;
   restoreDraftForRoot();
-  if (painted) { renderPending(snap.pending); refreshMeter(); ctx.refreshContextPanel?.(); restoreAsks(snap.asks ?? {}); return; }
+  if (painted) { renderPending(snap.pending); refreshMeter(); ctx.refreshContextPanel?.(); restoreAsks(snap.asks ?? {}); for (const run of snap.status?.interrupted ?? []) showInterrupted(run); return; }
   // The card comes off only when there is a conversation to put in its place:
   // an idle window keeps the note that says what this is.
   //
@@ -692,6 +697,9 @@ async function restoreFromSnapshot() {
     setHint('ทำงานอยู่…', true);
     setWorking(true);
   }
+  // Crash-safe resume, RPC path (see `showInterrupted`): the SSE replay is
+  // the primary delivery; this covers a window whose stream missed it.
+  for (const run of snap.status?.interrupted ?? []) showInterrupted(run);
   await refreshSessions();
 }
 
@@ -760,6 +768,39 @@ onAny('tab_opened', (/** @type {any} */ data) => {
   addNote(`เปิด ${data.url} ในบราวเซอร์แล้ว — รอสักครู่แล้วส่งใหม่`);
   refreshReadiness();
 });
+// Tab unreachable for minutes: the honest degraded state until the tab is
+// back. A fallback provider is OFFERED (named here) and the person switches
+// with the provider picker — the backend never switches on its own.
+// (`switched` is kept for older backends that did switch.)
+onAny('tab_degraded', (/** @type {any} */ data) => {
+  if (data.switched && data.fallbackProvider) {
+    addNote(`แท็บ chat หายไป ${data.goneMinutes} นาที — ย้ายไป provider ${data.fallbackProvider} แล้ว`);
+  } else if (data.fallbackProvider) {
+    addNote(`แท็บ chat หายไป ${data.goneMinutes} นาที — มี provider สำรอง ${data.fallbackProvider} ให้สลับด้วยตัวเลือก provider ด้านบน · หรือเปิดแท็บ chat กลับมา`);
+  } else {
+    addNote(`แท็บ chat ไม่ตอบมา ${data.goneMinutes} นาที — ไม่มี provider สำรองติดตั้งไว้ รันจะเริ่มไม่ได้จนกว่าแท็บจะกลับมา`);
+  }
+});
+// Older backends switched the provider on their own; the handler stays so
+// their notice still paints, while the current backend only offers.
+onAny('provider_failover', (/** @type {any} */ data) => {
+  addNote(`ตอนนี้คุยกับ provider ${data.providerId} (${data.reason})`);
+});
+// A run that ended without anyone reporting it: the backend died mid-run.
+// The transcript is intact on disk — offer to resume from it.
+const showInterrupted = (/** @type {any} */ data) => {
+  if (!data) return;
+  if (data.id && shownInterrupted.has(data.id)) return;
+  if (data.id) shownInterrupted.add(data.id);
+  const bar = el('div', 'note run-interrupted');
+  bar.append(el('span', null, `run ก่อนหน้า (${data.title ?? 'ไม่มีชื่อ'}) ไม่มีใครเก็บเสียง — backend ดับก่อนจบ รัน ${data.entries ?? 0} ข้อความอยู่ใน transcript แล้ว`));
+  const resume = el('button', 'mini', 'เปิด session นี้');
+  resume.onclick = () => { hideModal(); void openSession(data.id); };
+  bar.append(resume);
+  log.append(bar);
+  scrollDown();
+};
+onAny('run_interrupted', showInterrupted);
 /* The frames the window missed -----------------------------------------------
  *
  * The backend's fan-out keeps a bounded queue per subscriber and drops the
@@ -908,8 +949,8 @@ onRun('helper_end', (/** @type {any} */ data) => {
   updateHelper(data);
   addNote(`helper finished${prepared?.length ? `, prepared ${prepared.length} file(s) for approval` : ''}${skipped?.length ? `, left ${skipped.length} file(s) alone (a newer version was already staged)` : ''}: ${summary}`);
 });
-onRun('subagent_start', (/** @type {any} */ data) => { if (data?.background) addHelper(data); addNote(`subagent started: ${data?.task}`); });
-onRun('subagent_end', (/** @type {any} */ data) => { if (data?.background) updateHelper(data); addNote(data?.error ? `subagent failed: ${data.error}` : `subagent finished: ${data?.out ?? data?.summary ?? ''}`); });
+onRun('subagent_start', (/** @type {any} */ data) => { if (data?.background) { addHelper(data); addNote(`subagent started: ${data?.task}`); } });
+onRun('subagent_end', (/** @type {any} */ data) => { if (data?.background) { updateHelper(data); addNote(data?.error ? `subagent failed: ${data.error}` : `subagent finished: ${data?.out ?? data?.summary ?? ''}`); } });
 onRun('job_start', (/** @type {any} */ data) => { addJob(data); addNote(`background job ${data?.id ?? ''} started: ${data?.command ?? ''}`); });
 onRun('job_end', (/** @type {any} */ data) => { updateJob(data); addNote(`background job ${data?.id ?? ''} ${data?.stopped ? 'stopped' : 'finished'} (exit ${data?.code ?? '?'})`); });
 onRun('done_line', (/** @type {any} */ data) => {
@@ -1345,16 +1386,21 @@ $('side-help').onclick = openHelp;
 // The effort chip follows the saved thinking level, the way #mode follows the
 // saved mode. The settings sheet no longer carries it: how hard the model
 // thinks is a per-message decision, so it lives where the message is written.
-// Temperature went the other way (the sheet's คุยกับโมเดล page owns it now):
-// unlike effort it is not a per-message judgement call but a rarely-touched
-// model parameter, and a knob nobody turns has no business sitting in the row
-// read on every message.
+// Temperature sits with effort and the provider in the "ตัวเลือกการรัน"
+// popover now (not in the row, not only in the sheet): the three ride the
+// next message, and the popover keeps them one tap away without crowding
+// the row the model and the send button live in. The sheet's คุยกับโมเดล
+// page still carries temp as a saved row — both write the same key through
+// this one apply path.
 function applySettingsToUi(/** @type {any} */ settings = state.settings ?? {}) {
   const mode = settings.requirePlanApproval ? 'plan' : (settings.mode ?? 'ask');
   $('mode').value = (/** @type {any} */ (MODE_VIEWS))[mode] ? mode : 'ask';
 
   const level = settings.thinking ?? 'low';
   $('thinking').value = ['off', 'low', 'medium', 'high', 'max'].includes(level) ? level : 'low';
+
+  const temp = settings.temperature;
+  $('temperature').value = temp == null ? 'default' : String(temp);
 }
 
 $('thinking').onchange = () => {
@@ -1363,6 +1409,24 @@ $('thinking').onchange = () => {
     .then(() => { state.settings = { ...(state.settings ?? {}), thinking: level }; })
     .catch((err) => addNote(`เปลี่ยนระดับ effort ไม่ได้: ${err.message}`));
 };
+
+$('temperature').onchange = () => {
+  const raw = $('temperature').value;
+  const temperature = raw === 'default' ? null : Number(raw);
+  rpc('settings.set', { temperature })
+    .then(() => { state.settings = { ...(state.settings ?? {}), temperature }; })
+    .catch((err) => addNote(`เปลี่ยนค่า temp ไม่ได้: ${err.message}`));
+};
+
+/* The run-options popover: one button, three controls. The model and the
+   send button stay in the row always; provider/effort/temp open here. */
+$('run-options-btn')?.addEventListener?.('click', () => {
+  const pop = $('run-options');
+  if (!pop) return;
+  pop.classList.toggle('hidden');
+  const open = !pop.classList.contains('hidden');
+  $('run-options-btn')?.setAttribute('aria-expanded', String(open));
+});
 
 /**
  * Move through ask → auto → plan. A view that is not in the cycle (yolo) steps
@@ -1479,8 +1543,8 @@ function openHelp() {
     'แต่ละโปรเจกต์มีบทสนทนา คู่มือ และไฟล์แยกกัน',
   ]);
   section('ปรับแต่งโมเดล', [
-    'โมเดล ผู้ให้บริการ และ effort เลือกได้ข้างช่องพิมพ์',
-    'temperature (ความสุ่มของคำตอบ — 0 นิ่ง … 2 หลากหลาย) อยู่ที่ ตั้งค่า → คุยกับโมเดล',
+    'โมเดลเลือกได้ข้างช่องพิมพ์ · ผู้ให้บริการ, effort และ temp อยู่ในปุ่ม "ตัวเลือกการรัน"',
+    'temp (ความสุ่มของคำตอบ — 0 นิ่ง … 2 หลากหลาย) อยู่ในปุ่ม "ตัวเลือกการรัน" หรือ ตั้งค่า → คุยกับโมเดล',
     'ค่าเริ่มต้น (default) คือปล่อยให้แต่ละโมเดลใช้ค่าของตัวเอง',
   ]);
   section('ถ้าไม่ได้', [
@@ -1714,6 +1778,32 @@ for (const id of RAIL_TOGGLES) {
 }
 syncRailState();
 
+/* The list sections fold: the history and the files each have a fold
+   button in their heading (index.html), and the CSS does the folding
+   (`.side-section.folded`). The choice is remembered in localStorage, so
+   a rail the person folded stays folded across reloads. */
+for (const id of ['sessions-fold', 'files-fold']) {
+  const btn = $(id);
+  if (!btn) continue;
+  const section = btn.closest?.('.side-section');
+  if (!section) continue;
+  const key = `aipass.side.${id}.folded`;
+  // Restore the remembered fold. (The fake DOM in ui.test has no parent
+  // chain for these buttons, so this path is the browser's — the wiring
+  // still runs and degrades to "not folded" there.)
+  try {
+    const folded = localStorage.getItem(key) === 'true';
+    section.classList.toggle('folded', folded);
+    btn.setAttribute('aria-expanded', String(!folded));
+  } catch { /* storage off: start unfolded */ }
+  btn.addEventListener?.('click', () => {
+    const folded = !section.classList.contains('folded');
+    section.classList.toggle('folded', folded);
+    btn.setAttribute('aria-expanded', String(!folded));
+    try { localStorage.setItem(key, String(folded)); } catch {}
+  });
+}
+
 /* The Session panel toggle. Same pattern as the rail: checkbox holds state,
    CSS does the folding, JS mirrors into aria-expanded + persists the choice. */
 function isNarrow() { return window.innerWidth <= 1100; }
@@ -1879,6 +1969,23 @@ async function repaintPanels() {
   }
 }
 
+/** The live plugin frames, so the resize messages below can find theirs. */
+const pluginFrames = new Set();
+
+// A sandboxed frame is same-origin-opaque to this document, so the parent
+// cannot measure it — the frame measures itself and posts the height. The
+// message carries no markup and moves no data the other way; a plugin that
+// spoofs a height can only make its own frame taller or shorter (clamped).
+if (typeof window.addEventListener === 'function') {
+  window.addEventListener('message', (/** @type {any} */ e) => {
+    const h = Number(e?.data?.aipassPluginHeight);
+    if (!Number.isFinite(h) || h <= 0) return;
+    for (const f of pluginFrames) {
+      if (f.contentWindow && f.contentWindow === e.source) f.style.height = `${Math.min(1200, Math.max(40, Math.round(h)))}px`;
+    }
+  });
+}
+
 /** Paint one panel's body. A repaint replaces the whole box: the finished event
  *  refreshes every panel after every run, and appending a fresh body each time
  *  stacked the scratchpad's history into the sidebar a copy at a time. */
@@ -1887,8 +1994,20 @@ async function paintPanel(/** @type {any} */ box, /** @type {any} */ id) {
   box.append(el('h5', null, box.dataset.title ?? id));
   try {
     const { html } = await rpc('panel.render', { id });
-    const body = el('div', 'plugin-body');
-    body.innerHTML = html; // plugin markup is trusted: plugins are installed code
+    // Plugin markup renders in a sandboxed iframe, never as innerHTML in
+    // this document: a plugin is installed code, and until plugins can be
+    // installed from outside, its markup must not get the window's DOM,
+    // its storage, or a way to navigate the top frame. `sandbox` with
+    // `allow-scripts` and no `allow-same-origin` runs the panel's own
+    // scripts in an opaque origin — they can paint, they cannot reach out.
+    // The frame sizes itself: the script in srcdoc posts its height (the
+    // parent cannot read a cross-origin frame), so a tall scratchpad is
+    // not clipped to a fixed box.
+    const body = el('iframe', 'plugin-body');
+    body.title = box.dataset.title ?? id;
+    (/** @type {any} */ (body)).sandbox = 'allow-scripts';
+    (/** @type {any} */ (body)).srcdoc = `<!doctype html><html><head><meta charset="utf-8"><style>body{margin:0;font:12.5px/1.5 system-ui,sans-serif;color:#dbd7cc}ul{margin:0;padding-left:18px}</style></head><body>${html}<script>const send=()=>parent.postMessage({aipassPluginHeight:document.body?document.body.scrollHeight:0},'*');addEventListener('load',send);new ResizeObserver(send).observe(document.body);</script></body></html>`;
+    pluginFrames.add(body);
     box.append(body);
    } catch (/** @type {any} */ err) {
     box.append(el('p', 'dim', err.message));
@@ -1951,6 +2070,7 @@ async function refreshHeader() {
   // ambient state, so it is read here with everything else.
   state.extensionToken = st.extensionToken === 'missing' ? 'missing' : 'ok';
   syncExtensionToken();
+  syncWafBanner(st.edge403?.count ?? 0);
   refreshMeter(st);
   if (st.model) {
     // Live while a run spends credits; idle windows ride the bridge's cache
@@ -2469,8 +2589,10 @@ function pickProject() {
  * looks like a feature and behaves like a lie.
  */
 
-/** What the system asks for right now. `auto` means exactly this. */
-const systemTheme = () => (window.matchMedia?.('(prefers-color-scheme: light)')?.matches ? 'light' : 'dark');
+/** What the system asks for right now. `auto` means exactly this — and
+ *  `auto` is the default when the person has not chosen a theme, so the
+ *  window opens the way the machine is set (dark when the system is dark). */
+const systemTheme = () => (window.matchMedia?.('(prefers-color-scheme: dark)')?.matches ? 'dark' : 'light');
 
 /**
  * Follow the system while it is the one in charge.
@@ -2482,7 +2604,7 @@ const systemTheme = () => (window.matchMedia?.('(prefers-color-scheme: light)')?
 /** @type {any} */
 let systemThemeQuery = null;
 const watchSystemTheme = () => {
-  const mq = window.matchMedia?.('(prefers-color-scheme: light)');
+  const mq = window.matchMedia?.('(prefers-color-scheme: dark)');
   if (!mq) return;
   if (systemThemeQuery === mq) return;
   systemThemeQuery?.removeEventListener?.('change', onSystemTheme);
@@ -2490,7 +2612,7 @@ const watchSystemTheme = () => {
   mq.addEventListener?.('change', onSystemTheme);
 };
 const onSystemTheme = () => {
-  if ((state.settings?.theme ?? 'dark') === 'auto') applyTheme('auto');
+  if ((state.settings?.theme ?? 'auto') === 'auto') applyTheme('auto');
 };
 
 function applyTheme(/** @type {any} */ theme) {
@@ -2535,7 +2657,7 @@ function applyTheme(/** @type {any} */ theme) {
   ]);
   state.settings = await rpc('settings.get').catch(() => null);
   // A reloaded window has to look like the saved theme, not like the default.
-  applyTheme(state.settings?.theme ?? 'dark');
+  applyTheme(state.settings?.theme ?? 'auto');
   await settled;
   applySettingsToUi(state.settings);
   // The update check runs after the window is up and never before it: it is

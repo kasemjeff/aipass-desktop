@@ -1,3 +1,4 @@
+// @ts-nocheck
 // mcp.mjs — a minimal Model Context Protocol (MCP) client, its config, and the
 // functions that edit that config.
 //

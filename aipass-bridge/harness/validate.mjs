@@ -52,7 +52,7 @@ const ARG_GUARDS = {
  * must be in the run's table and a runner must exist, so an MCP tool that was
  * never connected answers with the same sentence a missing plugin does.
  *
- * @param {{ kind?: string, arg?: any, body?: any, name?: string }} call
+ * @param {{ kind?: string, arg?: any, body?: any, name?: string, unterminated?: boolean }} call
  * @param {object} [table]
  * @param {Array<{marker:string}>} [table.pluginTools]
  * @param {Function|null} [table.runPluginTool]
@@ -83,6 +83,16 @@ export function validateCall(call, { pluginTools = [], runPluginTool = null } = 
   // an unrecognised word is refused here rather than silently ignored.
   if (kind === 'goal' && !/^(?:done|blocked)\b/i.test(arg.trim())) {
     return 'err: GOAL takes DONE or BLOCKED <reason> — e.g. GOAL DONE the parser ships.';
+  }
+
+  // A CREATE or EDIT block whose END never arrived is flagged
+  // unterminated by the parser: the reply was cut off mid-block (or closed
+  // in lowercase), so the body is a fragment, not a file. Nothing is
+  // staged from it — the model is told to send the block again, closed
+  // with END on its own line.
+  if ((kind === 'write' || kind === 'replace') && call.unterminated) {
+    const marker = kind === 'write' ? 'CREATE' : 'EDIT';
+    return `err: the ${marker} block for ${arg.trim()} never reached its END — the reply ended (or the next block began) first, so nothing was staged. Send the ${marker} again and close it with END on its own line.`;
   }
 
   // Body-shaped kinds. A body is the marker's payload; a missing one is a

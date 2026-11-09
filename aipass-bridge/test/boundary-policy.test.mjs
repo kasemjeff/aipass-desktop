@@ -40,24 +40,32 @@ test('an unknown mode is a refusal, never a silent downgrade to off', () => {
   assert.match(p.refuse, /unknown sandbox mode/);
 });
 
-test('backendFor returns none on every platform in phase 1', () => {
-  for (const p of ['darwin', 'linux', 'win32', 'freebsd']) {
-    assert.equal(backendFor(p), 'none');
-  }
+test('backendFor probes the platform tool from PATH and stays none on Windows', () => {
+  // Injected onPath: the probe is the only platform input.
+  assert.equal(backendFor('darwin', { onPath: () => '/usr/bin/sandbox-exec' }), 'seatbelt');
+  assert.equal(backendFor('linux', { onPath: () => '/usr/bin/bwrap' }), 'bubblewrap');
+  assert.equal(backendFor('darwin', { onPath: () => null }), 'none');
+  assert.equal(backendFor('linux', { onPath: () => null }), 'none');
+  assert.equal(backendFor('freebsd', { onPath: () => '/x' }), 'none');
+  // Native Windows has no kernel boundary without the helper — never claimed.
+  assert.equal(backendFor('win32', { onPath: () => '/x' }), 'none');
 });
 
-test('workspace-write with a real backend needs a projection and an allowlist', () => {
-  const p = resolvePolicy({ sandboxMode: 'workspace-write', backend: 'seatbelt', allowHosts: ['example.com'] });
-  assert.equal(p.refuse, null);
+test('workspace-write with a real backend still refuses until the adapter is wired', () => {
+  const p = resolvePolicy({ sandboxMode: 'workspace-write', backend: 'seatbelt', platform: 'darwin', allowHosts: ['example.com'] });
+  // The fs/net shape is the adapters' contract; the refusal is fail-closed
+  // until an adapter consumes it — a passthrough would only SAY it is on.
+  assert.match(p.refuse, /adapter is not wired/);
+  assert.match(p.refuse, /danger-full-access/);
   assert.equal(p.fs, 'write');
   assert.equal(p.needsProjection, true);
   assert.equal(p.net.mode, 'allowlist');
   assert.deepEqual(p.net.hosts, ['example.com']);
 });
 
-test('read-only with a real backend writes nothing and uses no network', () => {
-  const p = resolvePolicy({ sandboxMode: 'read-only', backend: 'bubblewrap' });
-  assert.equal(p.refuse, null);
+test('read-only with a real backend refuses until the adapter is wired', () => {
+  const p = resolvePolicy({ sandboxMode: 'read-only', backend: 'bubblewrap', platform: 'linux' });
+  assert.match(p.refuse, /adapter is not wired/);
   assert.equal(p.fs, 'read');
   assert.equal(p.needsProjection, false);
   assert.equal(p.net.mode, 'off');

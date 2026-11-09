@@ -134,7 +134,10 @@ test('a background helper that fails on the final step is reported after the run
     options: { maxSteps: 3, subagent: true }, first: true,
   });
 
-  assert.equal(result.stopReason, 'done');
+  // A live helper blocks DONE like a live job (jobsGate counts helpers):
+  // one nudge, then the run ends jobs-running while the helper is still
+  // in flight — the post-run sweep below still reports its late failure.
+  assert.equal(result.stopReason, 'jobs-running');
   for (let i = 0; i < 40 && !notes.some((n) => /failed \(error\) after the run ended/.test(n)); i++) {
     await sleep(50);
   }

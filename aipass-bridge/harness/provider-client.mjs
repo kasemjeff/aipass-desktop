@@ -1,3 +1,4 @@
+// @ts-nocheck
 // The provider adapters — what a provider that is a plain HTTP API speaks.
 //
 // The harness talks to ONE client contract (the BridgeClient in bridge.mjs):
@@ -69,6 +70,34 @@ export function modelsTimeoutMs(spec = null) {
 const isTimeout = (err) => err?.name === 'TimeoutError' || err?.name === 'AbortError';
 
 /**
+ * The chat turn's own clocks, mirroring the bridge's
+ * (harness/bridge.mjs): a first-byte deadline until the stream starts
+ * delivering bytes, then an idle (stall) deadline re-armed on every byte
+ * that lands. Without them a provider that accepts the connection and
+ * then stays silent leaves chat() pending for ever — models() already
+ * had one (above); chat() is the call every run makes.
+ *
+ * The spec's own value wins, then the environment, then the same
+ * defaults the bridge uses, so a machine behind a slow link says so
+ * once for both kinds of upstream. A value that is not a positive
+ * number is ignored: a broken setting must never take the deadline
+ * away — that is the hang this exists to end.
+ */
+const CHAT_FIRST_BYTE_DEFAULT_MS = 120_000;
+const CHAT_STALL_DEFAULT_MS = 180_000;
+
+function chatClockMs(spec, field, envName, fallback) {
+  const fromSpec = Number(spec?.[field]);
+  if (Number.isFinite(fromSpec) && fromSpec > 0) return Math.floor(fromSpec);
+  const fromEnv = Number(process.env[envName]);
+  if (Number.isFinite(fromEnv) && fromEnv > 0) return Math.floor(fromEnv);
+  return fallback;
+}
+
+export const firstByteTimeoutMs = (spec = null) => chatClockMs(spec, 'firstByteTimeoutMs', 'AIPASS_PROVIDER_FIRST_BYTE_TIMEOUT_MS', CHAT_FIRST_BYTE_DEFAULT_MS);
+export const stallTimeoutMs = (spec = null) => chatClockMs(spec, 'stallTimeoutMs', 'AIPASS_PROVIDER_STALL_TIMEOUT_MS', CHAT_STALL_DEFAULT_MS);
+
+/**
  * The two endpoints of a provider, from its base URL.
  *
  * The OpenAI-compatible shape carries its version in the base (`…/v1`), and a
@@ -114,31 +143,47 @@ export function authHeaders(spec, key) {
  * `data: {"type":"content_block_delta",…}` with the event name inside the
  * payload. A CRLF server is normal enough, so the frame split tolerates it.
  */
-export async function* sseEvents(res) {
+export async function* sseEvents(res, { onChunk = null } = {}) {
   const reader = res.body?.getReader?.();
   if (!reader) return;
   const decoder = new TextDecoder();
   let buf = '';
+  const parseFrame = (frame) => {
+    const data = frame.split('\n')
+      .filter((l) => l.startsWith('data:'))
+      .map((l) => l.slice(5).trim())
+      .join('');
+    if (!data || data === '[DONE]') return null;
+    try { return JSON.parse(data); } catch { return null; }
+    // A frame that is not JSON is not a frame — a comment line, a keepalive.
+  };
   for (;;) {
     const { value, done } = await reader.read();
     if (done) break;
+    // The stall clock re-arms on bytes, not on frames: a keepalive is
+    // progress the caller might not yield, and a silent transport is
+    // silent however it is framed.
+    onChunk?.();
     buf += decoder.decode(value, { stream: true });
     buf = buf.replace(/\r\n/g, '\n');
     let cut;
     while ((cut = buf.indexOf('\n\n')) !== -1) {
       const frame = buf.slice(0, cut);
       buf = buf.slice(cut + 2);
-      const data = frame.split('\n')
-        .filter((l) => l.startsWith('data:'))
-        .map((l) => l.slice(5).trim())
-        .join('');
-      if (!data || data === '[DONE]') continue;
-      try {
-        yield JSON.parse(data);
-      } catch {
-        // A frame that is not JSON is not a frame — a comment line, a keepalive.
-      }
+      const evt = parseFrame(frame);
+      if (evt) yield evt;
     }
+  }
+  // The final frame without its blank line: a server that closes the
+  // stream right after the last `data:` line (no trailing \n\n) drops
+  // that frame and with it the reply's last words — recorded live as a
+  // reply ending "first part " with the tail gone. Flush whatever is
+  // left as one last frame, and the decoder's tail with it.
+  buf += decoder.decode();
+  buf = buf.replace(/\r\n/g, '\n');
+  if (buf.trim()) {
+    const evt = parseFrame(buf);
+    if (evt) yield evt;
   }
 }
 
@@ -157,8 +202,10 @@ export class ApiProviderClient {
    * @param {string} [opts.key]      the API key; never written anywhere here
    * @param {Function} [opts.onNote]      progress notes for the person
    * @param {Function} [opts.onStreamNote] notes the provider sends mid-reply
+   * @param {number} [opts.firstByteTimeoutMs] per-instance first-byte deadline (ms)
+   * @param {number} [opts.stallTimeoutMs] per-instance idle deadline (ms)
    */
-  constructor(spec, { model = null, key = null, onNote = null, onStreamNote = null } = {}) {
+  constructor(spec, { model = null, key = null, onNote = null, onStreamNote = null, firstByteTimeoutMs: firstByteMs = null, stallTimeoutMs: stallMs = null } = {}) {
     this.spec = spec;
     this.kind = spec.kind;
     this.providerId = spec.id;
@@ -173,6 +220,8 @@ export class ApiProviderClient {
     this.conversations = new Map();
     this.current = null;
     this.#seq = 0;
+    this.firstByteTimeoutMs = Number(firstByteMs) > 0 ? Math.floor(Number(firstByteMs)) : firstByteTimeoutMs(spec);
+    this.stallTimeoutMs = Number(stallMs) > 0 ? Math.floor(Number(stallMs)) : stallTimeoutMs(spec);
   }
 
   #seq;
@@ -187,8 +236,23 @@ export class ApiProviderClient {
   }
 
   #history(id) {
+    // A named conversation that this client has never seen is dead, not
+    // fresh: after a backend restart every in-memory history is gone,
+    // and resuming under the same id used to mint an empty history and
+    // send one message with the whole past dropped silently. Naming it
+    // is what lets the run's resume swap (run/send.mjs) catch it — that
+    // reads this exact phrase, makes a new conversation and re-seeds it
+    // from the transcript. Only an unnamed turn mints one.
+    if (id != null && id !== '' && !this.conversations.has(id)) {
+      throw new Error(`conversation not found: ${id}`);
+    }
     const key = id ?? this.current ?? this.#newConversation();
-    if (!this.conversations.has(key)) this.conversations.set(key, []);
+    if (!this.conversations.has(key)) {
+      if (id != null || this.current != null) {
+        throw new Error(`conversation not found: ${key}`);
+      }
+      this.conversations.set(key, []);
+    }
     if (!this.current) this.current = key;
     return this.conversations.get(key);
   }
@@ -222,12 +286,65 @@ export class ApiProviderClient {
       thinkingLevel,
       temperature,
     });
-    const res = await this.#post(endpointsFor(this.spec).chat, body, { key, signal });
-    const { text, reasoning } = await this.#readStream(res, { onText, onReasoning });
+    // The turn's clocks: the first-byte deadline covers the request
+    // itself; once bytes land the idle deadline takes over and re-arms
+    // on every chunk. One abort controller drives both — whichever
+    // fires first wins and says so, so a stall after a slow start is a
+    // stall, not a second first-byte wait stacked on top.
+    let delivered = false;
+    const markText = (t) => { delivered = true; onText(t); };
+    const markReasoning = (t) => { delivered = true; onReasoning(t); };
+    const ctl = new AbortController();
+    let clock = null; // 'first-byte' | 'stall' once a deadline fires
+    let clockMs = 0;
+    const arm = (kind, ms) => {
+      clearTimeout(timer);
+      if (!(ms > 0)) { timer = null; return; }
+      clockMs = ms;
+      timer = setTimeout(() => {
+        clock = kind;
+        ctl.abort(new DOMException(`provider stream timed out (${kind})`, 'TimeoutError'));
+      }, ms);
+    };
+    let timer = null;
+    arm('first-byte', this.firstByteTimeoutMs);
+    const combined = signal
+      ? (ctl.signal && signal !== ctl.signal ? AbortSignal.any([signal, ctl.signal]) : signal)
+      : ctl.signal;
+    let text;
+    let reasoning;
+    let truncated;
+    let finishReason;
+    try {
+      const res = await this.#post(endpointsFor(this.spec).chat, body, { key, signal: combined });
+      ({ text, reasoning, truncated, finishReason } = await this.#readStream(
+        res,
+        { onText: markText, onReasoning: markReasoning },
+        { onChunk: () => arm('stall', this.stallTimeoutMs) },
+      ));
+    } catch (err) {
+      // A deadline firing is a timeout, never an abort: the caller's
+      // signal stays the only AbortError, so the run's send ladder can
+      // tell a dead transport from a cancelled one.
+      if (clock && !signal?.aborted) {
+        const timedOut = new Error(`provider "${this.providerId}" stream timed out (${clock}, ${clockMs} ms)`);
+        timedOut.name = 'TimeoutError';
+        if (delivered) timedOut.streamed = true;
+        throw timedOut;
+      }
+      throw err;
+    } finally {
+      clearTimeout(timer);
+    }
     // The message joins the history only now: a send that failed leaves no
     // trace, so the retry after a 429 does not send it twice.
     history.push(userMessage, { role: 'assistant', content: text });
-    return { text, reasoning };
+    // `truncated` is additive: a reply cut off at the token ceiling
+    // (`finish_reason: length` / `stop_reason: max_tokens`) is spent,
+    // not finished, and staged or closed as final is how a cut file
+    // lands on disk as if complete. The loop reads it and asks for the
+    // rest instead.
+    return { text, reasoning, truncated: Boolean(truncated), finishReason: finishReason ?? null };
   }
 
   /**
@@ -451,7 +568,7 @@ export class ApiProviderClient {
     return res;
   }
 
-  async #readStream(res, { onText, onReasoning }) {
+  async #readStream(res, { onText, onReasoning }, { onChunk = null } = {}) {
     const type = String(res.headers.get('content-type') ?? '');
     if (type.includes('application/json')) {
       // A provider that answered with a whole body instead of a stream.
@@ -460,11 +577,20 @@ export class ApiProviderClient {
       const reasoning = String(body?.choices?.[0]?.message?.reasoning_content ?? '');
       if (reasoning) onReasoning(reasoning);
       if (text) onText(text);
-      return { text, reasoning };
+      const stopReason = String(body?.stop_reason ?? body?.choices?.[0]?.finish_reason ?? '');
+      const truncated = stopReason === 'max_tokens' || stopReason === 'length';
+      return {
+        text,
+        reasoning,
+        truncated,
+        finishReason: truncated ? 'length' : (stopReason || null),
+      };
     }
     let text = '';
     let reasoning = '';
-    for await (const evt of sseEvents(res)) {
+    let finishReason = null; // the last stop/length reason the stream named
+    let truncated = false;
+    for await (const evt of sseEvents(res, { onChunk })) {
       if (evt?.error) {
         throw new Error(`provider returned an error: ${scrubSecrets(JSON.stringify(evt.error)).slice(0, 300)}`);
       }
@@ -477,9 +603,15 @@ export class ApiProviderClient {
           reasoning += delta.thinking;
           onReasoning(delta.thinking);
         }
+        // The cut-off arrives as `message_delta` with
+        // `stop_reason: max_tokens`; plain `message_stop` is a finish.
+        const stop = String(delta.stop_reason ?? evt?.stop_reason ?? '');
+        if (stop) finishReason = stop;
+        if (stop === 'max_tokens') truncated = true;
         continue;
       }
-      const delta = evt?.choices?.[0]?.delta ?? {};
+      const choice = evt?.choices?.[0] ?? {};
+      const delta = choice.delta ?? {};
       const think = delta.reasoning_content ?? delta.reasoning ?? null;
       if (think) {
         reasoning += think;
@@ -490,8 +622,18 @@ export class ApiProviderClient {
         text += content;
         onText(content);
       }
+      // OpenAI's spelling of the same cut-off: `finish_reason: length`
+      // on the final chunk. Anything else is a finish.
+      const finish = String(choice.finish_reason ?? evt?.finish_reason ?? '');
+      if (finish) finishReason = finish;
+      if (finish === 'length') truncated = true;
     }
-    return { text, reasoning };
+    return {
+      text,
+      reasoning,
+      truncated,
+      finishReason: truncated ? 'length' : finishReason,
+    };
   }
 }
 

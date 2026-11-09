@@ -1,3 +1,4 @@
+// @ts-nocheck
 // One crash-safe swap, shared by the stores that need it.
 //
 // Write the new bytes to a sibling temp file, pin its mode, then rename it
@@ -120,6 +121,10 @@ const renameWithRetry = (from, to) => {
  * `temp` names the file the bytes land in before the swap. It is unique per
  * write by default; a caller passes one only when it must know where the
  * bytes go (a test that plants a symlink there).
+ *
+ * @param {string} file
+ * @param {string|Uint8Array} text
+ * @param {{ mode?: number|null, temp?: string|null }} [options]
  */
 export function writeFileAtomic(file, text, { mode = null, temp = null } = {}) {
   const tmp = temp ?? tempPath(file);

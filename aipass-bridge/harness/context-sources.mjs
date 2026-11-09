@@ -43,6 +43,7 @@ export const PREAMBLE_FLAG_KEYS = Object.freeze([
   'retrieve',
   'explore',
   'sandbox',
+  'acceptanceCriteria',
 ]);
 
 /**
@@ -52,7 +53,7 @@ export const PREAMBLE_FLAG_KEYS = Object.freeze([
  * cannot drift again.
  *
  * @param {Record<string, any>} [options]
- * @param {{ plugins?: unknown[], sections?: unknown[], instructions?: any, goal?: any, lang?: string }} [extra]
+ * @param {{ plugins?: unknown[], sections?: unknown[], instructions?: any, goal?: any, lang?: string, acceptanceCriteria?: any }} [extra]
  */
 export function preambleFlags(options = {}, extra = {}) {
   return {
@@ -73,6 +74,9 @@ export function preambleFlags(options = {}, extra = {}) {
     retrieve: Boolean(options.retrieve),
     explore: Boolean(options.explore),
     sandbox: typeof options.sandbox === 'string' && options.sandbox ? options.sandbox : 'off',
+    acceptanceCriteria: Array.isArray(options.acceptanceCriteria)
+      ? options.acceptanceCriteria.map((c) => String(c).trim()).filter(Boolean).slice(0, 10)
+      : (extra.acceptanceCriteria ?? null),
     plugins: Array.isArray(extra.plugins) ? extra.plugins
       : (Array.isArray(options.pluginTools) ? options.pluginTools : []),
     sections: Array.isArray(extra.sections) ? extra.sections
@@ -88,7 +92,7 @@ export function preambleFlags(options = {}, extra = {}) {
  * know the sheet's shape is this module; everyone else hands options in.
  *
  * @param {Record<string, any>} [options]
- * @param {{ plugins?: unknown[], sections?: unknown[], instructions?: any, goal?: any, lang?: string }} [extra]
+ * @param {{ plugins?: unknown[], sections?: unknown[], instructions?: any, goal?: any, lang?: string, acceptanceCriteria?: any }} [extra]
  */
 export function buildPreambleFor(options = {}, extra = {}) {
   return preamble(/** @type {any} */ (preambleFlags(options, extra)));

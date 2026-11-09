@@ -240,6 +240,34 @@ export default {
   assert.deepEqual(details.tools, ['NOTE']);
 });
 
+test('a plugin manifest carries its permissions, and an unknown one is refused', async () => {
+  const dir = tempDir({
+    'settings.json': JSON.stringify({ plugins: [] }),
+    'plugins/alpha.mjs': `
+export default {
+  name: 'alpha',
+  version: '1.0.0',
+  permissions: ['tools', 'panels'],
+  setup(ctx) { ctx.panel({ id: 'alpha', title: 'alpha', render: () => '' }); },
+};
+`,
+    'plugins/beta.mjs': `
+export default {
+  name: 'beta',
+  version: '1.0.0',
+  permissions: ['filesystem'],
+  setup(ctx) {},
+};
+`,
+  });
+  const manager = new PluginManager({ dir: path.join(dir, 'plugins'), settings: new Settings(dir), log: () => {} });
+  const details = await manager.load();
+  assert.deepEqual(details.loaded.map((p) => p.name), ['alpha'], 'only the plugin with known permissions loads');
+  assert.deepEqual(details.loaded[0].permissions, ['tools', 'panels'], 'and the manifest permissions ride the listing');
+  assert.equal(details.failed.length, 1, 'the unknown permission is a named refusal');
+  assert.match(details.failed[0].error, /unknown permissions: filesystem/);
+});
+
 test("the installer's working areas are not plugins — dot-entries are skipped by name", async () => {
   // .staging holds a copy being validated and .trash holds what a replace
   // moved aside; both contain a perfectly loadable plugin.mjs. Neither is a

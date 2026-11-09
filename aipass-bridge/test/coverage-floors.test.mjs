@@ -139,11 +139,30 @@ test('rpc/files: shell.reveal guard, extension.install, skills/symbols errors', 
     dropIndex: () => {},
     root: dir,
     model: 'm1',
+    emit: (type, payload) => opened.push({ type, payload }),
+    clearTabGone: () => { cleared += 1; },
   };
+  const opened = [];
+  let cleared = 0;
   const m = createFilesMethods(ctx);
   // shell.reveal without path
   assert.deepEqual(await m['shell.reveal']({}), { ok: false, reason: 'no path' });
   assert.deepEqual(await m['shell.reveal']({ path: 123 }), { ok: false, reason: 'no path' });
+  // browser.open on a non-chat URL never touches the degraded timer
+  const elsewhere = await m['browser.open']({ url: 'https://example.com/page' });
+  assert.equal(typeof elsewhere.ok, 'boolean');
+  assert.equal(opened.length, 0, 'a non-chat URL emits nothing');
+  assert.equal(cleared, 0, 'and clears nothing');
+  const unopenable = await m['browser.open']({ url: 'not-a-url' });
+  assert.deepEqual(unopenable, { ok: false });
+  // Opening the chat tab itself (the needs_tab banner's button) ends the
+  // degraded countdown — when the browser really opens.
+  const chat = await m['browser.open']({ url: 'https://de.aipass.net/chat' });
+  assert.equal(typeof chat.ok, 'boolean');
+  if (chat.ok) {
+    assert.deepEqual(opened, [{ type: 'tab_opened', payload: { url: 'https://de.aipass.net/chat', opened: true } }]);
+    assert.equal(cleared, 1);
+  }
   // extension.install returns url even when browser open fails (no Chrome)
   const inst = await m['extension.install']();
   assert.equal(inst.ok, true);

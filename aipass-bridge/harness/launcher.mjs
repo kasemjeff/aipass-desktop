@@ -1,3 +1,4 @@
+// @ts-nocheck
 // launcher.mjs — the desktop launcher's rules, in one place.
 //
 // The launcher (desktop/main.mjs) does two things: start the bridge if it is

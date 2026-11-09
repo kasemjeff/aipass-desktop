@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * Fuzzy matching: the word a person types, and the many paths it could mean.
  *

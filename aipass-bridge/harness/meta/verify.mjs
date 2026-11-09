@@ -21,6 +21,7 @@
 // one that sometimes does. A candidate that passes here is still only
 // PROPOSED — the score decides whether it ships.
 import { outbound } from '../waf.mjs';
+import { MARKERS } from '../protocol.mjs';
 import { POLICY_MAX_BYTES } from './policy.mjs';
 
 /**
@@ -45,12 +46,10 @@ export const SAFETY_FLOOR = [
 ];
 
 /** The markers this harness knows. A candidate that teaches a marker the
- *  parser does not have produces replies nothing can read. */
-export const KNOWN_MARKERS = new Set([
-  'NEED', 'SEARCH', 'GLOB', 'SYMBOLS', 'DEF', 'REFS', 'RECALL', 'SKILL', 'GIT', 'VERIFY', 'FETCH', 'WEB',
-  'DELETE', 'MOVE', 'EDIT', 'CREATE', 'ATTACH', 'FIND', 'NEW', 'END', 'RUN', 'PLAN',
-  'TODO', 'SUBAGENT', 'TASK', 'ASK', 'JOBS', 'DONE',
-]);
+ *  parser does not have produces replies nothing can read. One list, in
+ *  protocol.mjs — a copy here drifted and lost TREE/STAT/RETRIEVE/DIAGNOSE/
+ *  GOAL, so candidates teaching those markers read as unknown. */
+export const KNOWN_MARKERS = new Set(MARKERS);
 
 /**
  * Check a candidate document. Pure — no IO, no clock — so the suite can call

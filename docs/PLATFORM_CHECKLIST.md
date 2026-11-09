@@ -21,7 +21,7 @@ The reference platform. WebView2 + MSVC. Verified end to end.
 - [x] Backend child starts, sidebar + composer render, SSE stream live
 - [x] Backend killed → shell restarts it with backoff, window reconnects
 - [x] Window geometry persists across restarts
-- [x] Token bootstrap (/token + EventSource ?token=) works in WebView2
+- [x] Token bootstrap (/token + HttpOnly cookie on EventSource(/events)) works in WebView2
 
 ## macOS (needs a real Mac)
 

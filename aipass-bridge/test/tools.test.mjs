@@ -7,6 +7,7 @@ import { execSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import { createTools } from '../harness/tools.mjs';
+import { createSender } from '../harness/run/send.mjs';
 import { Overlay } from '../harness/overlay.mjs';
 import { SkillLibrary } from '../harness/skills.mjs';
 
@@ -368,7 +369,14 @@ test('the secret screen sees the target of a link, not the name it borrows', asy
 
 test('FETCH refuses a name that resolves private, and one it cannot resolve', async () => {
   const transport = async () => new Response('never fetched', { status: 200 });
-  const tools = toolsIn(mkTracked({}), { fetchTransport: transport });
+  // The resolver is stubbed per host so the case does not depend on this
+  // machine's DNS: on a sandbox without DNS even the private name answers
+  // "could not be resolved" instead of "resolves to a private address".
+  const fetchResolver = async (host) => {
+    if (host === 'localhost.') return { addresses: [{ address: '127.0.0.1', family: 4 }], private: true };
+    throw new Error('ENOTFOUND');
+  };
+  const tools = toolsIn(mkTracked({}), { fetchTransport: transport, fetchResolver });
   // `localhost.` is the same name to the resolver and a different one to the
   // literal check — the split the DNS pass exists to close.
   const priv = await tools.fetch('http://localhost./x');
@@ -379,3 +387,103 @@ test('FETCH refuses a name that resolves private, and one it cannot resolve', as
   assert.match(unknown, /^err: refusing to fetch public\.invalid/);
   assert.match(unknown, /could not be resolved/);
 });
+
+// --- The send stage and the attachment queue -------------------------------
+//
+// A queued attachment is drained once per send, not once per attempt: a
+// retry that re-drained to nothing used to hand the model a message with
+// no file while the session still recorded the parts as sent.
+const senderRun = ({ chat, parts = [] }) => ({
+  bridge: { chat },
+  sheet: { model: 'test-model', thinking: 'off', temperature: 1 },
+  options: {},
+  tools: { pendingParts: [...parts] },
+  firstParts: [],
+  next: 'hello',
+  sends: 0,
+  session: { append: () => {} },
+  waf: (s) => s,
+  emit: () => {},
+  note: () => {},
+  conversation: undefined,
+  conversationTemporary: false,
+  listingToRecord: null,
+  listingShown: null,
+  onConversationSettled: null,
+  onConversationDead: null,
+});
+const withNoWaits = (fn) => async () => {
+  const prev = process.env.AIPASS_RECOVER_WAITS_MS;
+  process.env.AIPASS_RECOVER_WAITS_MS = '0,0';
+  try { await fn(); } finally {
+    if (prev === undefined) delete process.env.AIPASS_RECOVER_WAITS_MS;
+    else process.env.AIPASS_RECOVER_WAITS_MS = prev;
+  }
+};
+const shot = { type: 'file', file: { filename: 'shot.png', file_data: 'data:image/png;base64,AAA' } };
+
+test('an attachment is sent on every attempt of a recoverable retry', withNoWaits(async () => {
+  const seen = [];
+  let n = 0;
+  const run = senderRun({
+    parts: [shot],
+    chat: async ({ parts }) => {
+      seen.push(parts);
+      n += 1;
+      if (n === 1) throw new Error('timed out waiting for the extension');
+      return { text: 'ok', reasoning: '' };
+    },
+  });
+  const { send } = createSender(run);
+  const out = await send();
+  assert.equal(out.reply, 'ok');
+  assert.equal(seen.length, 2, 'the retry is a second attempt');
+  assert.deepEqual(seen[0], [shot], 'the first attempt carries the attachment');
+  assert.deepEqual(seen[1], [shot], 'the retry carries it again, not null');
+  assert.equal(run.tools.pendingParts.length, 0, 'a successful send stays drained');
+}));
+
+test('an attachment queued by an overflowed send is back in the queue', withNoWaits(async () => {
+  const run = senderRun({
+    parts: [shot],
+    chat: async () => { throw new Error('context length exceeded'); },
+  });
+  const { send } = createSender(run);
+  const out = await send();
+  assert.equal(out.stopReason, 'error');
+  assert.ok(out.overflow, 'the loop owns the rotation');
+  assert.deepEqual(run.tools.pendingParts, [shot], 'the rotation resend carries it again');
+}));
+
+test('an attachment queued by a cancelled send is back in the queue', withNoWaits(async () => {
+  const run = senderRun({
+    parts: [shot],
+    chat: async () => { const e = new Error('aborted'); e.name = 'AbortError'; throw e; },
+  });
+  const { send } = createSender(run);
+  const out = await send();
+  assert.equal(out.stopReason, 'cancelled');
+  assert.deepEqual(run.tools.pendingParts, [shot], 'a stop must not eat the attachment');
+}));
+
+test('an attachment queued by a send-timeout is back in the queue', withNoWaits(async () => {
+  const run = senderRun({
+    parts: [shot],
+    chat: async () => { throw new Error('timed out waiting for the extension'); },
+  });
+  const { send } = createSender(run);
+  const out = await send();
+  assert.equal(out.stopReason, 'send-timeout', 'the waits are spent, the ending says so');
+  assert.deepEqual(run.tools.pendingParts, [shot], 'the next send still carries it');
+}));
+
+test('an attachment queued by a failed send is back in the queue', withNoWaits(async () => {
+  const run = senderRun({
+    parts: [shot],
+    chat: async () => { throw new Error('fetch failed'); },
+  });
+  const { send } = createSender(run);
+  const out = await send();
+  assert.equal(out.stopReason, 'error');
+  assert.deepEqual(run.tools.pendingParts, [shot], 'a plain failure must not eat the attachment');
+}));

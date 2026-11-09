@@ -125,12 +125,29 @@ function readTask(dir, id, kind) {
   if (!spec || typeof spec !== 'object' || Array.isArray(spec)) {
     throw new EvalTaskError(`task ${id}: task.json must be an object`);
   }
-  if (typeof spec.check !== 'string' || !spec.check.trim()) {
-    throw new EvalTaskError(`task ${id}: task.json names no check command`);
+  // (SWE-bench shape) A `swebench` block replaces the tree/ copy with a git
+  // worktree at a base commit plus declared test batteries. `check` is
+  // optional there (the batteries are the check); otherwise the legacy
+  // one-command check is required, and tree/ must exist.
+  const swebench = spec.swebench && typeof spec.swebench === 'object'
+    ? {
+      repo: typeof spec.swebench.repo === 'string' && spec.swebench.repo.trim() ? spec.swebench.repo.trim() : null,
+      baseCommit: typeof spec.swebench.baseCommit === 'string' && spec.swebench.baseCommit.trim() ? spec.swebench.baseCommit.trim() : null,
+      testPatch: typeof spec.swebench.testPatch === 'string' && spec.swebench.testPatch.trim() ? spec.swebench.testPatch.trim() : null,
+      failToPass: Array.isArray(spec.swebench.failToPass) ? spec.swebench.failToPass.map(String) : [],
+      passToPass: Array.isArray(spec.swebench.passToPass) ? spec.swebench.passToPass.map(String) : [],
+    }
+    : null;
+  if (!swebench) {
+    if (typeof spec.check !== 'string' || !spec.check.trim()) {
+      throw new EvalTaskError(`task ${id}: task.json names no check command`);
+    }
+  } else if (!swebench.repo || !swebench.baseCommit || !swebench.failToPass.length) {
+    throw new EvalTaskError(`task ${id}: a swebench task needs repo, baseCommit and at least one failToPass command`);
   }
 
   const tree = path.join(dir, 'tree');
-  if (!fs.existsSync(tree) || !fs.statSync(tree).isDirectory()) {
+  if (!swebench && (!fs.existsSync(tree) || !fs.statSync(tree).isDirectory())) {
     throw new EvalTaskError(`task ${id}: no tree/ directory in ${dir}`);
   }
 
@@ -139,7 +156,8 @@ function readTask(dir, id, kind) {
     kind,
     dir,
     taskText,
-    check: spec.check.trim(),
+    check: !swebench && typeof spec.check === 'string' ? spec.check.trim() : null,
+    swebench,
     allowRun: spec.allowRun === true,
     // Extra keys are the suite's business, not the runner's: `lang` (th|en),
     // `pair` (the pair id), `category` (the report's group-by) and `liveOnly`
@@ -191,15 +209,15 @@ export function listTasks({ evalsDir = EVALS_DIR, kind = 'tasks' } = {}) {
   return out;
 }
 
-/** One id from any set: `tasks/` first, then `holdout/`, then `thai/`. */
+/** One id from any set: `tasks/` first, then `holdout/`, `thai/`, `thai-repo/`. */
 export function resolveTask(ref, { evalsDir = EVALS_DIR } = {}) {
   if (path.isAbsolute(ref) || /[\\/]/.test(ref)) return loadTask(ref, { evalsDir });
-  for (const kind of ['tasks', 'holdout', 'thai']) {
+  for (const kind of ['tasks', 'holdout', 'thai', 'thai-repo']) {
     if (fs.existsSync(path.join(evalsDir, kind, ref, 'task.json'))) {
       return readTask(path.join(evalsDir, kind, ref), ref, kind);
     }
   }
-  throw new EvalTaskError(`no task named "${ref}" under ${evalsDir}/tasks, /holdout or /thai`);
+  throw new EvalTaskError(`no task named "${ref}" under ${evalsDir}/tasks, /holdout, /thai or /thai-repo`);
 }
 
 /* ------------------------------------------------------------ transcripts */
@@ -311,6 +329,11 @@ export function digestOf(text) {
  * on disk — two runs' tree digests compare before their metrics do.
  */
 export function treeDigestOf(dir) {
+  // A SWE-bench task has no tree/ to digest (its world is a worktree at a
+  // base commit); the row still needs a digest, and the base commit + test
+  // patch are its equivalent. The caller passes a non-existent dir when
+  // there is no tree to walk.
+  if (!dir || !fs.existsSync(dir)) return 'swebench:no-tree';
   const hash = createHash('sha256');
   const walk = (d, rel) => {
     const entries = fs.readdirSync(d, { withFileTypes: true })
@@ -363,6 +386,120 @@ export function replayBridge(replies = [], { model = null } = {}) {
 /* ------------------------------------------------------------------ check */
 
 /** Spawn the task's one check command in `cwd`; exit 0 is the only pass. */
+
+/**
+ * `git -C <repo> worktree add <treeDir> <base>` as a promise (SWE-bench
+ * attempts). Spawns the tree kill the taskkill way; detached groups so a
+ * SIGKILL reaches the tree (the execution.mjs rule).
+ */
+function gitWorktreeAdd(repo, treeDir, base) {
+  return new Promise((resolve) => {
+    let child;
+    try {
+      child = spawn('git', ['-C', repo, 'worktree', 'add', treeDir, base], {
+        windowsHide: true,
+        detached: process.platform !== 'win32',
+      });
+    } catch (err) {
+      resolve({ code: null, stderr: String(err?.message ?? err) });
+      return;
+    }
+    let out = '';
+    const timer = setTimeout(() => { try { child.kill('SIGKILL'); } catch { /* gone */ } }, 60_000);
+    timer.unref?.();
+    child.stdout?.on('data', (d) => { out += d; });
+    child.stderr?.on('data', (d) => { out += d; });
+    child.on('error', (err) => { clearTimeout(timer); resolve({ code: null, stderr: `${out} err: ${err.message}` }); });
+    child.on('close', (code) => { clearTimeout(timer); resolve({ code, stderr: out }); });
+  });
+}
+
+/** Apply a unified diff to the attempt's worktree. */
+function gitApply(treeDir, patchFile) {
+  return new Promise((resolve) => {
+    let child;
+    try {
+      child = spawn('git', ['-C', treeDir, 'apply', patchFile], {
+        windowsHide: true,
+        detached: process.platform !== 'win32',
+      });
+    } catch (err) {
+      resolve({ code: null, stderr: String(err?.message ?? err) });
+      return;
+    }
+    let out = '';
+    const timer = setTimeout(() => { try { child.kill('SIGKILL'); } catch { /* gone */ } }, 60_000);
+    timer.unref?.();
+    child.stdout?.on('data', (d) => { out += d; });
+    child.stderr?.on('data', (d) => { out += d; });
+    child.on('error', (err) => { clearTimeout(timer); resolve({ code: null, stderr: `${out} err: ${err.message}` }); });
+    child.on('close', (code) => { clearTimeout(timer); resolve({ code, stderr: out }); });
+  });
+}
+
+/** Deregister one worktree from its repo. */
+function gitWorktreeRemove(repo, treeDir) {
+  return new Promise((resolve) => {
+    let child;
+    try {
+      child = spawn('git', ['-C', repo, 'worktree', 'remove', '--force', treeDir], {
+        windowsHide: true,
+        detached: process.platform !== 'win32',
+      });
+    } catch {
+      resolve();
+      return;
+    }
+    const timer = setTimeout(() => { try { child.kill('SIGKILL'); } catch { /* gone */ } }, 60_000);
+    timer.unref?.();
+    child.on('error', () => { clearTimeout(timer); resolve(); });
+    child.on('close', () => { clearTimeout(timer); resolve(); });
+  });
+}
+
+/**
+ * A SWE-bench-shaped check: apply the test patch to the attempt's worktree
+ * (model fix already applied), then run each declared test battery.
+ * Resolves to { exit (0 iff every battery passes), f2p, p2p }.
+ */
+async function swebenchCheck(task, treeDir, { checkTimeoutMs, env }) {
+  const sw = task.swebench;
+  const patchFile = path.resolve(task.dir, sw.testPatch ?? '');
+  const { code, stderr } = await gitApply(treeDir, patchFile);
+  if (code !== 0) {
+    return {
+      command: 'git apply test_patch',
+      exit: null,
+      ms: 0,
+      tail: `err: the test patch did not apply
+${stderr}`.slice(0, 2000),
+      timedOut: false,
+      f2p: [],
+      p2p: [],
+      sweError: 'the test patch did not apply',
+    };
+  }
+  const report = { command: `${sw.failToPass.length} failToPass + ${sw.passToPass.length} passToPass`, exit: 0, ms: 0, tail: '', timedOut: false, sweError: null, f2p: [], p2p: [] };
+  const runBattery = async (list, key) => {
+    // The battery env drops the outer test-runner context: an attempt that
+    // itself runs under `node --test` inherits NODE_TEST_CONTEXT, and a
+    // nested `node --test` then refuses to run its files ("run()
+    // recursively within a test file") — a vacuous pass. The attempt's own
+    // process keeps its env.
+    for (const command of list) {
+      const batteryEnv = { ...env };
+      delete batteryEnv.NODE_TEST_CONTEXT;
+      const r = await checkCommand(command, treeDir, { timeoutMs: checkTimeoutMs, env: batteryEnv });
+      report.ms += r.ms;
+      report[key].push({ command: r.command, exit: r.exit, tail: r.tail.slice(0, 400), timedOut: r.timedOut });
+      if (r.exit !== 0) report.exit = 1;
+    }
+  };
+  await runBattery(sw.failToPass, 'f2p');
+  await runBattery(sw.passToPass, 'p2p');
+  return report;
+}
+
 export function checkCommand(command, cwd, { timeoutMs = DEFAULT_CHECK_TIMEOUT_MS, env = null } = {}) {
   return new Promise((resolve) => {
     const started = Date.now();
@@ -436,7 +573,23 @@ export async function runAttempt(task, {
   const attemptDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aipass-eval-'));
   const treeDir = path.join(attemptDir, 'tree');
   const homeDir = path.join(attemptDir, 'home');
-  fs.cpSync(path.join(task.dir, 'tree'), treeDir, { recursive: true });
+  const sweepWorktrees = []; // { repo, treeDir } the attempt must deregister
+  // A SWE-bench task begins from a worktree at the declared base commit;
+  // the fixtures under tree/ were never its world. Everything else copies
+  // tree/ whole, as before.
+  if (task.swebench) {
+    const repo = path.resolve(task.dir, task.swebench.repo);
+    const { code, stderr } = await gitWorktreeAdd(repo, treeDir, task.swebench.baseCommit);
+    if (code !== 0) {
+      throw new EvalError(`task ${task.id}: git worktree add failed — ${stderr.slice(0, 500)}`);
+    }
+    // A worktree lives on the repo's metadata (`.git/worktrees/`) beyond
+    // the temp dir, so the attempt must deregister it when it ends — see
+    // the cleanup at the end of runAttempt.
+    sweepWorktrees.push({ repo, treeDir });
+  } else {
+    fs.cpSync(path.join(task.dir, 'tree'), treeDir, { recursive: true });
+  }
 
   const events = new Emitter();
   const seen = { errors: [], conversations: [], needsTab: false };
@@ -527,10 +680,25 @@ export async function runAttempt(task, {
     fs.copyFileSync(sessionFile, keptSession);
   }
 
-  const check = await checkCommand(task.check, treeDir, {
-    timeoutMs: checkTimeoutMs,
-    env: { ...process.env, AIPASS_HOME: homeDir },
-  });
+  // SWE tasks are scored by declaration, not by one command: the batteries
+  // decide (every failToPass must flip green, every passToPass must stay
+  // green). The legacy one-command check is untouched.
+  const check = task.swebench
+    ? await swebenchCheck(task, treeDir, {
+      checkTimeoutMs,
+      env: { ...process.env, AIPASS_HOME: homeDir },
+    })
+    : await checkCommand(task.check, treeDir, {
+      timeoutMs: checkTimeoutMs,
+      env: { ...process.env, AIPASS_HOME: homeDir },
+    });
+  // A worktree lives on the repo's metadata (`.git/worktrees/`) beyond the
+  // temp dir: deregister it now, so the repo does not accumulate worktree
+  // metadata for every attempt. Best effort — a deregistered-but-gone tree
+  // is already gone.
+  for (const { repo, treeDir: wt } of sweepWorktrees) {
+    await gitWorktreeRemove(repo, wt);
+  }
 
   // Read run_stats back from the file on disk, not from memory: the JSONL is
   // the source of truth stats.mjs itself reads.
@@ -604,6 +772,12 @@ export async function runAttempt(task, {
   let invalidReason = null;
   if (replayFingerprint?.stale) {
     outcome = 'stale';
+  } else if (check.sweError) {
+    // A task that cannot be scored (the test patch itself is broken) is
+    // invalid, never unsolved — charging the model for the task's own bug
+    // would lie about it.
+    outcome = 'invalid';
+    invalidReason = `swebench: ${check.sweError}`;
   } else if (checkPassed) {
     outcome = 'solved';
     scored = true;
@@ -661,7 +835,10 @@ export async function runAttempt(task, {
     checkVerdict: stats?.checkVerdict ?? null,
     spent: stats?.spent ?? null,
     wallMs,
-    check: { command: check.command, exit: check.exit, ms: check.ms, tail: check.tail, timedOut: check.timedOut },
+    check: {
+      command: check.command, exit: check.exit, ms: check.ms, tail: check.tail, timedOut: check.timedOut,
+      ...(task.swebench ? { f2p: check.f2p ?? [], p2p: check.p2p ?? [], sweError: check.sweError ?? null } : {}),
+    },
     session: { id: sessionId, file: sessionFile, kept: keptSession },
     conversations: [...new Set(seen.conversations.concat(harness?.conversation ? [harness.conversation] : []))],
     compactions,
@@ -894,6 +1071,8 @@ selection
   --all                every task under evals/tasks/ (the smoke set)
   --holdout            every task under evals/holdout/ (reported separately)
   --thai               every task under evals/thai/ (the Thai/English pair set)
+  --thai-repo          every task under evals/thai-repo/ (Thai-language
+                       repository fixtures: repo understanding in Thai)
 
 options
   --budget a=b,c=d     global budget override — maxSteps, model, thinking,
@@ -915,7 +1094,7 @@ exit codes: 0 only when every scored check passed; 1 when one did not;
  *  that quietly do nothing. */
 export function parseArgs(argv) {
   const opts = {
-    tasks: [], all: false, holdout: false, thai: false, replay: null, live: false,
+    tasks: [], all: false, holdout: false, thai: false, thaiRepo: false, replay: null, live: false,
     advisory: false, help: false, results: null, budget: null, pause: 0, attempts: 1, keep: false,
   };
   for (let i = 0; i < argv.length; i++) {
@@ -934,6 +1113,7 @@ export function parseArgs(argv) {
     else if (name === '--all') opts.all = true;
     else if (name === '--holdout') opts.holdout = true;
     else if (name === '--thai') opts.thai = true;
+    else if (name === '--thai-repo') opts.thaiRepo = true;
     else if (name === '--replay') opts.replay = next();
     else if (name === '--live') opts.live = true;
     else if (name === '--keep') opts.keep = true;
@@ -983,6 +1163,7 @@ async function main() {
   if (opts.all) tasks.push(...listTasks({ kind: 'tasks' }));
   if (opts.holdout) tasks.push(...listTasks({ kind: 'holdout' }));
   if (opts.thai) tasks.push(...listTasks({ kind: 'thai' }));
+  if (opts.thaiRepo) tasks.push(...listTasks({ kind: 'thai-repo' }));
   if (!tasks.length && transcript) {
     if (!transcript.taskId) {
       throw new EvalError(`--replay ${opts.replay} names no taskId and no --task was given`);
@@ -990,7 +1171,7 @@ async function main() {
     tasks.push(resolveTask(transcript.taskId));
   }
   if (!tasks.length) {
-    console.error('nothing selected — pass --task ID, --all, --holdout or --thai (--help for details)');
+    console.error('nothing selected — pass --task ID, --all, --holdout, --thai or --thai-repo (--help for details)');
     return 2;
   }
   if (mode === 'live' && !opts.live) {

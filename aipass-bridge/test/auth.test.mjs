@@ -182,7 +182,7 @@ test('bridge: token file mints at boot with owner-only intent', async () => {
 });
 
 // RPC backend, in-process like hardening.test.mjs: /rpc gated, /token is
-// same-origin-browser-only, /events accepts the query form for EventSource.
+// same-origin-browser-only, /events accepts the cookie (or header) form.
 test('rpc: /rpc gated, /token is same-origin-browser-only', async () => {
   const home = mkhome();
   const token = 'rpc-token-' + '1'.repeat(54);
@@ -220,6 +220,11 @@ test('rpc: /rpc gated, /token is same-origin-browser-only', async () => {
       headers: { 'sec-fetch-site': 'same-origin', origin: base },
     }).then((r) => r.json());
     assert.equal(boot.token, token, 'bootstrap hands the active token to same-origin pages');
+    // The bootstrap also mints the cookie the EventSource rides on.
+    const bootRes = await fetch(`${base}/token`, {
+      headers: { 'sec-fetch-site': 'same-origin', origin: base },
+    });
+    assert.match(bootRes.headers.get('set-cookie') ?? '', /aipass_token=[\w-]+; HttpOnly; SameSite=Lax; Path=\//, 'the bootstrap sets the HttpOnly cookie');
     // Cross-origin page is refused even though it is a browser.
     const cross = await fetch(`${base}/token`, {
       headers: { 'sec-fetch-site': 'cross-site', origin: 'https://evil.test' },
@@ -238,14 +243,18 @@ test('rpc: /rpc gated, /token is same-origin-browser-only', async () => {
       headers: { origin: 'http://127.0.0.1:3000' },
     }).then((r) => r.status);
     assert.equal(otherPort, 403, 'an Origin on another loopback port is refused on the port');
-    // The bootstrapped token opens /events in the EventSource query form. The
-    // stream never ends on its own — cancel it after the status check, or the
-    // close() below waits on this live connection (7 s on Windows, 16 s on
+    // The bootstrapped token opens /events on the cookie — never in the URL.
+    // The stream never ends on its own — cancel it after the status check, or
+    // the close() below waits on this live connection (7 s on Windows, 16 s on
     // Ubuntu 22, and on the Node 24 runners it never resolved; desktop.test.mjs
     // cancels for the same reason).
-    const stream = await fetch(`${base}/events?token=${token}`);
+    const stream = await fetch(`${base}/events`, { headers: { cookie: `aipass_token=${token}` } });
     assert.equal(stream.status, 200);
     await stream.body.cancel();
+    // The old query form is refused: the token must not ride a URL.
+    const query = await fetch(`${base}/events?token=${token}`);
+    assert.equal(query.status, 401, 'a token in the URL is not accepted anymore');
+    await query.body.cancel();
     const denied = await fetch(`${base}/events`);
     assert.equal(denied.status, 401);
     await denied.body.cancel();
@@ -347,6 +356,27 @@ test('a recreated token file with a colliding stamp is still the file, not the m
     assert.equal(fs.statSync(tokenPath(home)).mtimeMs, stamp, 'the fixture reproduces the colliding stamp');
     assert.equal(loadOrMintToken(home), second, 'the file is the truth when the stamp collides');
     assert.equal(authorized(req(second), home), true, 'and the new token is what authorizes');
+  } finally {
+    if (prevToken === undefined) delete process.env.AIPASS_TOKEN; else process.env.AIPASS_TOKEN = prevToken;
+    if (prevFlag === undefined) delete process.env.AIPASS_REQUIRE_AUTH; else process.env.AIPASS_REQUIRE_AUTH = prevFlag;
+  }
+});
+
+// The /token cookie is minted percent-encoded (rpc.mjs), but a hand-set
+// AIPASS_TOKEN can carry characters that change under encoding (`+`/`/`/`=`).
+// `authorized` must accept the cookie the browser sends back — encoded — as
+// well as the raw spelling tools send, or a valid token 401s the stream.
+test('a token with special characters authorizes from its encoded cookie', () => {
+  const home = mkhome();
+  const prevToken = process.env.AIPASS_TOKEN;
+  const prevFlag = process.env.AIPASS_REQUIRE_AUTH;
+  process.env.AIPASS_TOKEN = 'a+b/c=d-1';
+  process.env.AIPASS_REQUIRE_AUTH = '1';
+  try {
+    const cookie = (v) => ({ headers: { cookie: `aipass_token=${v}` } });
+    assert.equal(authorized(cookie('a+b/c=d-1'), home), true, 'the raw spelling still authorizes');
+    assert.equal(authorized(cookie(encodeURIComponent('a+b/c=d-1')), home), true, 'the encoded cookie the browser sends back authorizes');
+    assert.equal(authorized(cookie(encodeURIComponent('a+b/c=d-2')), home), false, 'a different encoded token does not');
   } finally {
     if (prevToken === undefined) delete process.env.AIPASS_TOKEN; else process.env.AIPASS_TOKEN = prevToken;
     if (prevFlag === undefined) delete process.env.AIPASS_REQUIRE_AUTH; else process.env.AIPASS_REQUIRE_AUTH = prevFlag;

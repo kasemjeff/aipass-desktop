@@ -24,8 +24,8 @@ under `../aipass-bridge/harness/` it drives. The bridge, extension and CLI under
   re-render the reply synchronously per delta; a paint appends to what settled.
   Verify: "a long answer paints its settled paragraphs once and repaints only the tail"
   Verify: "reasoning arrives by appending text, not by rewriting the fold each frame"
-- **Transport**: `fetchToken()` → `/token`; `EventSource(/events?token=…)`);
-  `rpc()` → POST `/rpc` with `Authorization: Bearer` — both carry the token.
+- **Transport**: `fetchToken()` → `/token` (mints the HttpOnly `aipass_token` cookie); `EventSource(/events)`;
+  `rpc()` → POST `/rpc` with `Authorization: Bearer` — both carry the token (the stream by cookie, never by URL).
   Verify: "the window carries the loopback token on both transports"
   Verify: "the window hands the extension its token, in one click"
 - Reconnects are cheap: the backoff resets and the SSE replay fills the gap.

@@ -329,13 +329,17 @@ main { flex: 1; display: grid; grid-template-columns: var(--side-w) minmax(0, 1f
   overflow: hidden;
 }
 .side-top {
-  flex: 1; min-height: 0; overflow: auto;
+  flex: 1; min-height: 0; overflow: hidden;
   display: flex; flex-direction: column; gap: 12px;
 }
-/* The sections keep the height they asked for. Without this the browser
-   squeezes the lists to nothing to make everything fit — a history you can
-   see three rows of is worse than a rail you scroll. */
+/* The rail is a flex column and each list section owns its height: the
+   history and the files each scroll inside their own box (min-height: 0
+   is what lets a flex child shrink below its content), so one long list
+   cannot push the other — or the search field — out of the rail. The
+   sections share the column: each gets flex 1 and its list scrolls. */
 .side-top > * { flex: none; }
+.side-top > .side-section { flex: 1 1 0; min-height: 0; }
+.side-section > .list { flex: 1; min-height: 0; overflow: auto; }
 
 .side-brand { display: flex; align-items: center; gap: 8px; padding: 2px 2px 0; }
 .logo { flex: none; }
@@ -471,8 +475,9 @@ button.nav-item:hover { border-color: transparent; }
 /* One long list scrolls inside its own box: a folder with 300 files must not
    push the history out of the rail, and the history must not push the search
    out of the rail either. */
-#sessions { max-height: min(32vh, 320px); overflow: auto; }
-#files { max-height: min(26vh, 280px); overflow: auto; }
+/* The lists scroll inside their section (flex, above) — no viewport cap:
+   a cap is what cut the rail off on short windows. */
+#sessions, #files { overflow: auto; }
 .list li {
   padding: 5px 8px;
   border-radius: 8px;
@@ -1267,6 +1272,23 @@ details.run > *:not(summary) { margin-left: 2px; }
 #task::placeholder { color: var(--dim); }
 .composer-row { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
 
+/* The run options popover: provider, effort and temp. It floats over the
+   transcript edge of the composer card, so opening it does not move the
+   model or the send button — those stay visible always. */
+.run-options {
+  position: absolute;
+  right: 12px;
+  bottom: calc(100% + 8px);
+  z-index: 20;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  background: var(--card);
+  border: 1px solid var(--card-line);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  padding: 8px 10px;
+}
+.run-options.hidden { display: none !important; }
+
 .round-btn {
   width: 30px; height: 30px; flex: none;
   border-radius: 50%;
@@ -1501,10 +1523,10 @@ details.run > *:not(summary) { margin-left: 2px; }
 .plugin-panel h5 { margin: 0 0 6px; font-size: 10.5px; color: var(--dim); text-transform: uppercase; letter-spacing: .06em; font-weight: 600; }
 .plugin-panel ul { list-style: none; margin: 0; padding: 0; }
 .plugin-panel li { padding: 2px 0; white-space: pre-wrap; }
-/* a plugin's own markup, rendered by the backend */
-.plugin-body { font-size: 12.5px; }
-.plugin-body > :first-child { margin-top: 0; }
-.plugin-body > :last-child { margin-bottom: 0; }
+/* a plugin's own markup, rendered in a sandboxed iframe (app.js
+   paintPanel): the frame posts its own height and the handler sizes it —
+   this is only the height before the first resize message lands. */
+iframe.plugin-body { width: 100%; height: 160px; border: 0; display: block; background: transparent; }
 
 /* The panels in the rail. The rail is narrow and the panels are the
    plugin's own work surface, so they get their own scroll box: a scratchpad

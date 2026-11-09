@@ -1,3 +1,4 @@
+// @ts-nocheck
 // The undo of an apply.
 //
 // A run stages its edits in the overlay, the person approves them, and the

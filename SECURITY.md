@@ -8,7 +8,7 @@ bridge port the way you would treat a password.
 
 ## Reporting
 
-Open a [security advisory](https://github.com/niawjunior/aipass-bridge/security/advisories/new),
+Open a [security advisory](https://github.com/kasemjeff/aipass-desktop/security/advisories/new),
 or email the maintainer if you would rather not file publicly. Please do not open
 a normal issue for something exploitable.
 
@@ -245,7 +245,12 @@ Then restart the bridge and reload the extension.
 - **Plugins and MCP servers are trusted, not sandboxed** (Oct 2026,
   `harness/install.mjs`, `harness/mcp.mjs`): installing a plugin, or adding an
   MCP server, means running someone else's code in the backend process with the
-  app's rights — which is why install is the consent moment. The plugin
+  app's rights — which is why install is the consent moment. Since Nov 2026 a
+  plugin may opt into isolation (`isolated: true` + `capabilities`,
+  `docs/PLUGINS_MCP_DESIGN.md` § 8b): it then runs in a forked worker, must
+  declare which surfaces it uses, and its setup/calls are time- and
+  memory-bounded — but that is a process boundary, not a kernel one, and the
+  in-process default for plugins that never declare it is unchanged. The plugin
   inspect report (and the window's install box) prints size and sha256 **without
   executing anything**; staging copies are validated only after that report is
   confirmed (`--yes` exists for scripts and still prints the trust sentence),
@@ -407,6 +412,20 @@ refuses `read-only` and `workspace-write` today; `danger-full-access` keeps
 today's behaviour. The real backends (Seatbelt, bubblewrap, a Windows
 helper) are later waves.
 
+2026-11-09: the shell moved out of the backend process (P0). A RUN now
+forks `harness/shell-worker.mjs` — sanitized environment (an allowlist minus
+secret-named variables, so `AIPASS_TOKEN` and friends never reach the
+child), confined cwd, timeout with a tree-kill, an output cap and a worker
+concurrency gate — and the backend never spawns the shell itself, so a
+shell that hangs or dies answers `err:` and takes no backend with it. The
+junctioned heavy directories are locked read-only during a RUN and audited
+afterwards (`lockSharedDirs`/`auditSharedDirs`): a RUN that changes one
+answers `err:` naming the files. This is defence in depth, not a kernel
+boundary: a same-user command that clears the read-only bits can still
+write (the audit names it), and network access / CPU / memory remain
+uncaged. The kernel backends are the open rung; enforcing modes refuse
+until they land.
+
 ## Known limits, not bugs
 
 - The project's own instruction file (`AGENTS.md`, or `CLAUDE.md` /
@@ -425,8 +444,9 @@ helper) are later waves.
   staged) is a projection for honest checks, not a jail. The projection is a
   copy of your project with the staged edits in it, and the heavy directories
   (`node_modules`, `dist`, …) are SHARED with the real tree rather than
-  copied — a write into one of them lands in your project, and the command's
-  result says which folders are shared. The projection lives under
+  copied — they are locked read-only for the RUN and audited after it, so a
+  write into one is refused by the kernel or named by the audit, and the
+  command's result says which folders are shared. The projection lives under
   `~/.aipass/run/`, outside the project, so it cannot be committed by
   accident. Network access is
   not filtered — FETCH's private-address guard does not apply to a shell

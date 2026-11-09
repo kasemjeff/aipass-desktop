@@ -59,6 +59,11 @@ Before `git tag vX.Y.Z`, all of these are true:
    not a release the app can update from**, and the key must be in the
    keyring before the feed that names it is published — the app refuses a
    feed signed by a key it does not know, and that is the point.
+   The feed's `sequence` is the rollback guard: it only goes up, and the
+   release lane signs `github.run_number` (a manual `workflow_dispatch`
+   may override it, but the override must be higher than the last release).
+   The feed's notes are the head commit message — on a tag push there is
+   no release body yet, so `github.event.release.body` is always empty.
 
 ## Canary & soak
 

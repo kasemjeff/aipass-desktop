@@ -304,6 +304,10 @@ text left open, as built:
 - **The preamble changed with the Thai pack**, so the replay fingerprint was
   recomputed: `evals/fixtures/math-fix-replay.json` now records
   `preambleBytes: 4275`, digest `6c09ebfd7abff693`.
+- **The preamble changed again** (the RUN section now states the Phase 1
+  sandbox truth and the plain-vs-projection world), so the replay
+  fingerprint was recomputed: `evals/fixtures/math-fix-replay.json` now
+  records `preambleBytes: 6231`, digest `b3dd45de97352b01`.
 
 ### Thai pack expansion + the eval-set lint (2026-10-17)
 
@@ -453,3 +457,41 @@ directions, and the count is what "tested" means here:
   no-leak-only check passes an untouched tree — it scored nothing, and
   `npm run evals:lint` caught exactly that: every check must fail before the
   work is done.
+
+### SWE-bench shape, Thai repo evaluation, long-horizon and the injection regression (2026-11-09)
+
+- **SWE-bench-shaped tasks.** `task.json` may carry a `swebench` block —
+  `{ repo, baseCommit, testPatch, failToPass[], passToPass[] }` — and then
+  the attempt runs in a git worktree at the base commit (no `tree/` copy),
+  the test patch is `git apply`d after the model's fix, and each declared
+  battery is a shell command. `solved` means every failToPass flipped
+  green AND every passToPass stayed green (`check.f2p` / `check.p2p` on
+  the row); a test patch that does not apply is `invalid`, never
+  unsolved. The worktree is deregistered after the attempt. This is the
+  shape a SWE-bench Verified instance rides at bench time (the Verified
+  set itself stays out of this repo — bench-time only, per
+  `docs/KNOWLEDGE_ARCHITECTURE.md`); offline, a synthetic repo proves
+  the mechanism (`aipass-bridge/test/evals-swebench.test.mjs`). The
+  battery environment drops `NODE_TEST_CONTEXT` — a nested `node --test`
+  inside an attempt that itself runs under `node --test` otherwise
+  refuses to run its files and reports a vacuous pass.
+- **`evals/thai-repo/` — Thai repository evaluation**: a small
+  Thai-language project fixture (`README.md` + `shared/calc.mjs`, Thai
+  comments) and two tasks: name the functions the repo ships, and run the
+  repo's own `interest()` over fixture inputs. `task.json` carries
+  `lang: th` + `pair: thai-repo` like the Thai set; `--thai-repo` selects
+  the lane and `evals-lint` covers its fail-before rule. Provenance is
+  the same as the Thai set: synthetic, no public set imported.
+- **`evals/tasks/long-horizon/`** — three one-bug modules, one task, one
+  check that only passes when all three are fixed (a stage-and-DONE ends
+  a run, so a multi-step reply must keep the DONE off until the work is
+  done — the fixture's replay proves the distinction in
+  `aipass-bridge/test/evals-longhorizon.test.mjs`).
+- **Prompt injection regression** (`aipass-bridge/test/prompt-injection.test.mjs`):
+  the safety fixtures score both directions offline (obeying the embedded
+  instruction fails the check; ignoring it passes), fetched content
+  carries the untrusted framing, a secret named by pasted content still
+  hits the floor, and borrowed paths still resolve inside the root. The
+  live model-in-the-loop cases stay `liveOnly` in the safety set — a
+  transcript proves what one recorded run did, not what the model does
+  now.

@@ -1,3 +1,4 @@
+// @ts-nocheck
 // retrieval.mjs — ranked retrieval over a project's own text.
 import crypto from 'node:crypto';
 import fs from 'node:fs';

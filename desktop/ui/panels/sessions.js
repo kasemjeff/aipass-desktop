@@ -482,9 +482,25 @@ async function renderMemoryFacts(/** @type {any} */ ul, /** @type {any} */ head)
     ul.append(li);
     return facts;
   }
+  // These facts are unverified by construction — distilled from
+  // transcripts that included tool results and fetched pages — so the
+  // list says so, and every fact can be removed on its own: a
+  // clear-all is too blunt to answer one poisoned line.
+  const note = el('li', 'dim');
+  note.append(el('span', 'fact', 'บันทึกเหล่านี้ยังไม่ได้ตรวจสอบ — มาจากบทสนทนาที่มีผลจากเครื่องมือและหน้าที่ดึงมา อาจเป็นคำสั่งที่ปลอมแปลง; ลบรายการที่น่าสงสัยทิ้งได้เลย'));
+  ul.append(note);
   for (const f of facts) {
     const li = el('li');
     li.append(el('span', 'fact', f));
+    const del = el('button', 'btn btn-ghost btn-sm', 'ลบ');
+    del.type = 'button';
+    del.title = 'ลบบันทึกนี้ทิ้ง (ไม่ต้องล้างทั้งหมด)';
+    del.onclick = async () => {
+      const r = await rpc('memory.forget', { fact: f }).catch(() => null);
+      if (r?.ok) await renderMemoryFacts(ul, head);
+      else addNote('ลบไม่ได้ — บันทึกยังอยู่บนดิสก์');
+    };
+    li.append(del);
     ul.append(li);
   }
   return facts;

@@ -104,10 +104,16 @@ export class RunContext {
     this.sendError = null;
 
     /* --- the send ---------------------------------------------------------- */
+    this.creditNoticeShown = false; // the credit-cap notice is said once per run
     this.sends = 0;
     this.firewallNotes = 0;
     this.sendRecoveries = 0;
     this.sendWaitMs = 0; // time spent in recovery waits — the send-timeout budget
+    // The last reply as it left the provider: a reply cut at the token
+    // ceiling (run/send.mjs sets this off the provider's truncation
+    // flag) is spent, not finished — the loop asks for the rest before
+    // it stages or closes anything from that reply. -1 = unknown.
+    this.lastReplyTruncated = false;
 
     /* --- the work ---------------------------------------------------------- */
     this.toolsRun = 0;
@@ -166,12 +172,31 @@ export class RunContext {
     this.errLoops = 0;
     this.errTrip = false;
     this.chainSkips = 0;
+    // Failure classification (harness/failure.mjs): counts per class, and
+    // the last classification — the adaptive retry and the recovery plan
+    // both read them, and the stats line reports them.
+    this.failureCounts = { model: 0, tool: 0, environment: 0, unknown: 0 };
+    this.lastFailure = null;
+    // Recovery planning: the plan built for the step after a failure, so a
+    // later step can name what it is following.
+    this.recoveryPlan = null;
+    // Adaptive retry: one record per failure shape retried, so the hint
+    // for attempt 2 can name that the shape was already tried.
+    this.adaptiveRetries = 0;
 
     /* --- the budgets --------------------------------------------------------- */
     this.budgetHit = null;
     this.creditsBefore = null;
     this.creditBaseline = null;
     this.creditObserved = null;
+    // Dynamic budget (run/budgets.mjs): the tier the task was scored into,
+    // and the budgets actually in force after the adjustment.
+    this.budgetTier = 'standard';
+    this.budgetScore = 0;
+    // Loop state persistence (harness/loop-state.mjs): whether this run
+    // restored a snapshot, and how many snapshots it has written.
+    this.loopStateRestored = false;
+    this.loopStateSaved = 0;
 
     /* --- the checker ---------------------------------------------------------- */
     this.checks = 0;
@@ -186,6 +211,16 @@ export class RunContext {
     this.declaredCheckSource = null;
     this.declaredPassAt = -1;
     this.commitBlocks = 0;
+    // Independent verification (harness/verify-evidence.mjs): the audit
+    // that read the checker's evidence, and what it found. A downgrade is
+    // recorded here and in run_stats; the verdict itself is never upgraded.
+    this.independentChecks = 0;
+    this.independentVerdict = null;
+    this.independentIssues = [];
+    /** @type {'code'|'docs'|'none'} */
+    this.taskType = 'none';
+    /** @type {string[]} */
+    this.acceptanceCriteria = [];
 
     /* --- helpers --------------------------------------------------------------- */
     this.backgroundJobs = new Map();

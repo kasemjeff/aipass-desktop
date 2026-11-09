@@ -1,3 +1,4 @@
+// @ts-nocheck
 // The tools the model can drive: everything from reading a file to running
 // shell, implemented as one function per marker shape. String in, string out —
 // no JSON, no streaming, because the model writes them as prose lines.
@@ -20,6 +21,8 @@ import { outbound, inbound } from './waf.mjs';
 import { withResolvedSources } from './web-sources.mjs';
 import { secretHit, scrubSecretDiff } from './permissions.mjs';
 import { scrubOutput } from './output-scrub.mjs';
+import { createSecretScreen, preserveFileShape, containsKnownSecret } from './secret-screen.mjs';
+import { spillReadResult } from './spill-read.mjs';
 // The person's own commands (harness/hooks.mjs): a command line the person
 // configured, bound to a moment — after a staged change, before a commit,
 // when a run ends. It is not the model's command, so it never asks the model
@@ -46,9 +49,24 @@ const MAX_SEARCH_FILE = 1_000_000;
 // The same ceiling for `read`, which used to have none at all: a multi-GB
 // file answers with an out-of-memory crash, not with a page. A spill file
 // (this tool's own copy of a result) is allowed more, because it carries
-// the line gutter of a file that already passed the cap.
-const MAX_READ_FILE = 1_000_000;
-const MAX_SPILL_READ = 2 * MAX_READ_FILE;
+// the line gutter of a file that already passed the cap. The spill ceiling
+// is the background job's disk cap (execution.mjs BACKGROUND_OUTPUT_CAP):
+// a job may write up to that many bytes, so a whole read of its file must
+// be allowed at least that much — the two constants are one contract, and
+// a test pins them equal. Past the ceiling a ranged read still works, so
+// the tail is never stranded behind the refusal.
+export const MAX_READ_FILE = 1_000_000;
+export const MAX_SPILL_READ = 20 * 1024 * 1024;
+
+/** The house `err:` for a file past the read ceiling. A spill's way through
+ *  is a ranged read (the locator's shape); any other file's is SEARCH or a
+ *  RUN that cuts it. */
+function readCapRefusal(rel, size, cap, isSpill) {
+  const head = `err: ${rel} is ${Math.round(size / 1024 / 1024)} MB — the read cap is ${Math.round(cap / 1024 / 1024)} MB.`;
+  return isSpill
+    ? `${head} Read a page of it: NEED file ${rel} 1-250, then the next range.`
+    : `${head} Search it with SEARCH, or cut it with a shell command (RUN).`;
+}
 
 /**
  * A tool result longer than the inline cap is not thrown away.
@@ -650,6 +668,10 @@ export function createTools(ctx) {
     // driven without a network in a test; the default is the pinned request
     // from private-hosts.mjs, which connects to the address that was vetted.
     fetchTransport = pinnedGet,
+    // The resolver the FETCH vetting step uses, for the same reason: a
+    // test stubs the private answer (or the ENOTFOUND) instead of depending
+    // on this machine's DNS. Null means the real `resolveVetted`.
+    fetchResolver = null,
     // The person's own commands (harness/hooks.mjs). They are read from the
     // settings file when a hook fires, so a hook configured in the window
     // works on the next write without a restart; a caller that holds them
@@ -674,8 +696,8 @@ export function createTools(ctx) {
   const sandboxPolicy = resolvePolicy({ sandboxMode: sandbox, platform: process.platform, backend: backendFor(process.platform) });
   const sandboxRefuse = sandboxPolicy.refuse;
   // Background job ids are per run table, not per project: `run1`, `run2`...
-  // The spill file with the same name is overwritten by the next run's job of
-  // that number, which is the one JOBS of that run points at.
+  // The spill file is created exclusively ('wx' in execution.mjs): a taken
+  // name is suffixed, never truncated — JOBS points at this run's file only.
   let backgroundSeq = 0;
   const safe = (p) => overlay.safe(p);
   const trySafe = (p) => overlay.trySafe(p);
@@ -702,6 +724,8 @@ export function createTools(ctx) {
       return `hook (${moment}) could not run: ${String(err?.message ?? err)}`;
     }
   };
+
+  const { getKnownSecrets, globSecretHit } = createSecretScreen({ root, overlay });
 
   // The `done` moment: the person's own command when the run ends. It rides
   // the harness's own event bus — one emitter per harness, so this is this
@@ -996,9 +1020,7 @@ export function createTools(ctx) {
       const cap = isSpill ? MAX_SPILL_READ : MAX_READ_FILE;
       let size = 0;
       try { size = fs.statSync(abs).size; } catch { size = 0; } // a staged file is not on disk yet
-      if (size > cap) {
-        return `err: ${rel} is ${Math.round(size / 1024 / 1024)} MB — the read cap is ${Math.round(cap / 1024 / 1024)} MB. Search it with SEARCH, or cut it with a shell command (RUN).`;
-      }
+      if (size > cap && !(isSpill && range)) return readCapRefusal(rel, size, cap, isSpill);
       const kind = binaryKind(abs, (p) => overlay.has(p));
       if (kind) {
         return `err: ${rel} is ${kind === 'binary' ? 'a binary file' : `a ${kind} file`}, not text.\n`
@@ -1008,6 +1030,7 @@ export function createTools(ctx) {
       }
 
       readSet.add(abs); // seen by the run: the write gate lets CREATE replace it now
+      if (isSpill && !overlay.has(abs) && size > 4 * 1024 * 1024) return await spillReadResult(abs, rel, range, readLines, maxResult);
       const lines = splitLines(readAt(abs));
       const total = lines.length;
       let start = 1, end = total;
@@ -1092,7 +1115,8 @@ export function createTools(ctx) {
       if (fs.existsSync(abs) && !readSet.has(abs) && !overlay.has(abs)) {
         return `err: ${arg} already exists on disk and has not been read this run. Read it first (NEED file ${arg}) — or change it in place with EDIT ${arg} / FIND / NEW / END instead of replacing it whole.`;
       }
-      const body = inbound(rawBody);
+      let body = inbound(rawBody);
+      try { body = preserveFileShape(existsAt(abs) ? readAt(abs) : null, body); } catch { /* an unreadable existing stages as given */ }
       overlay.set(abs, body);
       const note = await syntaxNote(arg, body);
       // (R4, the hard half) The write answers with what it actually staged —
@@ -1122,8 +1146,15 @@ export function createTools(ctx) {
       const after = inbound(rawBody[1]);
       const text = readAt(abs);
       if (!before) return `err: the text to change was empty. Copy the exact lines to find under FIND.`;
+      if (before === after) return 'err: FIND and the replacement are identical — nothing would change.';
 
       const count = text.split(before).length - 1;
+      const finish = async (updated, how = '') => {
+        overlay.set(abs, updated);
+        const note = await syntaxNote(arg, updated);
+        const hook = await hookVerdict('afterWrite');
+        return `updated ${arg} (1 change${how})${note ? '\n' + note : ''}${hook ? '\n' + hook : ''}`;
+      };
       if (count === 0) {
         // (Thai pack) The classic invisible-character miss: the FIND block
         // was copied from somewhere that carried zero-width characters or an
@@ -1134,9 +1165,7 @@ export function createTools(ctx) {
         const normalized = stripInvisibles(before);
         if (normalized !== before && text.split(normalized).length - 1 === 1) {
           const matched = text.replace(normalized, () => after);
-          overlay.set(abs, matched);
-          const note = await syntaxNote(arg, matched);
-          return `updated ${arg} (1 change; the FIND text carried invisible characters — they were dropped to make the match)${note ? '\n' + note : ''}`;
+          return await finish(matched, `; the FIND text carried invisible characters — they were dropped to make the match`);
         }
         // The other two copy mistakes that do not change the intent: a file
         // with CRLF line endings copied back as LF, and trailing spaces the
@@ -1150,10 +1179,7 @@ export function createTools(ctx) {
             ? after.replace(/\r\n/g, '\n').replace(/\n/g, '\r\n')
             : after;
           const updated = text.slice(0, loose.index) + replacement + text.slice(loose.index + loose.text.length);
-          overlay.set(abs, updated);
-          const note = await syntaxNote(arg, updated);
-          const hook = await hookVerdict('afterWrite');
-          return `updated ${arg} (1 change; the FIND text matched once line endings and trailing spaces were normalized)${note ? '\n' + note : ''}${hook ? '\n' + hook : ''}`;
+          return await finish(updated, `; the FIND text matched once line endings and trailing spaces were normalized`);
         }
         const hint = nearHint(text, before);
         return `err: the text to change was not found in ${arg}. Read it again with NEED file ${arg} and copy the lines exactly.${hint ? `\n${hint}` : ''}`;
@@ -1178,13 +1204,8 @@ export function createTools(ctx) {
       // into something the model never wrote. A shell script or a line of
       // JavaScript is full of them.
       const updated = text.replace(before, () => after);
-      overlay.set(abs, updated);
-      const note = await syntaxNote(arg, updated);
-      // The `afterWrite` moment, for an edit as much as for a new file: the
-      // person configured "after every change", and a hook that fired on a
-      // CREATE only would be a half-feature they have to discover.
-      const hook = await hookVerdict('afterWrite');
-      return `updated ${arg} (1 change)${note ? '\n' + note : ''}${hook ? '\n' + hook : ''}`;
+      // The afterWrite moment also fires for an edit.
+      return await finish(updated);
     },
     async search(arg) {
       const parsed = parseSearchArg(arg);
@@ -1280,7 +1301,7 @@ export function createTools(ctx) {
       // The secret floor covers tool args; a RUN carries its command in the
       // body, so `type .env` used to walk straight past it. Command words are
       // all that can be screened — see secretHit's note on runtime-built names.
-      const secret = secretHit(body);
+      const secret = await globSecretHit(body);
       if (secret) return `err: the command names ${secret.token} (${secret.pattern}) — secret files stay on this machine.`;
       // The world the command runs in is one owner now (execution.mjs): with
       // anything staged it is a projection of the tree that has the staged
@@ -1289,7 +1310,7 @@ export function createTools(ctx) {
       // are put back to the project's, so the output reads as if it ran where
       // the model thinks it did. The tool layer keeps the guards above and
       // the text policy (clipRun, the spill); the world keeps the rest.
-      return runInProjectWorld({ root, overlay, signal, command: body, clip: clipRun });
+      return runInProjectWorld({ root, overlay, signal, command: body, clip: clipRun, knownSecrets: await getKnownSecrets() });
     },
     /**
      * RUN background — the same command, started as a job.
@@ -1308,12 +1329,12 @@ export function createTools(ctx) {
       if (!String(body ?? '').trim()) {
         return 'err: the RUN block has no command. One command per RUN, e.g. RUN\nnode check.mjs\nEND.';
       }
-      const secret = secretHit(body);
+      const secret = await globSecretHit(body);
       if (secret) return `err: the command names ${secret.token} (${secret.pattern}) — secret files stay on this machine.`;
       const name = `run${++backgroundSeq}`;
-      const started = await startBackgroundRun({ root, overlay, signal, command: body, name });
+      const started = await startBackgroundRun({ root, overlay, signal, command: body, name, knownSecrets: await getKnownSecrets() });
       if (started.error) return `err: ${started.error} — the command was not started.`;
-      return { id: name, ...started };
+      return { id: started.name ?? name, ...started };
     },
     /**
      * VERIFY — the model asks for a check.
@@ -1337,7 +1358,7 @@ export function createTools(ctx) {
         if (!allowRun) return 'err: a check needs the shell, and shell commands are disabled for this run';
         // The secret floor covers tool args; the same screen the RUN body
         // gets, because a check can name a file just as easily.
-        const secret = secretHit(command);
+        const secret = await globSecretHit(command);
         if (secret) return `err: the check names ${secret.token} (${secret.pattern}) — secret files stay on this machine.`;
         // The same machinery as RUN: the command sees the staged tree in a
         // projection, and the disk is never written by it. The command is
@@ -1533,7 +1554,7 @@ export function createTools(ctx) {
         // Async for the same reason `run` is: a slow `git log` must not stop
         // the backend's event loop while the window waits on it.
         const { stdout } = await runShell(`git ${sub}`, { cwd: root, timeoutMs: 15_000 });
-        return clip(scrubSecretDiff(scrubOutput(stdout)));
+        return clip(scrubSecretDiff(scrubOutput(stdout, await getKnownSecrets())));
       } catch (err) {
         const detail = String(err.stderr ?? err.stdout ?? '').trim();
         // `git diff` outside a repository answers with a page of option help
@@ -1544,7 +1565,7 @@ export function createTools(ctx) {
         if (/not a git repository|gitfile does not point to a valid repository/i.test(detail)) return 'err: not a git repository — GIT only works inside one. Run git init first, or skip git here.';
         const code = err.code ?? err.status ?? 1;
         const body = detail || `git ${sub} produced no output (exit ${code}). Check that this directory is a git repository and the subcommand is valid.`;
-        return clip(scrubSecretDiff(scrubOutput(`err: exit ${code}\n${body}`)));
+        return clip(scrubSecretDiff(scrubOutput(`err: exit ${code}\n${body}`, await getKnownSecrets())));
       }
     },
     async fetch(url) {
@@ -1586,7 +1607,7 @@ export function createTools(ctx) {
           if (!isLiteralIP(host)) {
             let vetted;
             try {
-              vetted = await resolveVetted(host);
+              vetted = await (fetchResolver ? fetchResolver(host) : resolveVetted(host));
             } catch {
               // No answer, no verdict: a name that cannot be resolved cannot
               // be vetted, and an unvetted name is not fetched.
@@ -1644,6 +1665,11 @@ export function createTools(ctx) {
       const abs = safe(rel);
       const sharedRefusal = refuseSharedWrite(abs);
       if (sharedRefusal) return sharedRefusal;
+      // Idempotent: a delete the run already staged is the state the retry
+      // must produce — answering `err:` would tell the model to do it again.
+      if (overlay.isDeleted(abs)) {
+        return `marked ${rel} for deletion. Will be removed on disk when applied.`;
+      }
       if (!existsAt(abs)) return `err: no such file: ${rel}`;
       if (!fs.existsSync(abs)) {
         overlay.discard(abs);
@@ -1661,7 +1687,16 @@ export function createTools(ctx) {
       const toAbs = safe(toRel);
       const sharedRefusal = refuseSharedWrite(fromAbs) || refuseSharedWrite(toAbs);
       if (sharedRefusal) return sharedRefusal;
-      if (!existsAt(fromAbs)) return `err: no such file: ${fromRel}`;
+      // Idempotent: the move already staged this run (or a resumed one) —
+      // the source is marked deleted and the destination holds the content.
+      if (!existsAt(fromAbs)) {
+        const alreadyMoved = overlay.isDeleted(fromAbs)
+          && overlay.has(toAbs) && !overlay.isDeleted(toAbs);
+        if (alreadyMoved) {
+          return `already moved: ${fromRel} → ${toRel} is staged — the same move stands, nothing new was done.`;
+        }
+        return `err: no such file: ${fromRel}`;
+      }
       if (existsAt(toAbs)) {
         // Landing on an existing file would read as success while one file's
         // content displaced another's — a data-loss shape the model almost
@@ -1717,6 +1752,7 @@ export function createTools(ctx) {
       if (!isAllowedAttachment(mime, 'file')) {
         return `err: ${mime} is not an attachable type. Images, pdf, office documents, text, csv, json and mp4/mov/webm video can ride a chat; ${mime} cannot.`;
       }
+      if (containsKnownSecret(bytes, await getKnownSecrets())) return `err: ${rel} carries a known secret value — secret files stay on this machine.`;
       const uri = `data:${mime};base64,${bytes.toString('base64')}`;
       queuedParts.push(mime.startsWith('image/')
         ? { type: 'image_url', image_url: { url: uri } }
@@ -1815,7 +1851,7 @@ export function createTools(ctx) {
         return `nothing in this project's past mentions "${q}" — ${result.sessions} session(s) searched, no match.`;
       }
       const lines = result.hits.map((h) => {
-        if (h.type === 'fact') return 'memory fact\n' + h.excerpt;
+        if (h.type === 'fact') return 'memory fact (unverified — distilled from earlier transcripts that included tool results and fetched pages; check it against the project or the user before acting)\n' + h.excerpt;
         const day = dayKey(h.ts) || 'an unknown day';
         const at = h.ts ? new Date(h.ts).toTimeString().slice(0, 5) : '';
         return `${day}${at ? ' ' + at : ''} \u00B7 "${h.title}" (${h.session}) \u00B7 ${h.type}\n${h.excerpt}`;

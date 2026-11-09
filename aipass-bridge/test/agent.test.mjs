@@ -222,6 +222,18 @@ test('an edit whose FIND text does not match is reported, not applied', async (t
   assert.equal(fs.readFileSync(path.join(dir, 'a.txt'), 'utf8'), 'hello');
 });
 
+test('a CREATE whose END never arrives stages nothing', async (t) => {
+  const dir = tempDir({ 'a.txt': 'hello' });
+  const ext = await new FakeExtension(bridge.base, {
+    onChat: scripted(['CREATE b.txt\nhalf a file, cut off mid-reply', 'DONE gave up']),
+  }).connect();
+  t.after(() => ext.disconnect());
+
+  const { out } = await agent(dir, ['--apply']);
+  assert.match(out, /never reached its END/, 'the refusal names the missing END');
+  assert.ok(!fs.existsSync(path.join(dir, 'b.txt')), 'the fragment was never staged');
+});
+
 test('refuses to touch anything outside the project root', async (t) => {
   const dir = tempDir({ 'a.txt': 'hello' });
   const ext = await new FakeExtension(bridge.base, {

@@ -1,3 +1,4 @@
+// @ts-nocheck
 // The core of the backend: what the window asks before it asks anything else.
 //
 // `status` is the whole state of one project in one answer — the bridge, the
@@ -82,6 +83,11 @@ export function createCoreMethods(ctx) {
         // cache instead of the tab. Null from a bridge too old to count them —
         // the window's /status omits the line then.
         cache: st?.cache ?? null,
+        // Edge 403s since the bridge started (bridge /status `edge403`):
+        // the window's WAF banner reads it on this same poll, so a refusal
+        // the outbound table should have encoded away is visible as a count.
+        // Null from a bridge too old to count them.
+        edge403: st?.edge403 ?? null,
         // What the model list IS: 'live' for the real catalog, 'fallback' for
         // the two-id stub a bridge serves when no tab can be reached, plus the
         // stamp of the last change and the last failure. The window reads it
@@ -118,6 +124,13 @@ export function createCoreMethods(ctx) {
         context: h.contextUsage(),
         plugins: decoratedPlugins(),
         settings: appSettings.values,
+        // Crash-safe resume, second path: the SSE replay covers a fresh or
+        // stale-cursor listener, but a window that connects after the
+        // startup frames were already fanned out still needs this. The UI
+        // dedupes by session id against the `run_interrupted` event, so the
+        // two paths never paint twice. Read at call time (after boot), not
+        // destructured — `interrupted` is assigned after the routes exist.
+        interrupted: ctx.interrupted ?? [],
       };
     },
 

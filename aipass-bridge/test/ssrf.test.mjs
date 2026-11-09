@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 
 process.env.AIPASS_PORT = '0'; // import starts the server; a random port collides with nothing
-const { isPrivateHost, hostResolvesPrivate, fetchRemoteAsDataUri, server } = await import('../bridge/server.mjs');
+const { isPrivateHost, hostResolvesPrivate, fetchRemoteAsDataUri, server, edge403, noteEdge403 } = await import('../bridge/server.mjs');
 const { pinnedGet, resolveVetted } = await import('../bridge/private-hosts.mjs');
 
 // The imported server holds the event loop open, which stalls the runner once
@@ -105,10 +105,15 @@ test('a redirect into a non-http scheme is refused', async () => {
 test('a name that resolves private is refused before anything is fetched', async () => {
   // `localhost.` — the trailing dot is the same name to the resolver and a
   // different one to the literal check, which is exactly the split the DNS
-  // pass exists to close.
+  // pass exists to close. The resolver is injected so the case does not
+  // depend on this machine's DNS (a sandbox without DNS answers
+  // "could not be resolved" for it instead).
   const transport = stub(() => new Response(null, { status: 200 }));
   try {
-    await fetchRemoteAsDataUri('http://localhost./x.png', 'image', { transport });
+    await fetchRemoteAsDataUri('http://localhost./x.png', 'image', {
+      transport,
+      resolve: async () => ({ addresses: [{ address: '127.0.0.1', family: 4 }], private: true }),
+    });
     assert.fail('a private-resolving name must be refused');
   } catch (err) {
     assert.match(err.message, /resolves to a private\/internal address/);
@@ -118,10 +123,15 @@ test('a name that resolves private is refused before anything is fetched', async
 
 test('a name that cannot be resolved is refused — an unvetted name is not fetched', async () => {
   // RFC 2606 reserves .invalid: it never resolves, so the guard cannot know
-  // where it points. Failing open here is what the rebinding attack needs.
+  // where it points. The resolver is injected throwing, so the case does
+  // not depend on this machine's DNS (a public resolver would answer the
+  // same, but a sandbox without DNS must not change the test's meaning).
   const transport = stub(() => new Response(null, { status: 200 }));
   try {
-    await fetchRemoteAsDataUri('http://public.invalid/x.png', 'image', { transport });
+    await fetchRemoteAsDataUri('http://public.invalid/x.png', 'image', {
+      transport,
+      resolve: async () => { throw new Error('ENOTFOUND'); },
+    });
     assert.fail('an unresolvable name must be refused');
   } catch (err) {
     assert.match(err.message, /could not be resolved/);
@@ -249,6 +259,17 @@ test('a name that could not be resolved is not remembered as one', async () => {
 // The announced size is enough to refuse on: a server that says it is
 // sending 50 MB is refused before a byte of it is read, so a hostile URL
 // cannot turn the bridge into a memory hose.
+test('the bridge counts edge 403s, and only edge 403s', () => {
+  const before = edge403.count;
+  assert.equal(noteEdge403({ kind: 'note', text: '[403] refused at the edge — waiting 15s' }), true, 'a [403] note is counted');
+  assert.equal(noteEdge403('aipass returned 403 Forbidden'), true, 'a returned-403 error is counted');
+  assert.equal(noteEdge403({ kind: 'content', text: '[403] is just prose here' }), false, 'a content delta is not an edge refusal');
+  assert.equal(noteEdge403({ kind: 'note', text: 'the edge is pacing sends' }), false, 'a pacing note is not a 403');
+  assert.equal(noteEdge403({ kind: 'note', text: '[429] rate limited' }), false, 'a rate note is not a 403');
+  assert.equal(edge403.count, before + 2, 'exactly the two edge refusals were counted');
+  assert.equal(typeof edge403.lastAt, 'number', 'and the last one is stamped');
+});
+
 test('a hostile content-length is refused before the body is read', async () => {
   const server = http.createServer((req, res) => {
     res.writeHead(200, { 'content-type': 'image/png', 'content-length': String(50 * 1024 * 1024) });

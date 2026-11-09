@@ -311,7 +311,10 @@ test('a projected tree carries no repository and git cannot write the real one',
     // The phrasing varies by git build — the CI runners say "gitfile does not
     // point to a valid repository" where this machine says "not a git
     // repository" — but either way the report must be that no repository exists.
-    const probe = await gitIn(sandbox, ['config', 'user.name', 'sandbox-probe']);
+    // --local: a bare 'git config' outside a repository would land in the
+    // global file instead of failing, and this box's global user.name
+    // would make the readback below answer ok rather than unset.
+    const probe = await gitIn(sandbox, ['config', '--local', 'user.name', 'sandbox-probe']);
     assert.equal(probe.ok, false, 'a git write in the projection must fail');
     assert.match(probe.out, /not a git repository|gitfile does not point to a valid repository/i, `git must report no repository, got: ${probe.out}`);
     const status = await gitIn(sandbox, ['status']);
@@ -324,7 +327,7 @@ test('a projected tree carries no repository and git cannot write the real one',
   // The real repository did not move: HEAD is byte-identical and the write
   // probe never landed in its config.
   assert.equal(fs.readFileSync(path.join(dir, '.git', 'HEAD'), 'utf8'), headBefore, 'HEAD is untouched');
-  const readback = await gitIn(dir, ['config', 'user.name']);
+  const readback = await gitIn(dir, ['config', '--local', 'user.name']);
   assert.equal(readback.ok, false, 'the probe write did not land in the real .git/config');
   assert.ok(!readback.out.includes('sandbox-probe'));
 });

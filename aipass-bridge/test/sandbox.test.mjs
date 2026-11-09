@@ -20,7 +20,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { Overlay } from '../harness/overlay.mjs';
 import { createTools } from '../harness/tools.mjs';
-import { createSandbox, materializeTree, sweepSandboxes, sandboxRoot, sharedWriteRefusal } from '../harness/sandbox.mjs';
+import { createSandbox, materializeTree, sweepSandboxes, sandboxRoot, sharedWriteRefusal, lockSharedDirs, unlockSharedDirs, auditSharedDirs } from '../harness/sandbox.mjs';
 import { scrubOutput, isSecretName } from '../harness/output-scrub.mjs';
 import { aipassHome } from '../harness/settings.mjs';
 
@@ -278,5 +278,136 @@ test('a file over the cap is left out of the projection, and named', async () =>
   } finally {
     if (previous === undefined) delete process.env.AIPASS_SANDBOX_MAX_FILE_MB;
     else process.env.AIPASS_SANDBOX_MAX_FILE_MB = previous;
+  }
+});
+
+/* --------------------------------------- shared-directory write protection */
+
+test('lockSharedDirs clears the write bits and unlock restores the exact modes', async () => {
+  const dir = tempDir({ 'a.txt': 'hello\n' });
+  fs.mkdirSync(path.join(dir, 'node_modules', 'dep'), { recursive: true });
+  const target = path.join(dir, 'node_modules', 'dep', 'index.js');
+  fs.writeFileSync(target, 'the real one\n');
+  const before = fs.statSync(target).mode & 0o777;
+  const lock = await lockSharedDirs(dir);
+  try {
+    const during = fs.statSync(target).mode & 0o777;
+    assert.equal(during & 0o222, 0, 'no write bit survives the lock');
+    assert.notEqual(during & 0o444, 0, 'reads still work');
+    const audit = await auditSharedDirs(dir, lock);
+    assert.deepEqual(audit, { changed: [], added: [], deleted: [] }, 'an untouched tree audits clean');
+  } finally {
+    await unlockSharedDirs(dir, lock);
+  }
+  assert.equal(fs.statSync(target).mode & 0o777, before, 'the mode the lock found is the mode it leaves');
+});
+
+test('a RUN cannot write into a shared directory — the real file keeps its bytes', async () => {
+  const dir = tempDir({ 'a.txt': 'hello\n' });
+  fs.mkdirSync(path.join(dir, 'node_modules', 'dep'), { recursive: true });
+  const target = path.join(dir, 'node_modules', 'dep', 'index.js');
+  fs.writeFileSync(target, 'the real one\n');
+  // Staging a.txt forces the projection world (node_modules is a junction
+  // into the real tree); the lock must hold across that junction.
+  const overlay = new Overlay(dir);
+  overlay.set(path.join(dir, 'a.txt'), 'changed\n');
+  const writer = path.join(dir, 'write-shared.mjs');
+  fs.writeFileSync(writer, [
+    "import fs from 'node:fs';",
+    `try { fs.writeFileSync(process.argv[2], 'hacked\\n'); console.log('wrote'); }`,
+    `catch (e) { console.log('blocked ' + e.code); }`,
+    '',
+  ].join('\n'));
+  const tools = createTools({ root: dir, overlay, allowRun: true });
+  const out = String(await tools.run('', `node "${writer}" "${target}"`));
+  assert.match(out, /blocked (EPERM|EACCES)/, 'the kernel refused the write');
+  assert.equal(fs.readFileSync(target, 'utf8'), 'the real one\n', 'the real tree is untouched');
+});
+
+test('a RUN that clears the read-only bits and writes is named by the audit', async () => {
+  const dir = tempDir({ 'a.txt': 'hello\n' });
+  fs.mkdirSync(path.join(dir, 'node_modules', 'dep'), { recursive: true });
+  const target = path.join(dir, 'node_modules', 'dep', 'index.js');
+  fs.writeFileSync(target, 'the real one\n');
+  const overlay = new Overlay(dir);
+  overlay.set(path.join(dir, 'a.txt'), 'changed\n');
+  // The deliberate escape: clear the bits, then write. The lock cannot stop
+  // a same-user command that insists — the audit must name it, loudly.
+  const writer = path.join(dir, 'write-shared.mjs');
+  fs.writeFileSync(writer, [
+    "import fs from 'node:fs';",
+    `fs.chmodSync(process.argv[2], 0o644);`,
+    `fs.writeFileSync(process.argv[2], 'hacked\\n');`,
+    `console.log('wrote');`,
+    '',
+  ].join('\n'));
+  const tools = createTools({ root: dir, overlay, allowRun: true });
+  const out = String(await tools.run('', `node "${writer}" "${target}"`));
+  assert.match(out, /err: the run changed a shared directory/, 'the audit answers err:');
+  assert.match(out, /node_modules\/dep\/index\.js/, 'and names the file');
+  assert.equal(fs.readFileSync(target, 'utf8'), 'hacked\n', 'the audit names it — it does not pretend to revert it');
+});
+
+/* -------------------------------------------------- traversal & symlink escape */
+
+test('a path with .. segments that leaves the project is refused', () => {
+  const dir = tempDir({ 'a.txt': 'hello\n' });
+  const overlay = new Overlay(dir);
+  for (const p of ['../outside.txt', 'sub/../../outside.txt', '..\\outside.txt', path.join(dir, '..', 'outside.txt').replace(/\\/g, '/')]) {
+    assert.throws(() => overlay.safe(p), /outside project root/, `${p} is refused`);
+  }
+  assert.doesNotThrow(() => overlay.safe('sub/inside.txt'));
+});
+
+test('a file link out of the project is a link out of the root', async (t) => {
+  const dir = tempDir({ 'inside.txt': 'mine\n' });
+  const outside = tempDir({ 'secret.txt': 'not yours\n' });
+  t.after(() => fs.rmSync(outside, { recursive: true, force: true }));
+  try {
+    fs.symlinkSync(path.join(outside, 'secret.txt'), path.join(dir, 'leak.txt'), 'file');
+  } catch (err) {
+    return t.skip(`links cannot be made here: ${err.code}`);
+  }
+  const tools = createTools({ root: dir, overlay: new Overlay(dir) });
+  await assert.rejects(
+    async () => tools.read('leak.txt'),
+    /outside project root/,
+    'a file link to outside is refused',
+  );
+});
+
+test('the projection leaves out a file link that points outside the project', async (t) => {
+  const dir = tempDir({ 'a.txt': 'hello\n' });
+  const outside = tempDir({ 'secret.txt': 'not yours\n' });
+  t.after(() => fs.rmSync(outside, { recursive: true, force: true }));
+  try {
+    fs.symlinkSync(path.join(outside, 'secret.txt'), path.join(dir, 'leak.txt'), 'file');
+  } catch (err) {
+    return t.skip(`links cannot be made here: ${err.code}`);
+  }
+  const overlay = new Overlay(dir);
+  const sandbox = createSandbox(dir);
+  try {
+    await materializeTree(dir, overlay, sandbox);
+    assert.equal(fs.existsSync(path.join(sandbox, 'leak.txt')), false, 'the outside file is not projected');
+    assert.equal(fs.existsSync(path.join(sandbox, 'a.txt')), true, 'and the project is');
+  } finally {
+    fs.rmSync(sandbox, { recursive: true, force: true });
+  }
+});
+
+test('a staged path outside the tree is not projected and writes nothing outside', async () => {
+  const dir = tempDir({ 'a.txt': 'hello\n' });
+  const outside = tempDir({ 'target.txt': 'original\n' });
+  const outsideFile = path.join(outside, 'target.txt');
+  const overlay = new Overlay(dir);
+  overlay.set(outsideFile, 'staged escape\n');
+  const sandbox = createSandbox(dir);
+  try {
+    await materializeTree(dir, overlay, sandbox);
+    assert.equal(fs.readFileSync(outsideFile, 'utf8'), 'original\n', 'nothing outside the tree was written');
+    assert.equal(fs.existsSync(path.join(sandbox, 'target.txt')), false, 'and nothing escaped into the sandbox either');
+  } finally {
+    fs.rmSync(sandbox, { recursive: true, force: true });
   }
 });

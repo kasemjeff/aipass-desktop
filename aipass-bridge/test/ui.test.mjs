@@ -252,6 +252,7 @@ async function bootApp(backend, { token = null, unauthorizedOnce = false } = {})
     }),
   };
   globalThis.EventSource = class {
+  static CONNECTING = 0; static OPEN = 1; static CLOSED = 2;
   constructor(url) { this.url = url; this.readyState = 1; this.handlers = {}; this.onerror = null; globalThis.__stream = this; }
   addEventListener(type, fn) { (this.handlers[type] ??= []).push(fn); }
   /** Fire an event the way the browser would. */
@@ -404,11 +405,13 @@ test('typing "/" opens the palette and filters it as you type', async (t) => {
 test('the window carries the loopback token on both transports', async () => {
   // SECURITY.md's claim: the window asks the backend it was served from for
   // the loopback token and attaches it everywhere a browser can — the
-  // EventSource as ?token=, /rpc as a bearer. The regression pinned here:
-  // /rpc went out bare, so a REQUIRED-auth backend 403ed every panel call.
+  // EventSource via the HttpOnly aipass_token cookie minted by /token, /rpc
+  // as a bearer. The token must never ride the /events URL: it would land
+  // in logs and proxy lines. The regression pinned here: /rpc went out
+  // bare, so a REQUIRED-auth backend 403ed every panel call.
   const { tick, shots, streamUrl } = await bootApp(BACKEND, { token: 'tok-123' });
   await tick();
-  assert.equal(streamUrl(), '/events?token=tok-123', 'the stream carries the token');
+  assert.equal(streamUrl(), '/events', 'the stream URL carries no token');
   assert.ok(
     shots.some((s) => s.url.endsWith('/rpc') && s.headers.authorization === 'Bearer tok-123'),
     'rpc carries the bearer'
@@ -1575,6 +1578,57 @@ test('a run with no chat tab gets a banner with a one-click fix', async () => {
   assert.ok(calls.includes('browser.open'), 'clicking it opens the tab');
 });
 
+test('a degraded tab offers a fallback provider instead of taking one', async () => {
+  const { node, tick } = await bootApp(BACKEND);
+  globalThis.__stream.emit('tab_degraded', { goneMinutes: 5, fallbackProvider: 'openai', switched: false });
+  await tick();
+  assert.match(node('log').textContent, /openai/, 'the fallback is named');
+  assert.match(node('log').textContent, /สลับด้วยตัวเลือก provider/, 'and switching is the person\'s click');
+  assert.doesNotMatch(node('log').textContent, /ย้ายไป provider/, 'the backend did not switch');
+  globalThis.__stream.emit('tab_degraded', { goneMinutes: 5, fallbackProvider: null });
+  await tick();
+  assert.match(node('log').textContent, /ไม่มี provider สำรอง/, 'with no fallback, the note says the run waits for the tab');
+});
+
+test('an older backend provider switch still paints its notice', async () => {
+  const { node, tick } = await bootApp(BACKEND);
+  globalThis.__stream.emit('provider_failover', { providerId: 'openai', reason: 'tab unreachable for 5 minutes' });
+  await tick();
+  assert.match(node('log').textContent, /provider openai/, 'the legacy notice is kept for older backends');
+});
+
+test('an interrupted run offers its session once, from event and snapshot alike', async () => {
+  const backend = {
+    ...BACKEND,
+    snapshot: () => ({
+      status: { root: '/tmp/proj', running: false, interrupted: [{ id: 's9', title: 'crashed work', entries: 4 }] },
+      session: { id: 's1', title: 'one' }, entries: [], pending: [], asks: {},
+    }),
+  };
+  const { node, tick } = await bootApp(backend);
+  globalThis.__stream.emit('run_interrupted', { id: 's9', title: 'crashed work', entries: 4 });
+  await tick();
+  globalThis.__stream.emit('open', {});
+  await tick();
+  const bars = node('log').children.filter((c) => /run-interrupted/.test(c.className ?? ''));
+  assert.equal(bars.length, 1, 'the event and the snapshot paint one banner, not two');
+  assert.match(node('log').textContent, /crashed work/, 'and it names the run');
+});
+
+test('a 401-closed stream fetches a fresh token and reconnects', async () => {
+  const { node, tick, streamUrl } = await bootApp(BACKEND, { token: 'tok-old' });
+  const before = globalThis.__stream;
+  // A backend restart rotated the token: the stream goes terminal (CLOSED),
+  // which a browser never retries on its own.
+  before.readyState = 2;
+  assert.equal(typeof before.onerror, 'function', 'the proxy wired the error handler');
+  before.onerror();
+  await tick();
+  assert.equal(streamUrl(), '/events', 'the reconnect keeps the token-free URL');
+  assert.notEqual(globalThis.__stream, before, 'a fresh stream replaced the closed one');
+  assert.ok(globalThis.__stream.handlers['open']?.length >= 1, 'the window listeners rode over');
+});
+
 test('the window says it lost frames', async () => {
   // The backend's fan-out drops the oldest frames when a window stops reading
   // and counts what it dropped. A window that showed a run it did not fully
@@ -2098,7 +2152,9 @@ test('the memory page shows carried facts, and forget-all clears them', async ()
   assert.ok(page, 'the memory page is in the sheet');
   const walk = (n, out = []) => { out.push(n); for (const c of n.children ?? []) walk(c, out); return out; };
   const list = walk(page).find((n) => n.id === 'memory');
-  assert.equal(list.children.length, 2, 'both facts are listed');
+  // The unverified-framing note plus one row per fact.
+  assert.equal(list.children.length, 3, 'both facts are listed');
+  assert.match(list.textContent, /ยังไม่ได้ตรวจสอบ/, 'the list says the facts are unverified');
   assert.match(walk(page).find((n) => n.id === 'memory-head').textContent, /\(2\)/, 'the header counts them');
 
   walk(page).find((n) => n.id === 'memory-clear').dispatch('click');
@@ -2106,6 +2162,43 @@ test('the memory page shows carried facts, and forget-all clears them', async ()
   assert.ok(calls.includes('memory.clear'), 'forget-all reaches the backend');
   assert.equal(list.children.length, 1, 'the panel re-renders empty');
   assert.match(list.textContent, /ยังไม่มี/, 'and says so instead of going blank');
+});
+
+test('a memory clear that cannot land says so, instead of announcing a forgetting', async () => {
+  // clearMemory can fail (the store file will not go), and saveMemory merges
+  // with the disk copy — so a silent failure would resurrect the facts on
+  // the next save. The RPC answers { ok: false } and both surfaces say the
+  // clear did not land.
+  const { node, tick } = await bootApp({
+    ...BACKEND,
+    'memory.clear': () => ({ ok: false }),
+  });
+  const task = node('task');
+  task.value = '/memory clear';
+  task.dispatch('keydown', { key: 'Enter' });
+  await tick(); await tick();
+  assert.match(node('log').textContent, /ล้างไม่สำเร็จ/, 'the command says the clear did not land');
+  assert.doesNotMatch(node('log').textContent, /ลืม facts ข้าม session ทั้งหมดแล้ว/, 'and does not claim success');
+});
+
+test('/memory forget removes one fact, and says when it cannot', async () => {
+  let ok = true;
+  const forgotten = [];
+  const { node, tick } = await bootApp({
+    ...BACKEND,
+    'memory.forget': (params) => { forgotten.push(params.fact); return { ok }; },
+  });
+  const task = node('task');
+  task.value = '/memory forget ชอบ indent ด้วยสเปซ';
+  task.dispatch('keydown', { key: 'Enter' });
+  await tick(); await tick();
+  assert.deepEqual(forgotten, ['ชอบ indent ด้วยสเปซ'], 'the one fact rides the call');
+  assert.match(node('log').textContent, /ลบบันทึกนั้นทิ้งแล้ว/, 'and the window says it went');
+  ok = false;
+  task.value = '/memory forget อื่น';
+  task.dispatch('keydown', { key: 'Enter' });
+  await tick(); await tick();
+  assert.match(node('log').textContent, /ลบไม่ได้/, 'and a removal that cannot land says so');
 });
 
 test('the goal page shows the objective and moves it without a model turn', async () => {
@@ -2275,18 +2368,29 @@ test('the effort level is picked in the composer, not buried in settings', async
   assert.equal(/thinking level/.test(node('modal-body').textContent), false, 'the sheet does not ask for the effort anymore');
 });
 
-test('temperature lives in the settings sheet, not beside the composer', async () => {
-  // The temperature chip used to sit beside the effort chip on the theory that
-  // both ride the next message. They do not age the same: effort is a
-  // per-message judgement call, temperature a rarely-touched model parameter,
-  // and a knob nobody turns has no business in the row read on every message.
-  // The sheet's คุยกับโมเดล page owns it now, and the window itself stopped
-  // wiring #temperature — a stray change event reaches nothing.
+test('temperature lives in the run-options popover, and in the settings sheet', async () => {
+  // Provider, effort and temp ride the next message but are not read on
+  // every one, so they share one popover ("ตัวเลือกการรัน") instead of
+  // three chips in the row — the model and the send button stay visible
+  // always. The sheet's คุยกับโมเดล page still carries temp as a saved
+  // row; both surfaces write the same settings key.
   const { node, sent, tick } = await bootApp(BACKEND);
+  assert.equal(node('temperature').value, 'default', 'a saved null boots at default in the popover');
   node('temperature').value = '0.7';
   node('temperature').dispatch('change');
   await tick();
-  assert.equal(sent.filter((c) => c.method === 'settings.set').length, 0, 'the composer no longer writes temperature');
+  assert.deepEqual(sent.filter((c) => c.method === 'settings.set').at(-1)?.params, { temperature: 0.7 }, 'the popover writes temperature as a number');
+  // The popover is a popover: the button toggles it, and says which way it
+  // went. (The fake DOM creates nodes on demand, so the HTML's own `hidden`
+  // class is not the starting state here — the toggle is the contract.)
+  const wasHidden = node('run-options').classList.contains('hidden');
+  node('run-options-btn').dispatch('click');
+  await tick();
+  assert.equal(node('run-options').classList.contains('hidden'), !wasHidden, 'the button toggles the popover');
+  assert.equal(node('run-options-btn').getAttribute('aria-expanded'), String(node('run-options').classList.contains('hidden') === false), 'and says which way it went');
+  node('run-options-btn').dispatch('click');
+  await tick();
+  assert.equal(node('run-options').classList.contains('hidden'), wasHidden, 'and toggles back');
 
   node('settings-btn').dispatch('click');
   await tick(); await tick(); await tick();
@@ -2314,6 +2418,26 @@ test('temperature lives in the settings sheet, not beside the composer', async (
   await tick(); await tick();
   const savedTemperature = sent.filter((c) => c.method === 'settings.set').at(-1)?.params?.temperature;
   assert.equal(savedTemperature, 0.7, 'the sheet writes temperature as a number');
+});
+
+test('the composer markup keeps model and send in the row, run options in the popover', () => {
+  // The fake DOM does not parse index.html, so the popover's shape is read
+  // from the file itself — the same way the guard test reads the window's
+  // sources. Provider/effort/temp live together behind the button; model
+  // and send stay in the row that is always visible.
+  const html = fs.readFileSync(path.join(repo, 'desktop', 'ui', 'index.html'), 'utf8');
+  const row = html.slice(html.indexOf('class="composer-row"'), html.indexOf('id="run-options"'));
+  const pop = html.slice(html.indexOf('id="run-options"'), html.indexOf('class="composer-foot"'));
+  assert.match(row, /id="model"/, 'the model select is in the row');
+  assert.match(row, /id="send"/, 'and so is the send button');
+  assert.doesNotMatch(row, /id="provider"/, 'the provider is not in the row');
+  assert.doesNotMatch(row, /id="thinking"/, 'and neither is effort');
+  assert.match(row, /id="run-options-btn"[^>]*ตัวเลือกการรัน/, 'the popover button is in the row');
+  assert.match(pop, /id="provider"/, 'provider is in the popover');
+  assert.match(pop, /id="thinking"/, 'effort is in the popover');
+  assert.match(pop, /id="temperature"/, 'temp is in the popover');
+  assert.doesNotMatch(pop, /id="model"/, 'the model is not in the popover');
+  assert.doesNotMatch(pop, /id="send"/, 'and neither is send');
 });
 
 test('the saved settings land in the composer controls together', async () => {
@@ -3379,16 +3503,55 @@ test('repainting a plugin panel replaces its body instead of stacking copies', a
   const box = holder.children.find((c) => c.dataset.panel === 'notes');
   assert.ok(box, 'the panel is in the sheet');
   assert.equal(box.children.length, 2, 'one title row and one rendered body');
-  assert.match(box.children[1].innerHTML, /note one/);
+  assert.equal(box.children[1].tagName, 'IFRAME', 'the body is a sandboxed frame, not innerHTML in this document');
+  assert.equal(box.children[1].sandbox, 'allow-scripts', 'the frame may run its own scripts');
+  assert.match(box.children[1].srcdoc, /note one/, 'and the markup rides in srcdoc');
 
   note = 'note two';
   globalThis.__stream.emit('finished', { summary: '', stopReason: 'done', spent: 0, credits: null });
   await tick(); await tick(); await tick();
   assert.equal(box.children.length, 2, 'the repaint replaces the body, it does not add one');
-  assert.match(box.children[1].innerHTML, /note two/, 'and the body is the fresh render');
+  assert.match(box.children[1].srcdoc, /note two/, 'and the body is the fresh render');
 });
 
 /* ------------------------------------------------- the chrome */
+
+test('the theme colour pairs pass WCAG AA', () => {
+  // The window's text is read on --bg / --card / --side-bg in both themes;
+  // a pair under 4.5:1 is a reader squinting at the transcript. The pairs
+  // are computed from the CSS custom properties themselves (styles.css),
+  // not from a copy of the hex values, so a palette edit that breaks AA
+  // fails here instead of shipping.
+  const css = fs.readFileSync(path.join(repo, 'desktop', 'ui', 'styles.css'), 'utf8');
+  const block = (sel) => {
+    const at = css.indexOf(`${sel} {`);
+    assert.ok(at >= 0, `${sel} block exists`);
+    return css.slice(at, css.indexOf('}', at));
+  };
+  const vars = (txt) => {
+    const out = {};
+    for (const m of txt.matchAll(/--([\w-]+):\s*([^;]+);/g)) out[m[1]] = m[2].trim();
+    return out;
+  };
+  const lum = (hex) => {
+    const c = hex.trim().slice(1);
+    const v = [0, 2, 4].map((i) => parseInt(c.slice(i, i + 2), 16) / 255)
+      .map((s) => (s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4)));
+    return 0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2];
+  };
+  const ratio = (a, b) => {
+    const [l1, l2] = [lum(a), lum(b)].sort((x, y) => y - x);
+    return (l1 + 0.05) / (l2 + 0.05);
+  };
+  const pairs = [['fg', 'bg'], ['dim', 'bg'], ['fg', 'card'], ['dim', 'card'], ['fg', 'side-bg'], ['dim', 'side-bg'], ['accent', 'bg'], ['accent-on', 'accent-solid'], ['ok', 'bg'], ['bad', 'bg'], ['warn', 'bg']];
+  for (const [name, sel] of [['dark', ':root'], ['light', ':root[data-theme="light"]']]) {
+    const v = vars(block(sel));
+    for (const [fg, bg] of pairs) {
+      const r = ratio(v[fg], v[bg]);
+      assert.ok(r >= 4.5, `${name}: ${fg} on ${bg} is ${r.toFixed(2)}:1, under WCAG AA 4.5:1`);
+    }
+  }
+});
 
 test('the theme button flips the window and remembers', async () => {
   const { node, sent, tick } = await bootApp(BACKEND);
@@ -3811,8 +3974,10 @@ test('the shell update says the app will close, and an unsigned installer is ref
       },
     }),
     // What the backend answers for an unsigned installer: the refusal, and
-    // the reason in the app's own words.
-    'update.install': () => ({ ok: false, reason: 'the installer is not signed yet — the app does not replace itself with an unsigned installer' }),
+    // the reason in the app's own words — plus the manual address, so the
+    // refusal is a detour, not a dead end.
+    'update.install': () => ({ ok: false, reason: 'the installer is not signed yet — the app does not replace itself with an unsigned installer', manualUrl: 'https://example.test/releases/aipass-desktop-0.2.1-windows-x64-setup.exe' }),
+    'browser.open': () => ({ ok: true }),
   };
   const { node, calls, tick } = await bootApp(backend);
   await tick(); await tick();
@@ -3830,6 +3995,13 @@ test('the shell update says the app will close, and an unsigned installer is ref
     /ไม่ได้ติดตั้ง|not signed|ไม่สำเร็จ/,
     'and the refusal is on screen, not swallowed',
   );
+  const manual = node('log').children.find((c) => (c.className ?? '').includes('update-manual'));
+  assert.ok(manual, 'the refusal offers the manual download');
+  const dl = manual.children.find((c) => c.tagName === 'BUTTON' && /ดาวน์โหลด/.test(c.textContent));
+  assert.ok(dl, 'with a download button');
+  dl.dispatch('click');
+  await tick();
+  assert.ok(calls.includes('browser.open'), 'the button opens the artifact address');
 });
 
 test('the update check does not nag when there is nothing new', async () => {

@@ -73,11 +73,19 @@ export function normalizeOptions(options = {}) {
   // one run may collect before it is stopped as stalled.
   const repeatGuard = Boolean(sheet.repeatGuard);
   const repeatGuardMax = Number(sheet.repeatGuardMax) > 0 ? Math.floor(Number(sheet.repeatGuardMax)) : 4;
+  // Loop intelligence switches (harness/failure.mjs, verify-evidence.mjs,
+  // loop-state.mjs): all on by default, each with its own off-switch in the
+  // settings file. `!== false` keeps an unset key on, the same shape as
+  // `snapshot`/`instructions` in the harness defaults.
+  const dynamicBudget = sheet.dynamicBudget !== false;
+  const independentVerify = sheet.independentVerify !== false;
+  const loopStatePersist = sheet.loopStatePersist !== false;
   return {
     maxSteps, maxStepsWire, maxToolCalls, maxWallClockMs, maxCredits,
     model, thinking, temperature, useSlim, seedText, pluginTools,
     pluginSections, helperPresets,
     replyLanguage, langCheck, minThaiRatio, repeatGuard, repeatGuardMax,
+    dynamicBudget, independentVerify, loopStatePersist,
   };
 }
 

@@ -16,15 +16,15 @@ possible.
 
 ## Ask a question
 
-Use [GitHub Discussions](https://github.com/kasemjeff/TH-aipassport-desktop/discussions)
+Use [GitHub Discussions](https://github.com/kasemjeff/aipass-desktop/discussions)
 for setup questions, ideas and show-and-tell. Use the
-[bug report](https://github.com/kasemjeff/TH-aipassport-desktop/issues/new?template=bug_report.md)
+[bug report](https://github.com/kasemjeff/aipass-desktop/issues/new?template=bug_report.md)
 when something is actually broken; include the full `doctor` output.
 
 ## Report a security problem
 
 Do **not** open a public issue. Use
-[private vulnerability reporting](https://github.com/kasemjeff/TH-aipassport-desktop/security/advisories/new)
+[private vulnerability reporting](https://github.com/kasemjeff/aipass-desktop/security/advisories/new)
 and follow [SECURITY.md](./SECURITY.md).
 
 ## Report a conduct problem

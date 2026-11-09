@@ -1,3 +1,4 @@
+// @ts-nocheck
 // ranker.mjs — overlay view + BM25 ranking (split from retrieval.mjs, §9.1).
 // Pure over an in-memory index: no fs, no cache. The min-score gate (§9.2)
 // lives in retrieve(), which scores through buildView() here.

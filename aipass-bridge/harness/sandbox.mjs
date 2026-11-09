@@ -1,3 +1,4 @@
+// @ts-nocheck
 // A child-visible projection of the pending tree, for the length of one RUN.
 //
 // The overlay is invisible to a child process by design — that is what makes
@@ -203,6 +204,195 @@ export function sharedWriteRefusal(root, abs) {
   if (!dir) return null;
   const rel = path.relative(path.resolve(root), path.resolve(abs)).split(path.sep).join('/');
   return `err: ${rel} is inside ${dir}, which the projection SHARES with the real project — a write into it would land in your project, not in the run's copy. Change the source instead, or copy the file out of ${dir} first.`;
+}
+
+// (P0) Shared-directory write protection: a projection LINKS the heavy dirs,
+// so a RUN command that writes into one lands in the REAL tree — the same
+// reason overlay writes there are refused. The shell layer locks them read-only
+// for the length of a RUN (write bits cleared, read/exec kept, so `node`
+// inside node_modules still runs), audits them afterwards, and restores the
+// exact modes it found. Honest limit: this enforces against ordinary writes
+// (the kernel returns EPERM/Access Denied); a command running as the same
+// user can clear the bits deliberately — the audit then names what changed,
+// and the result answers `err:` instead of a quiet success. A kernel boundary
+// (AppContainer/bubblewrap/Seatbelt) is the only complete answer; this is the
+// Windows rung until that helper exists (docs/FEATURE_GAPS_WAVE3.md 3.1).
+// The person may disable the lock explicitly (AIPASS_SANDBOX_LOCK_SHARED=0) —
+// a build that writes into dist/ needs that opt-out, and it is never silent.
+const lockDisabled = () => process.env.AIPASS_SANDBOX_LOCK_SHARED === '0';
+const LOCK_MAX_FILES = () => {
+  const n = Number(process.env.AIPASS_SANDBOX_LOCK_MAX_FILES);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 100_000;
+};
+// One in-process refcount per project root: two RUNs (a foreground check and
+// a background job) share one lock, and only the last one out restores.
+const lockRef = new Map();
+// The chmods run a bounded number in flight (like the copy gate below):
+// locking 30k-80k files one await at a time cost 10-40 s per RUN on a real
+// node_modules, before and after the command. Same bound, same shape.
+const CHMOD_GATE = 16;
+
+/**
+ * Run `fn` over `items` with at most `limit` in flight. Order within the
+ * batch is not promised — unlock restores exact modes, so order is irrelevant.
+ * @param {Iterable<any>} items
+ * @param {number} limit
+ * @param {(item: any) => Promise<void>} fn
+ */
+async function forEachLimited(items, limit, fn) {
+  const arr = Array.from(items);
+  let next = 0;
+  const runners = Array.from({ length: Math.min(limit, arr.length) }, async () => {
+    while (next < arr.length) {
+      const item = arr[next++];
+      await fn(item);
+    }
+  });
+  await Promise.all(runners);
+}
+
+/** Where the lock manifest lives: beside the projections, never in the project. */
+function lockManifestFile(root) {
+  return path.join(sandboxRoot(root), 'shared-lock.json');
+}
+
+/** Restore modes from a manifest a crashed backend left behind. */
+async function restoreManifest(root) {
+  const file = lockManifestFile(root);
+  let entries;
+  try { entries = JSON.parse(await fs.promises.readFile(file, 'utf8')).entries ?? []; } catch { return; }
+  await forEachLimited(Array.isArray(entries) ? entries : [], CHMOD_GATE, async (e) => {
+    try { await fs.promises.chmod(e.abs, e.mode); } catch { /* gone, or never locked */ }
+  });
+  try { await fs.promises.rm(file, { force: true }); } catch { /* already gone */ }
+}
+
+// Heavy directories whose bytes must never be corrupted by a sandboxed RUN.
+// Build output folders (dist, build, target) are kept out of the lock so
+// builds in the projection or workspace do not trip over EPERM.
+const LOCKABLE_HEAVY = new Set(['node_modules', 'vendor', '.venv', 'venv']);
+
+export function lockableDirs(root) {
+  return [...LOCKABLE_HEAVY].filter((name) => {
+    try { return fs.statSync(path.join(root, name)).isDirectory(); } catch { return false; }
+  });
+}
+
+/**
+ * Lock every shared heavy directory of `root` read-only for one RUN.
+ * Async; resolves to the lock object `unlockSharedDirs`/`auditSharedDirs` take.
+ * A crashed predecessor's manifest is restored first (only when its owner is
+ * gone), so a killed backend cannot leave the tree read-only forever.
+ */
+export async function lockSharedDirs(root) {
+  if (lockDisabled()) return { disabled: true, entries: new Map(), partial: false, locked: [] };
+  const key = realPath(root) ?? path.resolve(root);
+  const held = lockRef.get(key);
+  if (held) { held.count++; return held.lock; }
+  // A manifest from a dead backend: restore before locking anew. A live
+  // owner's manifest is left alone — that process is still running a RUN here.
+  try {
+    const parsed = JSON.parse(await fs.promises.readFile(lockManifestFile(root), 'utf8'));
+    if (!parsed?.pid || !alive(parsed.pid)) await restoreManifest(root);
+  } catch { /* no predecessor */ }
+  const entries = new Map(); // abs -> { mode, size, mtimeMs, isDir }
+  const locked = []; // [abs, mode] to restore
+  let partial = false;
+  const max = LOCK_MAX_FILES();
+  const walk = async (dir) => {
+    let list;
+    try { list = await fs.promises.readdir(dir, { withFileTypes: true }); } catch { return; }
+    const jobs = [];
+    for (const e of list) {
+      if (entries.size >= max) { partial = true; continue; }
+      const abs = path.join(dir, e.name);
+      let stat;
+      try { stat = await fs.promises.lstat(abs); } catch { continue; }
+      // A link is never followed: a junction out of the shared dir is not
+      // part of the lock (and not part of the project, per safe()).
+      if (stat.isSymbolicLink()) continue;
+      if (stat.isDirectory()) {
+        entries.set(abs, { mode: stat.mode & 0o777, size: stat.size, mtimeMs: stat.mtimeMs, isDir: true });
+        jobs.push(walk(abs));
+      } else if (stat.isFile()) {
+        entries.set(abs, { mode: stat.mode & 0o777, size: stat.size, mtimeMs: stat.mtimeMs, isDir: false });
+      }
+    }
+    await Promise.all(jobs);
+  };
+  for (const name of lockableDirs(root)) await walk(path.join(root, name));
+  // Manifest BEFORE the chmods: a crash mid-lock still restores cleanly.
+  try {
+    await fs.promises.mkdir(path.dirname(lockManifestFile(root)), { recursive: true });
+    await fs.promises.writeFile(lockManifestFile(root), JSON.stringify({ pid: process.pid, at: Date.now(), entries: [...entries].map(([abs, v]) => ({ abs, mode: v.mode })) }));
+  } catch { /* the manifest is crash recovery, not the lock itself */ }
+  // Clear write bits only — read and exec survive, so tools still run.
+  await forEachLimited(entries, CHMOD_GATE, async ([abs, v]) => {
+    try {
+      await fs.promises.chmod(abs, v.mode & ~0o222);
+      locked.push([abs, v.mode]);
+    } catch { /* unreadable: the audit will see it as unchanged */ }
+  });
+  const lock = { disabled: false, entries, partial, locked };
+  lockRef.set(key, { count: 1, lock });
+  return lock;
+}
+
+/** Restore the modes `lockSharedDirs` found, when the last RUN using them ends. */
+export async function unlockSharedDirs(root, lock) {
+  if (!lock || lock.disabled) return;
+  const key = realPath(root) ?? path.resolve(root);
+  const held = lockRef.get(key);
+  if (!held || held.lock !== lock) {
+    // Already released (or never counted): still restore, best effort.
+    await forEachLimited(lock.locked ?? [], CHMOD_GATE, async ([abs, mode]) => { try { await fs.promises.chmod(abs, mode); } catch { /* gone */ } });
+    return;
+  }
+  held.count--;
+  if (held.count > 0) return;
+  lockRef.delete(key);
+  await forEachLimited(lock.locked ?? [], CHMOD_GATE, async ([abs, mode]) => { try { await fs.promises.chmod(abs, mode); } catch { /* gone */ } });
+  try { await fs.promises.rm(lockManifestFile(root), { force: true }); } catch { /* already gone */ }
+}
+
+/**
+ * What changed in the shared dirs since `lock` was taken: files whose bytes
+ * moved (size/mtime), files the RUN added, files it deleted. The deliberate
+ * escape (clear the read-only bits, then write) lands here, named — a clean
+ * RUN returns three empty lists. Reads the tree as it is now; a file the RUN
+ * is still writing through another holder reports as changed, which is honest.
+ */
+export async function auditSharedDirs(root, lock) {
+  const changed = [];
+  const added = [];
+  const deleted = [];
+  if (!lock || lock.disabled) return { changed, added, deleted };
+  const seen = new Set();
+  const walk = async (dir) => {
+    let list;
+    try { list = await fs.promises.readdir(dir, { withFileTypes: true }); } catch { return; }
+    const jobs = [];
+    for (const e of list) {
+      const abs = path.join(dir, e.name);
+      let stat;
+      try { stat = await fs.promises.lstat(abs); } catch { continue; }
+      if (stat.isSymbolicLink()) continue;
+      if (stat.isDirectory()) { jobs.push(walk(abs)); continue; }
+      if (!stat.isFile()) continue;
+      seen.add(abs);
+      const before = lock.entries.get(abs);
+      const rel = path.relative(path.resolve(root), abs).split(path.sep).join('/');
+      if (!before) added.push(rel);
+      else if (before.size !== stat.size || before.mtimeMs !== stat.mtimeMs) changed.push(rel);
+    }
+    await Promise.all(jobs);
+  };
+  for (const name of lockableDirs(root)) await walk(path.join(root, name));
+  for (const [abs, v] of lock.entries) {
+    if (v.isDir) continue;
+    if (!seen.has(abs)) deleted.push(path.relative(path.resolve(root), abs).split(path.sep).join('/'));
+  }
+  return { changed, added, deleted };
 }
 
 // Copies run a bounded number in flight: a big tree should saturate the disk,

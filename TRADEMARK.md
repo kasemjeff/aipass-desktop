@@ -15,7 +15,7 @@ tab. That is an interoperability choice, not a claim of endorsement.
 - **AiPASS**, **aipass** and the AiPASS logos are names/marks of their
   respective owner.
 - This repository uses the name **aipass** and the repository name
-  **TH-aipassport-desktop** only to identify the software and the service it
+  **aipass-desktop** only to identify the software and the service it
   interoperates with. That is nominative use, not a trademark licence.
 - The MIT License in [LICENSE](./LICENSE) covers the code. It does **not**
   grant permission to use the AiPASS name, logo or other brand assets, or to

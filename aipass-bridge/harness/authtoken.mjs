@@ -158,16 +158,36 @@ export function authHeadersFor(url, home) {
   return { authorization: `Bearer ${loadOrMintToken(home)}` };
 }
 
-/** Constant-time bearer check against the active token.
+/** Constant-time check against the active token. Accepts the bearer header
+ *  (fetch/rpc) or the `aipass_token` cookie (EventSource): the cookie is
+ *  HttpOnly and same-origin, so the token never rides a URL or a log line.
  * @param {import('node:http').IncomingMessage} req @param {string} [home] */
 export function authorized(req, home) {
   if (!authRequired()) return true;
+  const want = /** @type {Buffer} */ (Buffer.from(loadOrMintToken(home)));
+  const match = (/** @type {string|undefined} */ v) => {
+    const got = Buffer.from(String(v ?? '').trim());
+    return got.length === want.length && crypto.timingSafeEqual(got, want);
+  };
   const header = String(req.headers.authorization ?? '');
   const m = /^Bearer (.+)$/.exec(header);
-  if (!m) return false;
-  const want = Buffer.from(loadOrMintToken(home));
-  const got = Buffer.from(m[1].trim());
-  return got.length === want.length && crypto.timingSafeEqual(got, want);
+  if (m && match(m[1])) return true;
+  const cookies = String(req.headers.cookie ?? '');
+  for (const part of cookies.split(';')) {
+    const [k, ...rest] = part.split('=');
+    if (k?.trim() !== 'aipass_token') continue;
+    const raw = rest.join('=');
+    // `/token` mints the cookie `encodeURI-friendly`: a token with special
+    // characters (e.g. a hand-set AIPASS_TOKEN with `+`/`/`/`=`) rides as
+    // percent-encoding. Accept both spellings — the encoded one the browser
+    // sends back, and the raw one tools send in tests — instead of 401ing
+    // a valid token; the comparison stays constant-time either way.
+    if (match(raw)) return true;
+    let decoded = raw;
+    try { decoded = decodeURIComponent(raw); } catch { /* not encoded — raw already tried */ }
+    if (match(decoded)) return true;
+  }
+  return false;
 }
 
 /** Query-string variant for transports that cannot set headers (EventSource).

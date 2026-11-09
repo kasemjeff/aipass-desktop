@@ -1,3 +1,4 @@
+// @ts-nocheck
 // The facade: one object that owns a run.
 //
 // A CLI, the desktop UI and the tests all talk to this — never to the loop
@@ -15,10 +16,11 @@ import { BridgeClient, DEFAULT_BRIDGE_URL } from './bridge.mjs';
 import { createTools } from './tools.mjs';
 import { createLanguageServers } from './lsp.mjs';
 import { PermissionEngine } from './permissions.mjs';
-import { SessionStore } from './session.mjs';
+import { SessionStore, writeRunningMarker, clearRunningMarker, titleFromFirstLine, isDefaultTitle } from './session.mjs';
+import { loadOverlayState, restoreOverlayState, clearOverlayState } from './overlay-persist.mjs';
 import { Compactor, DEFAULT_MODEL_BUDGETS } from './compact.mjs';
 import { checkModel } from './run/preflight.mjs';
-import { loadMemory, saveMemory, clearMemory, carryFacts } from './memory-store.mjs';
+import { loadMemory, saveMemory, clearMemory, forgetMemory, carryFacts, FACTS_UNVERIFIED } from './memory-store.mjs';
 import { McpManager } from './mcp.mjs';
 import { runTask, applyOverlay, resolveHelperPreset } from './loop.mjs';
 import { buildPreambleFor, seedBudgetChars, mergeCrossMemory } from './context-sources.mjs';
@@ -192,7 +194,7 @@ export class Harness {
     this.#crossSessionMemory = loadMemory(this.root);
     this.events.on('compacted', ({ memory }) => {
       if (Array.isArray(memory) && memory.length) {
-        try { this.#crossSessionMemory = saveMemory(this.root, [...this.#crossSessionMemory, ...memory]); } catch { /* best effort */ }
+        try { this.#crossSessionMemory = saveMemory(this.root, [...this.#crossSessionMemory, ...memory], undefined, { onError: (err) => this.events.emit('note', { text: `บันทึกความจำข้าม session ไม่ได้: ${err?.message ?? err}` }) }); } catch { /* best effort */ }
       }
     });
     this.running = false;
@@ -347,6 +349,23 @@ export class Harness {
       this.#conversationBoundTo = null;
     }
     this.events.emit('session', { id: this.session.id, title: this.session.title, file: this.session.file });
+    // (resume) Staged edits a dead run left behind (harness/overlay-
+    // persist.mjs): opening the session restores them, so an apply shows
+    // the work the crash interrupted. Never over fresh work — a non-empty
+    // overlay means the window is mid-run in this project already.
+    if (this.overlay && this.overlay.size === 0) {
+      const snap = loadOverlayState(this.session.file, { root: this.root });
+      if (snap && snap.entries.length) {
+        const landed = restoreOverlayState(this.overlay, snap);
+        if (landed.files) {
+          this.events.emit('note', { text: `restored ${landed.files} staged edit(s) from the interrupted run — apply or discard them` });
+          this.events.emit('diff_update', { changes: this.pendingChanges() });
+        }
+        if (landed.skipped.length) {
+          this.events.emit('note', { text: `overlay restore skipped ${landed.skipped.length} path(s) that are no longer inside the project: ${landed.skipped.slice(0, 5).join(', ')}` });
+        }
+      }
+    }
     return this.session;
   }
 
@@ -618,7 +637,7 @@ export class Harness {
     this.events.emit('compacted', { summary });
     // Persist the merged facts across sessions (cross-session memory).
     if (memory.length) {
-      try { this.#crossSessionMemory = saveMemory(this.root, [...this.#crossSessionMemory, ...memory]); } catch { /* best effort */ }
+      try { this.#crossSessionMemory = saveMemory(this.root, [...this.#crossSessionMemory, ...memory], undefined, { onError: (err) => this.events.emit('note', { text: `บันทึกความจำข้าม session ไม่ได้: ${err?.message ?? err}` }) }); } catch { /* best effort */ }
     }
     // The staged list rides along (deletes marked): a rotation is where a
     // pending edit gets forgotten, and the fresh conversation must know the
@@ -670,7 +689,7 @@ export class Harness {
     const s = String(summary ?? '').trim() || null;
     this.#pendingSummary = s ? { summary: s, memory: Array.isArray(memory) ? memory : [] } : null;
     if (s && Array.isArray(memory) && memory.length) {
-      try { this.#crossSessionMemory = saveMemory(this.root, [...this.#crossSessionMemory, ...memory]); } catch { /* best effort */ }
+      try { this.#crossSessionMemory = saveMemory(this.root, [...this.#crossSessionMemory, ...memory], undefined, { onError: (err) => this.events.emit('note', { text: `บันทึกความจำข้าม session ไม่ได้: ${err?.message ?? err}` }) }); } catch { /* best effort */ }
     }
     return s;
   }
@@ -699,7 +718,7 @@ export class Harness {
       ...(signal ? { signal } : {}),
     });
     if (Array.isArray(facts) && facts.length) {
-      try { this.#crossSessionMemory = saveMemory(this.root, [...this.#crossSessionMemory, ...facts]); } catch { /* best effort */ }
+      try { this.#crossSessionMemory = saveMemory(this.root, [...this.#crossSessionMemory, ...facts], undefined, { onError: (err) => this.events.emit('note', { text: `บันทึกความจำข้าม session ไม่ได้: ${err?.message ?? err}` }) }); } catch { /* best effort */ }
       this.events.emit('note', { text: `captured ${facts.length} durable fact(s) from this finished run into cross-session memory` });
     }
     return Array.isArray(facts) ? facts : [];
@@ -777,6 +796,11 @@ export class Harness {
       this.#warnSpillOnce();
       if (!this.session) await this.startSession();
       const runSession = this.session;
+      // (crash-safe) A run in flight gets a `.running` marker beside its
+      // session file, cleared when the run ends. If the process dies
+      // mid-run the marker is what the next boot finds and reports — an
+      // in-memory flag cannot survive the death it is meant to report.
+      writeRunningMarker(runSession);
       const settled = new Set();
 
       // (preflight) Catalog check before anything that costs a model call or
@@ -860,8 +884,12 @@ export class Harness {
       const carried = (!preflightGone && isFirst && this.#crossSessionMemory.length)
         ? carryFacts(this.#crossSessionMemory, task)
         : [];
+      // The carried facts are unverified by construction (memory-store
+      // FACTS_UNVERIFIED): the frame travels with them, so a first
+      // message never hands a recycled line the authority of the task
+      // itself — the task follows, plain, after the frame.
       const effectiveTask = carried.length
-        ? `Facts carried from earlier sessions (durable; re-check anything that may have gone stale):\n${carried.map((f) => '- ' + f).join('\n')}\n\nTask: ${task}`
+        ? `Facts carried from earlier sessions. ${FACTS_UNVERIFIED}\n${carried.map((f) => '- ' + f).join('\n')}\n\nTask: ${task}`
         : task;
 
       // One checker for this run: the DONE gate and a VERIFY ask the SAME
@@ -945,6 +973,24 @@ export class Harness {
         if (result?.stopReason === 'done' && !preflightGone) {
           try { await this.#captureMemory(task, runSession, { signal: this.abort.signal }); } catch { /* best effort */ }
         }
+        // Name the session from its first message, now that the first turn
+        // has ended. Only a title `create()` minted (the time) is replaced —
+        // a title a person gave, or one already taken from a first line,
+        // stands. The mint is known by flag, not by shape alone: a person
+        // who chose a title that happens to look like the timestamp keeps
+        // it (`titleAuto: false` at creation and on every rename; sessions
+        // from before the flag fall back to the shape check). Best effort:
+        // a naming failure never un-finishes the run.
+        if (isFirst && runSession && runSession.header.titleAuto !== false && isDefaultTitle(runSession.title)) {
+          const auto = titleFromFirstLine(task);
+          if (auto) {
+            try {
+              this.store.rename(runSession.id, auto, { root: this.root });
+              runSession.header.title = auto;
+              runSession.header.titleAuto = false;
+            } catch { /* the timestamp title stays */ }
+          }
+        }
         return result;
       } catch (e) {
         if (!loopSaidFinished) {
@@ -975,6 +1021,8 @@ export class Harness {
         // something else happened to flush them — and a power cut would take
         // the end of the conversation with it.
         try { runSession?.flush?.(); } catch { /* best effort */ }
+        // The run reported its ending — its marker has done its job.
+        clearRunningMarker(runSession);
       }
     } finally {
       // Every failure before the loop - a session that will not open, a
@@ -999,7 +1047,10 @@ export class Harness {
     for (let i = 1; i <= attempts; i++) {
       this.events.emit('note', { text: `scale: attempt ${i} of ${attempts}` });
       try {
-        const r = await this.run(task, opts);
+        // Each attempt is an intentional fresh run, not a crash resume: it
+        // must not restore the previous attempt's loop state (its `checks`
+        // budget would starve the checker, see loop-state.mjs).
+        const r = await this.run(task, { ...opts, retry: true });
         results.push({ attempt: i, summary: r.summary, stopReason: r.stopReason, steps: r.steps, check: r.check ?? null, changes: r.changes ?? [] });
         if (r.check?.verdict === 'pass') break;
       } catch (e) {
@@ -1021,18 +1072,47 @@ export class Harness {
   apply(files = null) {
     const result = applyOverlay(this.overlay, files, { session: this.session, events: this.events });
     this.overlay.clear();
+    // The work landed (or the subset of it did): the persisted staged state
+    // for this run is done — a later restore must not resurrect it.
+    clearOverlayState(this.session?.file);
     return result;
   }
 
   /** Cross-session memory facts (read-only copy). */
   crossSessionMemory() { return [...this.#crossSessionMemory]; }
+  /**
+   * Forget ONE cross-session fact for this project, and make it stick.
+   * The in-memory copy drops the fact only when the disk took the
+   * removal (forgetMemory's contract, same as the clear below): a
+   * removal that failed must not read as done. Returns false when the
+   * removal did not land, so the window can say so.
+   */
+  forgetCrossSessionMemory(fact) {
+    const ok = forgetMemory(this.root, fact);
+    if (ok) {
+      const norm = (s) => String(s).toLowerCase().replace(/\s+/g, ' ').trim();
+      const target = norm(fact);
+      this.#crossSessionMemory = this.#crossSessionMemory.filter((f) => norm(f) !== target);
+    }
+    return ok;
+  }
+
   /** Forget all cross-session facts for this project. */
-  clearCrossSessionMemory() { this.#crossSessionMemory = []; clearMemory(this.root); }
+  clearCrossSessionMemory() {
+    // Only forget in memory when the files actually went: saveMemory merges
+    // with the disk copy, so resetting here while the clear failed would
+    // resurrect the facts on the next save and call it a clear. The caller
+    // (memory.clear RPC) reports `false` so the window can say so.
+    const ok = clearMemory(this.root);
+    if (ok) this.#crossSessionMemory = [];
+    return ok;
+  }
 
   /** Drop everything pending without writing. */
   discard() {
     const n = this.overlay.size;
     this.overlay.clear();
+    clearOverlayState(this.session?.file);
     this.events.emit('discarded', { files: n });
     return n;
   }
@@ -1259,7 +1339,12 @@ export class Harness {
         const tailCap = Math.max(1, cap - headCap);
         out = `${out.slice(0, headCap)}\n… ${out.length - cap} more bytes on disk at ${rel} — read with: NEED file ${rel}\n${out.slice(-tailCap)}`;
       }
-      return out;
+      // (multi-agent budget) The helper's own usage rides back with its
+      // answer, so the parent's budget accounts for work it delegated:
+      // helper tool calls are spent against the parent's allowance, not
+      // free. The loop keeps previous string returns working (error
+      // strings above stay strings — those helpers spent nothing).
+      return { text: out, steps: result?.steps ?? 0, ms: helperMs };
     };
   }
 
@@ -1349,6 +1434,9 @@ export class Harness {
       const prompt = [
         `You are the checker: a read-only pass over work that is already staged for this project.`,
         taskText ? `The run was working on: ${String(taskText).slice(0, 500)}` : '',
+        Array.isArray(this.options?.acceptanceCriteria) && this.options.acceptanceCriteria.length
+          ? `The run's acceptance criteria (verify each against the tree you are looking at, and say plainly which you could not):\n${this.options.acceptanceCriteria.map((c, i) => `${i + 1}. ${String(c)}`).join('\n')}`
+          : '',
         `These pending edits are already applied in the tree you are looking at: ${label}.`,
         touchedTests.length
           ? `Note: this pending set includes test files: ${touchedTests.slice(0, 8).join(', ')}. Treat test edits as part of the change under review, and say plainly what you ran.`

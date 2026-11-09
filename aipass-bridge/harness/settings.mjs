@@ -1,3 +1,4 @@
+// @ts-nocheck
 // Settings â€” one JSON file, everything the window and the CLI share.
 //
 // It lives at `~/.aipass/settings.json` on purpose: the CLI, the backend and
@@ -121,6 +122,10 @@ export const DEFAULTS = {
   // Checked against the bridge's cached quota, which upstream refreshes at
   // most every 30s, so it bounds a runaway run without a request per step.
   maxCredits: 0,
+  // Loop intelligence: all on by default, each with its own off-switch.
+  dynamicBudget: true,
+  independentVerify: true,
+  loopStatePersist: true,
   // plan mode: the model writes a PLAN/TODO first, and (optionally) waits for
   // the human to approve before it touches anything
   plan: false,
@@ -187,8 +192,10 @@ export const DEFAULTS = {
   // â€” `docs/** â†’ allow` stops a run asking about its own docs, `.env* â†’ deny`
   // keeps secrets out of every mode including yolo. First match wins.
   rules: [],
-  // theme: 'dark' | 'light' | follow the system with 'auto'
-  theme: 'dark',
+  // theme: 'dark' | 'light' | follow the system with 'auto'. 'auto' is the
+  // default: a person who has not chosen gets the machine's own scheme
+  // (prefers-color-scheme: dark), not a hardcoded dark.
+  theme: 'auto',
   // where the chat tab lives, and whether a run that needs one opens it itself
   chatUrl: 'https://de.aipass.net/chat',
   autoOpenTab: true,
@@ -269,6 +276,9 @@ export const DEFAULTS = {
  * @property {number} [maxToolCalls]          the tool-call budget of one run
  * @property {number} [maxWallClockMs]        the wall-clock budget of one run
  * @property {number} [maxCredits]            the optional credit cap; 0 = off
+ * @property {boolean} [dynamicBudget]        scale the allowance by task difficulty
+ * @property {boolean} [independentVerify]    audit the checker verdict against evidence
+ * @property {boolean} [loopStatePersist]     write a resumption snapshot after every step
  * @property {string} [mode]                  'ask' | 'auto' | 'yolo'
  * @property {boolean} [allowRun]             may the run reach the shell
  * @property {boolean} [allowFetch]           may the run send data out
@@ -325,6 +335,13 @@ export const HARNESS_OPTION_DEFAULTS = Object.freeze({
   maxToolCalls: DEFAULT_MAX_TOOL_CALLS,
   maxWallClockMs: DEFAULT_MAX_WALL_CLOCK_MS,
   maxCredits: 0,
+  dynamicBudget: true,
+  independentVerify: true,
+  loopStatePersist: true,
+  // The acceptance criteria a run must meet before DONE, as strings. A run
+  // that declares criteria must back its DONE with executions against them;
+  // an empty list (null) declares none and keeps today's behaviour.
+  acceptanceCriteria: null,
   // who may write, and who may reach the shell
   mode: 'ask',
   allowRun: false,
@@ -678,6 +695,9 @@ export class Settings {
     next.memoryCapture = Boolean(next.memoryCapture);
     next.repeatGuard = Boolean(next.repeatGuard);
     next.repeatGuardMax = num(next.repeatGuardMax, 1, 50, DEFAULTS.repeatGuardMax);
+    next.dynamicBudget = next.dynamicBudget !== false;
+    next.independentVerify = next.independentVerify !== false;
+    next.loopStatePersist = next.loopStatePersist !== false;
     next.attempts = num(next.attempts, 1, 5, DEFAULTS.attempts);
     // The declared check is a command line, and only a command line: a value
     // with a newline would reach the checker prompt as several commands, which

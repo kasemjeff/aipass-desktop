@@ -1,3 +1,4 @@
+// @ts-nocheck
 // The harness, cut into six components.
 //
 // MemoHarness splits a harness into six dimensions and tunes them per case;

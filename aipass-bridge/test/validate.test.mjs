@@ -81,6 +81,26 @@ test('a missing body is refused before a tool can throw on it', () => {
   assert.equal(validateCall({ kind: 'plan', arg: '', body: '' }), null);
 });
 
+test('a CREATE or EDIT whose END never arrived stages nothing', () => {
+  // The parser flags the block unterminated when the reply ends (or the
+  // next block begins) before its END: the body is a fragment — possibly
+  // cut mid-file, possibly closed in lowercase — and staging it would
+  // write a file the model never finished sending.
+  assert.match(
+    validateCall({ kind: 'write', arg: 'notes.md', body: 'half a file', unterminated: true }),
+    /never reached its END — .*nothing was staged/,
+  );
+  assert.match(
+    validateCall({ kind: 'replace', arg: 'a.mjs', body: ['old', 'new'], unterminated: true }),
+    /never reached its END — .*nothing was staged/,
+  );
+  // A properly closed block carries no flag and passes as before. RUN is
+  // not a staging call, so an unclosed RUN is not gated here — its body
+  // is a command the permission gate already judges on its own.
+  assert.equal(validateCall({ kind: 'write', arg: 'notes.md', body: 'a whole file' }), null);
+  assert.equal(validateCall({ kind: 'replace', arg: 'a.mjs', body: ['old', 'new'] }), null);
+});
+
 test('plugin and MCP calls share the installed-table check', () => {
   const mcp = [{ marker: 'MCP__docs__search', takesBody: false, plugin: 'mcp' }];
   const runner = async () => 'ok';

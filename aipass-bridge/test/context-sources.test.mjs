@@ -39,20 +39,21 @@ test('the flag sheet names every flag the preamble reads', () => {
   assert.match(on, /RECALL what we decided about the login flow/);
   assert.match(on, /TREE src/);
   assert.match(on, /DIAGNOSE src\/foo\.ts/);
-  assert.match(on, /sandbox \(mode: workspace-write\)/);
+  assert.match(on, /sandbox mode workspace-write/);
+  assert.match(on, /Phase 1 has no OS-enforcing backend/, 'the preamble says the Phase 1 truth, not a sandbox claim');
   const off = preamble(preambleFlags({}));
   assert.doesNotMatch(off, /RETRIEVE where/);
-  assert.doesNotMatch(off, /sandbox \(mode:/);
+  assert.doesNotMatch(off, /sandbox mode/);
 });
 
 test('buildPreambleFor is the one door: retrieve and sandbox ride every caller', () => {
   const text = buildPreambleFor(ALL_ON);
   assert.match(text, /RETRIEVE where the login token is renewed/);
-  assert.match(text, /sandbox \(mode: workspace-write\)/);
+  assert.match(text, /sandbox mode workspace-write/);
   // Default-off sandbox adds no bytes at all (the tuned replay pins them).
   const off = buildPreambleFor({});
   assert.equal(off, buildPreambleFor({ sandbox: 'off' }));
-  assert.doesNotMatch(off, /sandbox \(mode:/);
+  assert.doesNotMatch(off, /sandbox mode/);
 });
 
 test('the turn-1 budget scales with the model budget and caps hard', () => {

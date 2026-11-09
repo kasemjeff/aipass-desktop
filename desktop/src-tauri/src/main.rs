@@ -27,6 +27,7 @@ use crate::backend::*;
 use crate::geometry::*;
 use crate::paths::*;
 use crate::processes::*;
+use crate::shared::lock;
 use crate::supervisor::*;
 use crate::window::*;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -81,7 +82,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             ));
             // The weak self-handle goes in before anything can ask a probe:
             // the deadline wrapper needs it to hand the ask to a thread.
-            *backend.self_handle.lock().unwrap() = Some(Arc::downgrade(&backend));
+            *lock(&backend.self_handle) = Some(Arc::downgrade(&backend));
             // Adopt a backend that is already answering (a browser `aipass
             // desktop`, say); otherwise start one. An adopted backend is not
             // ours to respawn — the supervisor's child stays None.
@@ -93,7 +94,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             // launcher asks, through the app's own Node.
             if backend.port_owner() != PortOwner::Ours {
                 match backend.spawn() {
-                    Ok(kid) => *backend.child.lock().unwrap() = Some(kid),
+                    Ok(kid) => *lock(&backend.child) = Some(kid),
                     Err(err) => {
                         // A failed spawn is death the person can see: a
                         // release build has no console to print a panic on,
@@ -178,7 +179,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let window = tauri::WebviewWindowBuilder::new(
                 app,
                 "main",
-                tauri::WebviewUrl::External(url.parse().unwrap()),
+                tauri::WebviewUrl::External(url.parse().expect("loopback URL built from a validated port")),
             )
             .title("aipass desktop")
             .theme(desktop_theme())
@@ -227,7 +228,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         let size = window_handle.inner_size().ok();
                         let position = window_handle.outer_position().ok();
                         if let (Some(size), Some(position)) = (size, position) {
-                            *geometry_handle.lock().unwrap() = Some(WindowGeometry {
+                            *lock(&geometry_handle) = Some(WindowGeometry {
                                 width: size.width,
                                 height: size.height,
                                 x: position.x,
@@ -240,7 +241,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         // The slow writer may not have woken yet: the last
                         // shape goes down with the window now, or the next
                         // start opens a window that forgot.
-                        if let Some(geometry) = geometry_handle.lock().unwrap().take() {
+                        if let Some(geometry) = lock(&geometry_handle).take() {
                             save_window_geometry_to(&aipass_home(), &geometry);
                         }
                         backend_handle.shutdown();
@@ -256,7 +257,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let pending = geometry_slot.clone();
                 std::thread::spawn(move || loop {
                     std::thread::sleep(Duration::from_millis(800));
-                    let Some(geometry) = pending.lock().unwrap().take() else { continue };
+                    let Some(geometry) = lock(&pending).take() else { continue };
                     save_window_geometry_to(&aipass_home(), &geometry);
                 });
             }
@@ -314,7 +315,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             // than showing a blank window forever. Its output — stderr
             // included, now that spawn() redirects both — is in the log.
             {
-                let mut guard = backend.child.lock().unwrap();
+                let mut guard = lock(&backend.child);
                 if let Some(ref mut kid) = *guard {
                     if let Ok(Some(status)) = kid.try_wait() {
                         return Err(format!(

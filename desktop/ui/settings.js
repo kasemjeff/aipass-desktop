@@ -385,7 +385,11 @@ const renderMemoryTab = async (/** @type {any} */ page, /** @type {any} */ sheet
     clear.id = 'memory-clear';
     clear.title = 'ลบ facts ที่จำไว้ข้าม session ทั้งหมด';
     clear.onclick = async () => {
-      await rpc('memory.clear').catch(() => {});
+      const res = await rpc('memory.clear').catch(() => null);
+      if (res?.ok === false) {
+        addCommandOut('ล้างไม่สำเร็จ — facts ยังอยู่บนดิสก์ ลองอีกครั้ง');
+        return;
+      }
       addCommandOut('ลืม facts ข้าม session ทั้งหมดแล้ว');
       await renderMemoryFacts(list, head);
     };
@@ -1275,7 +1279,7 @@ async function openSettings(pageId = null) {
   };
 
   const close = el('button', null, 'ปิด');
-  close.onclick = () => { hideModal(); applyTheme(state.settings?.theme ?? 'dark'); };
+  close.onclick = () => { hideModal(); applyTheme(state.settings?.theme ?? 'auto'); };
   actions.append(error, reset, close, save);
   openModal();
 

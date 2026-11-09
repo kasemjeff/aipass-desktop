@@ -25,6 +25,7 @@ desktop app, the CLI and the Chrome extension in this repository.
 | provider keys, if added | `~/.aipass/credentials.json` (owner-only) or the environment | call the provider you chose |
 | plugins and playbooks | `~/.aipass/` and the project's `.aipass/` | local extensions |
 | logs | `~/.aipass/logs/` (rotating, capped) | diagnose failures |
+| run state | `~/.aipass/run/` (`loop-state.json`, `shared-lock.json`, projections, worktrees) | crash-safe resume and isolated run copies; outside the project so it is never committed |
 | eval results | `evals/results/` (gitignored) | local benchmark runs |
 
 Nothing outside `~/.aipass/` and the project you point the agent at is

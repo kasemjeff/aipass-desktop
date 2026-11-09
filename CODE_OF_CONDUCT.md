@@ -61,7 +61,7 @@ appointed representative at an online or offline event.
 Instances of abusive, harassing, or otherwise unacceptable behavior may be
 reported to the maintainer, **@kasemjeff**, through GitHub. If you prefer not
 to use GitHub, open a private security advisory at
-<https://github.com/kasemjeff/TH-aipassport-desktop/security/advisories/new>
+<https://github.com/kasemjeff/aipass-desktop/security/advisories/new>
 and mark it "conduct report"; only the maintainer can read it.
 
 All complaints will be reviewed and investigated promptly and fairly. The

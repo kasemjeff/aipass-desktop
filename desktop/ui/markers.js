@@ -35,40 +35,40 @@ const FENCE_LINE = /^\s*(```|~~~)/;
 const SINGLE = [
   // `dir`/`list`/`ls` all mean the listing; `file` means a read. Mirrors
   // parse()'s alias branch.
-  { marker: 'NEED', re: /^\s*NEED\s+(dir|list|ls|file)\s+(.+?)\s*$/i, pick: (m) => ({ kind: m[1].toLowerCase() === 'file' ? 'read' : 'list', arg: m[2].trim() }) },
+  { marker: 'NEED', re: /^\s*NEED\s+(dir|list|ls|file)\s+(.+?)\s*$/, pick: (m) => ({ kind: m[1].toLowerCase() === 'file' ? 'read' : 'list', arg: m[2].trim() }) },
   // A bare listing word with the path forgotten — the project root.
-  { marker: 'NEED', re: /^\s*NEED\s+(?:dir|list|ls)\s*$/i, pick: () => ({ kind: 'list', arg: '.' }) },
+  { marker: 'NEED', re: /^\s*NEED\s+(?:dir|list|ls)\s*$/, pick: () => ({ kind: 'list', arg: '.' }) },
   // The bare file shape — `NEED events.mjs` — mirroring parse()'s fallback.
-  { marker: 'NEED', re: /^\s*NEED\s+([^\s]+(?: \d+-\d+)?)\s*$/i, pick: (m) => ({ kind: 'read', arg: m[1].trim() }) },
-  { marker: 'SEARCH', re: /^\s*SEARCH\s+(.+?)\s*$/i, pick: (m) => ({ kind: 'search', arg: m[1].trim() }) },
+  { marker: 'NEED', re: /^\s*NEED\s+([^\s]+(?: \d+-\d+)?)\s*$/, pick: (m) => ({ kind: 'read', arg: m[1].trim() }) },
+  { marker: 'SEARCH', re: /^\s*SEARCH\s+(.+?)\s*$/, pick: (m) => ({ kind: 'search', arg: m[1].trim() }) },
   // TREE is the shape of a folder; the path is optional (the project root).
-  { marker: 'TREE', re: /^\s*TREE\b\s*(.*?)\s*$/i, pick: (m) => ({ kind: 'tree', arg: m[1].trim() }) },
+  { marker: 'TREE', re: /^\s*TREE\b\s*(.*?)\s*$/, pick: (m) => ({ kind: 'tree', arg: m[1].trim() }) },
   // STAT is one path's metadata; the path is required, like DEF/REFS.
-  { marker: 'STAT', re: /^\s*STAT\s+(.+?)\s*$/i, pick: (m) => ({ kind: 'stat', arg: m[1].trim() }) },
-  { marker: 'GLOB', re: /^\s*GLOB\s+(.+?)\s*$/i, pick: (m) => ({ kind: 'glob', arg: m[1].trim() }) },
+  { marker: 'STAT', re: /^\s*STAT\s+(.+?)\s*$/, pick: (m) => ({ kind: 'stat', arg: m[1].trim() }) },
+  { marker: 'GLOB', re: /^\s*GLOB\s+(.+?)\s*$/, pick: (m) => ({ kind: 'glob', arg: m[1].trim() }) },
   // The code-navigation markers — mirrored from parse()'s rules, or the bubble
   // would show raw wire the moment a model used one.
-  { marker: 'SYMBOLS', re: /^\s*SYMBOLS\s+(.+?)\s*$/i, pick: (m) => ({ kind: 'symbols', arg: m[1].trim() }) },
-  { marker: 'DEF', re: /^\s*DEF\s+(.+?)\s*$/i, pick: (m) => ({ kind: 'def', arg: m[1].trim() }) },
-  { marker: 'REFS', re: /^\s*REFS\s+(.+?)\s*$/i, pick: (m) => ({ kind: 'refs', arg: m[1].trim() }) },
-  { marker: 'SKILL', re: /^\s*SKILL\s+(.+?)\s*$/i, pick: (m) => ({ kind: 'skill', arg: m[1].trim() }) },
-  { marker: 'GIT', re: /^\s*GIT\s+(.+?)\s*$/i, pick: (m) => ({ kind: 'git', arg: m[1].trim() }) },
+  { marker: 'SYMBOLS', re: /^\s*SYMBOLS\s+(.+?)\s*$/, pick: (m) => ({ kind: 'symbols', arg: m[1].trim() }) },
+  { marker: 'DEF', re: /^\s*DEF\s+(.+?)\s*$/, pick: (m) => ({ kind: 'def', arg: m[1].trim() }) },
+  { marker: 'REFS', re: /^\s*REFS\s+(.+?)\s*$/, pick: (m) => ({ kind: 'refs', arg: m[1].trim() }) },
+  { marker: 'SKILL', re: /^\s*SKILL\s+(.+?)\s*$/, pick: (m) => ({ kind: 'skill', arg: m[1].trim() }) },
+  { marker: 'GIT', re: /^\s*GIT\s+(.+?)\s*$/, pick: (m) => ({ kind: 'git', arg: m[1].trim() }) },
   // VERIFY — the model asks for the project's check. The command is optional,
   // so the shape is parse()'s: the keyword may stand alone.
-  { marker: 'VERIFY', re: /^\s*VERIFY\s*(.*?)\s*$/i, pick: (m) => ({ kind: 'verify', arg: m[1].trim() }) },
+  { marker: 'VERIFY', re: /^\s*VERIFY\s*(.*?)\s*$/, pick: (m) => ({ kind: 'verify', arg: m[1].trim() }) },
   // RECALL — the model asks what this project said before. The question is
   // required, so the shape is parse()'s: the keyword needs its argument.
-  { marker: 'RECALL', re: /^\s*RECALL\s+(.+?)\s*$/i, pick: (m) => ({ kind: 'recall', arg: m[1].trim() }) },
-  { marker: 'RETRIEVE', re: /^\s*RETRIEVE\s+(.+?)\s*$/i, pick: (m) => ({ kind: 'retrieve', arg: m[1].trim() }) },
-  { marker: 'DIAGNOSE', re: /^\s*DIAGNOSE\s+(.+?)\s*$/i, pick: (m) => ({ kind: 'diagnose', arg: m[1].trim() }) },
-  { marker: 'FETCH', re: /^\s*FETCH\s+(.+?)\s*$/i, pick: (m) => ({ kind: 'fetch', arg: m[1].trim() }) },
-  { marker: 'WEB', re: /^\s*WEB\s+(.+?)\s*$/i, pick: (m) => ({ kind: 'web', arg: m[1].trim() }) },
-  { marker: 'ATTACH', re: /^\s*ATTACH\s+(.+?)\s*$/i, pick: (m) => ({ kind: 'attach', arg: m[1].trim() }) },
-  { marker: 'DELETE', re: /^\s*DELETE\s+(.+?)\s*$/i, pick: (m) => ({ kind: 'delete', arg: m[1].trim() }) },
-  { marker: 'MOVE', re: /^\s*MOVE\s+(.+?)\s*$/i, pick: (m) => ({ kind: 'move', arg: m[1].trim() }) },
+  { marker: 'RECALL', re: /^\s*RECALL\s+(.+?)\s*$/, pick: (m) => ({ kind: 'recall', arg: m[1].trim() }) },
+  { marker: 'RETRIEVE', re: /^\s*RETRIEVE\s+(.+?)\s*$/, pick: (m) => ({ kind: 'retrieve', arg: m[1].trim() }) },
+  { marker: 'DIAGNOSE', re: /^\s*DIAGNOSE\s+(.+?)\s*$/, pick: (m) => ({ kind: 'diagnose', arg: m[1].trim() }) },
+  { marker: 'FETCH', re: /^\s*FETCH\s+(.+?)\s*$/, pick: (m) => ({ kind: 'fetch', arg: m[1].trim() }) },
+  { marker: 'WEB', re: /^\s*WEB\s+(.+?)\s*$/, pick: (m) => ({ kind: 'web', arg: m[1].trim() }) },
+  { marker: 'ATTACH', re: /^\s*ATTACH\s+(.+?)\s*$/, pick: (m) => ({ kind: 'attach', arg: m[1].trim() }) },
+  { marker: 'DELETE', re: /^\s*DELETE\s+(.+?)\s*$/, pick: (m) => ({ kind: 'delete', arg: m[1].trim() }) },
+  { marker: 'MOVE', re: /^\s*MOVE\s+(.+?)\s*$/, pick: (m) => ({ kind: 'move', arg: m[1].trim() }) },
   // GOAL — the model's word on the project's goal. Only DONE and BLOCKED are
   // actions, and the line is wire either way.
-  { marker: 'GOAL', re: /^\s*GOAL\s+(.+?)\s*$/i, pick: (m) => ({ kind: 'goal', arg: m[1].trim() }) },
+  { marker: 'GOAL', re: /^\s*GOAL\s+(.+?)\s*$/, pick: (m) => ({ kind: 'goal', arg: m[1].trim() }) },
 ];
 
 /**
@@ -82,21 +82,26 @@ const SINGLE = [
  */
 /** @type {Array<{marker: string, re: RegExp}>} */
 const WIRE_ONLY = [
-  { marker: 'FIND', re: /^\s*FIND\s*$/i },
-  { marker: 'NEW', re: /^\s*NEW\s*$/i },
-  { marker: 'END', re: /^\s*END\s*$/i },
-  { marker: 'TASK', re: /^\s*TASK\s*:/i },
+  { marker: 'FIND', re: /^\s*FIND\s*$/ },
+  { marker: 'NEW', re: /^\s*NEW\s*$/ },
+  { marker: 'END', re: /^\s*END\s*$/ },
+  { marker: 'TASK', re: /^\s*TASK\s*:/ },
   // A bare GOAL is a mangled call, not prose: the harness hides it too.
-  { marker: 'GOAL', re: /^\s*GOAL\s*$/i },
+  { marker: 'GOAL', re: /^\s*GOAL\s*$/ },
 ];
 
-const EDIT_LINE = /^\s*EDIT\s+(.+?)\s*$/i;
-const CREATE_LINE = /^\s*CREATE\s+(.+?)\s*$/i;
-const RUN_LINE = /^\s*RUN\s*$/i;
-const PLAN_LINE = /^\s*PLAN\s*$/i;
-const TODO_LINE = /^\s*TODO\s*$/i;
-const SUBAGENT_LINE = /^\s*SUBAGENT\s*$/i;
-const JOBS_LINE = /^\s*JOBS\s*$/i;
+const EDIT_LINE = /^\s*EDIT\s+(.+?)\s*$/;
+const CREATE_LINE = /^\s*CREATE\s+(.+?)\s*$/;
+const RUN_BG_LINE = /^\s*RUN\s+(?:bg|background)\s*$/;
+const RUN_LINE = /^\s*RUN\s*$/;
+const PLAN_LINE = /^\s*PLAN\s*$/;
+const TODO_LINE = /^\s*TODO\s*$/;
+const SUBAGENT_LINE = /^\s*SUBAGENT\s*$/;
+const JOBS_LINE = /^\s*JOBS\s*$/;
+// The line shapes that open a body-consuming block (protocol.mjs
+// BODY_OPENERS): a body that never reaches its exact END stops at the
+// next opener instead of borrowing its END, and is unterminated.
+const BODY_OPENERS = [EDIT_LINE, CREATE_LINE, RUN_BG_LINE, RUN_LINE, PLAN_LINE, TODO_LINE, SUBAGENT_LINE];
 
 // The block markers: a keyword, a body, and the line that ends it. Named here
 // so the exported keyword list below is the walk's own list.
@@ -104,10 +109,10 @@ const JOBS_LINE = /^\s*JOBS\s*$/i;
 const BLOCK_MARKERS = ['EDIT', 'CREATE', 'RUN', 'PLAN', 'TODO', 'SUBAGENT', 'JOBS'];
 // Mirrors parse()'s ASK tail: the keyword may carry a colon or a dash before
 // the question, and the question itself is required — a bare ASK is prose.
-const ASK_LINE = /^\s*ASK\b[:\s—–-]*(.+)$/i;
+const ASK_LINE = /^\s*ASK\b[:\s—–-]*(.+)$/;
 // Mirrors parse()'s DONE tail: a heading or emphasis wrapped around the word is
 // still a DONE, because the model reaches for "## DONE" the moment it formats.
-const DONE_LINE = /^\s*(?:\*{1,3}|#{1,6}\s*)?DONE\b[:\s\u2014\u2013-]*(.*)$/i;
+const DONE_LINE = /^\s*(?:\*{1,3}|#{1,6}\s*)?DONE\b[:\s\u2014\u2013-]*(.*)$/;
 
 /**
  * Plugin reports come as marker strings or {marker, takesBody} records.
@@ -127,14 +132,14 @@ const STOP_RES = new Map();
 const stopRe = (stops) => {
   const key = stops.join('|');
   let re = STOP_RES.get(key);
-  if (!re) { re = new RegExp(`^\\s*(?:${key})\\s*$`, 'i'); STOP_RES.set(key, re); }
+  if (!re) { re = new RegExp(`^\\s*(?:${key})\\s*$`); STOP_RES.set(key, re); }
   return re;
 };
 const PLUGIN_RES = new Map();
 /** @param {string} marker */
 const pluginRe = (marker) => {
   let re = PLUGIN_RES.get(marker);
-  if (!re) { re = new RegExp(`^\\s*${marker}\\b\\s*(.*)$`, 'i'); PLUGIN_RES.set(marker, re); }
+  if (!re) { re = new RegExp(`^\\s*${marker}\\b\\s*(.*)$`); PLUGIN_RES.set(marker, re); }
   return re;
 };
 
@@ -152,21 +157,30 @@ function walk(reply, plugins) {
   const lines = String(reply ?? '').split('\n');
   /** @type {string[]} */
   const kept = [];
-  /** @type {Array<{kind: string, arg: string, name?: string}>} */
+  /** @type {Array<{kind: string, arg: string, name?: string, background?: boolean, unterminated?: boolean}>} */
   const calls = [];
   let inFence = false;
   let i = 0;
   const pluginList = normalizePlugins(plugins); // normalised once per walk, not once per line
 
-  // Skip to the next stop line — END, or one of the EDIT block's stops. The
-  // marker regexes tolerate trailing whitespace (\r included) exactly as the
-  // protocol does.
+  // Skip a block body to its exact-case stop line — END, or one of the
+  // EDIT block's stops — and report whether it closed. A body that never
+  // reaches its stop ends at the next body opener (or at the end of the
+  // reply) and is unterminated, exactly as protocol.parse() reports it:
+  // the stop line, or the opener, is left unread for the next call. The
+  // marker regexes tolerate trailing whitespace (\r included) exactly as
+  // the protocol does.
   /** @param {string[]} stops */
-  const skipUntil = (stops) => {
+  const skipBody = (stops) => {
     const re = stopRe(stops);
-    while (i < lines.length && !re.test(lines[i])) i += 1;
+    while (i < lines.length) {
+      if (re.test(lines[i])) return true;
+      if (BODY_OPENERS.some((r) => r.test(lines[i]))) return false;
+      if (pluginList.some((p) => pluginRe(p.marker).test(lines[i]))) return false;
+      i += 1;
+    }
+    return false;
   };
-  const skipEnd = () => { if (/^\s*END\s*$/i.test(lines[i] ?? '')) i += 1; };
 
   while (i < lines.length) {
     const line = lines[i];
@@ -186,24 +200,58 @@ function walk(reply, plugins) {
     let m = EDIT_LINE.exec(line);
     if (m) {
       i += 1;
-      if (/^\s*FIND\s*$/i.test(lines[i] ?? '')) i += 1;
-      skipUntil(['NEW', 'END']);
-      if (/^\s*NEW\s*$/i.test(lines[i] ?? '')) i += 1;
-      skipUntil(['END']);
-      skipEnd();
-      calls.push({ kind: 'replace', arg: m[1].trim() });
+      if (/^\s*FIND\s*$/.test(lines[i] ?? '')) i += 1;
+      const beforeClosed = skipBody(['NEW', 'END']);
+      if (beforeClosed && /^\s*NEW\s*$/.test(lines[i] ?? '')) i += 1;
+      const afterClosed = skipBody(['END']);
+      if (afterClosed) i += 1;
+      const closed = beforeClosed && afterClosed;
+      calls.push({ kind: 'replace', arg: m[1].trim(), ...(closed ? null : { unterminated: true }) });
       continue;
     }
     m = CREATE_LINE.exec(line);
     if (m) {
-      i += 1; skipUntil(['END']); skipEnd();
-      calls.push({ kind: 'write', arg: m[1].trim() });
+      i += 1;
+      const closed = skipBody(['END']);
+      if (closed) i += 1;
+      calls.push({ kind: 'write', arg: m[1].trim(), ...(closed ? null : { unterminated: true }) });
       continue;
     }
-    if (RUN_LINE.test(line)) { i += 1; skipUntil(['END']); skipEnd(); calls.push({ kind: 'run', arg: '' }); continue; }
-    if (PLAN_LINE.test(line)) { i += 1; skipUntil(['END']); skipEnd(); calls.push({ kind: 'plan', arg: '' }); continue; }
-    if (TODO_LINE.test(line)) { i += 1; skipUntil(['END']); skipEnd(); calls.push({ kind: 'todo', arg: '' }); continue; }
-    if (SUBAGENT_LINE.test(line)) { i += 1; skipUntil(['END']); skipEnd(); calls.push({ kind: 'subagent', arg: '' }); continue; }
+    if (RUN_BG_LINE.test(line)) {
+      i += 1;
+      const closed = skipBody(['END']);
+      if (closed) i += 1;
+      calls.push({ kind: 'run', arg: '', background: true, ...(closed ? null : { unterminated: true }) });
+      continue;
+    }
+    if (RUN_LINE.test(line)) {
+      i += 1;
+      const closed = skipBody(['END']);
+      if (closed) i += 1;
+      calls.push({ kind: 'run', arg: '', ...(closed ? null : { unterminated: true }) });
+      continue;
+    }
+    if (PLAN_LINE.test(line)) {
+      i += 1;
+      const closed = skipBody(['END']);
+      if (closed) i += 1;
+      calls.push({ kind: 'plan', arg: '', ...(closed ? null : { unterminated: true }) });
+      continue;
+    }
+    if (TODO_LINE.test(line)) {
+      i += 1;
+      const closed = skipBody(['END']);
+      if (closed) i += 1;
+      calls.push({ kind: 'todo', arg: '', ...(closed ? null : { unterminated: true }) });
+      continue;
+    }
+    if (SUBAGENT_LINE.test(line)) {
+      i += 1;
+      const closed = skipBody(['END']);
+      if (closed) i += 1;
+      calls.push({ kind: 'subagent', arg: '', ...(closed ? null : { unterminated: true }) });
+      continue;
+    }
     if (JOBS_LINE.test(line)) { i += 1; calls.push({ kind: 'jobs', arg: '' }); continue; }
 
     m = ASK_LINE.exec(line);
@@ -230,8 +278,12 @@ function walk(reply, plugins) {
       const pm = pluginRe(p.marker).exec(line);
       if (!pm) continue;
       i += 1;
-      if (p.takesBody) { skipUntil(['END']); skipEnd(); }
-      calls.push({ kind: 'plugin', name: p.marker, arg: pm[1].trim() });
+      let closed = true;
+      if (p.takesBody) {
+        closed = skipBody(['END']);
+        if (closed) i += 1;
+      }
+      calls.push({ kind: 'plugin', name: p.marker, arg: pm[1].trim(), ...(closed ? null : { unterminated: true }) });
       matchedPlugin = true;
       break;
     }

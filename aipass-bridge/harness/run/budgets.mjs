@@ -10,7 +10,75 @@
 //
 // The stage lives in its own module so the policy can be read — and pinned —
 // without a run around it.
+//
+// Dynamic budget: the shipped numbers (300 tool calls, 30 minutes) are one
+// allowance for every task, so a one-file read pays for a migration and a
+// migration is stopped like a read. `scoreDifficulty` reads the task and
+// splits it into tiers; `budgetsForTier` scales the allowance by tier
+// (simple 0.3×, standard 1×, complex 2×, clamped). The adjustment is
+// recorded on the run (`budgetTier`/`budgetScore`) and in run_stats, so a
+// tier that stopped a run is a fact, not a guess. Off via `dynamicBudget:
+// false` — the shipped numbers, exactly as before.
 import { RunContext } from './context.mjs';
+
+/**
+ * Score a task's difficulty from its text, 0..100.
+ *
+ * Heuristics, not a model: length, how many files the task names, multi-
+ * step verbs, breadth words (all/every/across — the Thai equivalents too),
+ * and a discount for a single read/explain task. The score is only used to
+ * pick a tier, so it stays coarse on purpose.
+ *
+ * @param {string} [taskText]
+ * @returns {{ score: number, tier: 'simple'|'standard'|'complex' }}
+ */
+export function scoreDifficulty(taskText = '') {
+  const text = String(taskText ?? '');
+  let score = 0;
+  if (text.length > 2000) score += 30;
+  else if (text.length > 500) score += 15;
+  else if (text.length > 120) score += 5;
+  const files = text.match(/\.[a-z]{1,5}\b/gi) ?? [];
+  score += Math.min(30, files.length * 10);
+  if (/(refactor|migrate|migration|implement|build|create[^\n]{0,40}(api|endpoint|page|component)|test suite|add[^\n]{0,40}and|fix[^\n]{0,40}and|rewrite)/i.test(text)) score += 15;
+  if (/(\ball\b|\bevery\b|\bacross\b|entire|whole project|ทั้งหมด|ทุกไฟล์|ทุกที่|ใหญ่)/i.test(text)) score += 15;
+  if (/(plan|todo|step \d|phase)/i.test(text)) score += 5;
+  if (/^(read|list|what is|explain|summari|สรุป|อ่าน)/i.test(text.trim()) && files.length <= 1 && text.length < 240) score -= 10;
+  score = Math.max(0, Math.min(100, score));
+  const tier = score < 30 ? 'simple' : score <= 60 ? 'standard' : 'complex';
+  return { score, tier };
+}
+
+/**
+ * The budgets a tier gets, scaled from the run’s base.
+ *
+ * simple 0.3× (floor 30 tools / 3 min), standard 1×, complex 2×
+ * (cap 2000 tools / 2 h). The base is the user’s own setting, so a
+ * person who raised it keeps the raise.
+ *
+ * @param {'simple'|'standard'|'complex'} tier
+ * @param {{ maxToolCalls: number, maxWallClockMs: number }} base
+ * @returns {{ maxToolCalls: number, maxWallClockMs: number }}
+ */
+export function budgetsForTier(tier, base) {
+  const tools = Number(base?.maxToolCalls) > 0 ? Number(base.maxToolCalls) : 300;
+  const wall = Number(base?.maxWallClockMs) > 0 ? Number(base.maxWallClockMs) : 1_800_000;
+  if (tier === 'simple') {
+    // Never raise a deliberately small budget: a person who capped a run at
+    // 1 tool call gets 1, not 30, back.
+    return {
+      maxToolCalls: Math.min(tools, Math.max(30, Math.floor(tools * 0.3))),
+      maxWallClockMs: Math.min(wall, Math.max(180_000, Math.floor(wall * 0.3))),
+    };
+  }
+  if (tier === 'complex') {
+    return {
+      maxToolCalls: Math.min(2000, Math.floor(tools * 2)),
+      maxWallClockMs: Math.min(7_200_000, Math.floor(wall * 2)),
+    };
+  }
+  return { maxToolCalls: tools, maxWallClockMs: wall };
+}
 
 /**
  * The budget stage of one run.
@@ -30,7 +98,19 @@ export function createBudgets(run) {
   const creditSpent = async () => {
     if (!run.sheet.maxCredits) return null;
     const q = await run.bridge.quota().catch(() => null);
-    if (!q || q.available == null) return null;
+    if (!q || q.available == null) {
+      // An unknown spend never stops a run — that is the shipped policy — but
+      // a person who set a ceiling expects it to mean something. Say once,
+      // on the run, that the ceiling is not being enforced instead of
+      // silently not enforcing it.
+      if (!run.creditNoticeShown) {
+        run.creditNoticeShown = true;
+        const line = 'the credit cap is not being enforced: the quota could not be read, so the spend is unknown';
+        run.note(line);
+        run.emit('note', { text: line });
+      }
+      return null;
+    }
     if (run.creditBaseline == null) run.creditBaseline = q.available;
     run.creditObserved = run.creditBaseline - q.available;
     return run.creditObserved;
@@ -76,7 +156,34 @@ export function createBudgets(run) {
     return null;
   };
 
-  return { creditSpent, spendBudget, overTime, overCredits, checkBudgets };
+  /**
+   * Apply the dynamic budget: score the task, scale the allowance by tier,
+   * and record both on the run. Returns the tier that went into force.
+   *
+   * Only when `dynamicBudget` is on (the shipped default). Off, the sheet
+   * is untouched and `budgetTier` stays `standard` — the old numbers.
+   *
+   * @returns {{ score: number, tier: string }}
+   */
+  const applyDynamicBudget = () => {
+    if (run.options.dynamicBudget === false) {
+      run.budgetTier = 'standard';
+      run.budgetScore = 0;
+      return { score: 0, tier: 'standard' };
+    }
+    const { score, tier } = scoreDifficulty(run.taskText);
+    const scaled = budgetsForTier(tier, run.sheet);
+    run.sheet.maxToolCalls = scaled.maxToolCalls;
+    run.sheet.maxWallClockMs = scaled.maxWallClockMs;
+    run.budgetTier = tier;
+    run.budgetScore = score;
+    if (tier !== 'standard') {
+      run.note(`dynamic budget: task scored ${score} (${tier}) — allowance ${scaled.maxToolCalls} tool calls / ${Math.round(scaled.maxWallClockMs / 60000)} min`);
+    }
+    return { score, tier };
+  };
+
+  return { creditSpent, spendBudget, overTime, overCredits, checkBudgets, applyDynamicBudget, scoreDifficulty, budgetsForTier };
 }
 
 export default createBudgets;

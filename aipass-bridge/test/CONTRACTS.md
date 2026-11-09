@@ -137,3 +137,5 @@ Verify: "a preset spelled with capitals still answers its lowercase role line"
 
 Verify: "a stream that died mid-answer records the message and the delivered prefix"
 Verify: "a send that delivered nothing records nothing"
+Verify: "a CREATE body keeps its own lowercase end lines"
+Verify: "an attachment is sent on every attempt of a recoverable retry"

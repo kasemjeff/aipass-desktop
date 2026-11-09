@@ -33,6 +33,30 @@ const GUIDE_FILES = [
 /** Thin shim files for tools that do not read AGENTS.md natively. */
 const SHIMS = ['CLAUDE.md', 'GEMINI.md', '.github/copilot-instructions.md'];
 
+/** The functions too big to rewrite at once (runTask, createTools,
+ *  createRpc). The ceiling is the size measured on 2026-11-08, in lines from
+ *  the `export function` line to its closing `}` at column 0. It is a
+ *  ratchet, not a target: the number only moves DOWN, and only when a stage
+ *  has actually been split out (createTools -> tools/{read,search,edit,run,
+ *  git,web}.mjs, runTask -> run/ stages). Growing one of these functions
+ *  past its ceiling fails here — split it, do not raise the ceiling. */
+const FUNCTION_CEILINGS = [
+  { rel: 'aipass-bridge/harness/loop.mjs', needle: 'export async function runTask(', name: 'runTask', ceiling: 1338 },
+  { rel: 'aipass-bridge/harness/tools.mjs', needle: 'export function createTools(', name: 'createTools', ceiling: 1272 },
+  { rel: 'aipass-bridge/harness/rpc.mjs', needle: 'export function createRpc(', name: 'createRpc', ceiling: 1187 },
+];
+
+/** Lines from the function's first line to its closing `}` at column 0. */
+function functionSize(rel, needle) {
+  const lines = fs.readFileSync(path.join(ROOT, rel), 'utf8').split('\n');
+  const start = lines.findIndex((l) => l.includes(needle));
+  if (start < 0) return null;
+  for (let i = start + 5; i < lines.length; i++) {
+    if (lines[i].startsWith('}') && lines[i].trim() === '}') return i - start + 1;
+  }
+  return null;
+}
+
 const ANCHOR_RE = /^Verify:\s*"([^"]+)"\s*$/;
 
 /**
@@ -98,7 +122,17 @@ export function lint() {
     }
   }
 
-  // 3. The machine-local notes stay out of git.
+  // 3. The ratchet: the three giant functions may not grow past their
+  // ceilings. The ceiling moves down when a stage is split out.
+  for (const { rel, needle, name, ceiling } of FUNCTION_CEILINGS) {
+    const size = functionSize(rel, needle);
+    if (size === null) { problems.push(`${rel}: ${name} not found`); continue; }
+    if (size > ceiling) {
+      problems.push(`${rel}: ${name} is ${size} lines > ceiling ${ceiling} — split a stage out, do not raise the ceiling`);
+    }
+  }
+
+  // 4. The machine-local notes stay out of git.
   const ignore = fs.readFileSync(path.join(ROOT, '.gitignore'), 'utf8');
   if (!/^AGENTS\.local\.md$/m.test(ignore)) {
     problems.push('.gitignore: AGENTS.local.md is not ignored');

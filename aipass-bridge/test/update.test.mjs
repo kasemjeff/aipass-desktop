@@ -16,6 +16,7 @@ import {
   compareVersions,
   downloadPack,
   feedBase,
+  manualDownloadUrl,
   pickReleases,
   platformLabel,
   promote,
@@ -327,6 +328,19 @@ test('the app refuses to hand over to an unsigned installer', () => {
   assert.ok(refuseUnsignedArtifact({ file: 'x.exe' }), 'a missing signature is not permission');
 });
 
+test('the manual download is the same address the backend would fetch', () => {
+  // The unsigned gate offers the artifact by hand, and the address must be
+  // the one `downloadVerified` fetches from the signed feed — a release
+  // page the maintainer does not control is a trap, not a fallback.
+  const url = manualDownloadUrl(
+    { file: 'aipass-desktop-0.3.0-windows-x64-setup.exe' },
+    { url: 'https://example.test/releases/updates.json' },
+  );
+  assert.equal(url, 'https://example.test/releases/aipass-desktop-0.3.0-windows-x64-setup.exe');
+  assert.equal(manualDownloadUrl({}), null, 'no file, no address');
+  assert.equal(manualDownloadUrl({ file: '' }), null);
+});
+
 test('the update check does not run when the network is down', async () => {
   const home = scratch();
   const key = keypair();
@@ -505,4 +519,18 @@ test('the keyring holds keys that are keys', async () => {
     assert.equal(raw.length, 32, `${entry.id} is a 32-byte key`);
     assert.match(entry.id, /^[A-Za-z0-9._-]+$/, 'the id is one the signature file can carry');
   }
+});
+
+test('the release lane has no default feed sequence', async () => {
+  // A silent 1 signs every tag push with the same number and the rollback
+  // guard never fires — the sequence is required, a positive integer.
+  const { parseSequence, buildFeed } = await import('../../scripts/build-update-feed.mjs');
+  assert.equal(parseSequence({ AIPASS_RELEASE_SEQUENCE: '7' }), 7);
+  assert.throws(() => parseSequence({}), /AIPASS_RELEASE_SEQUENCE is not set/);
+  assert.throws(() => parseSequence({ AIPASS_RELEASE_SEQUENCE: '0' }), /positive integer/);
+  assert.throws(() => parseSequence({ AIPASS_RELEASE_SEQUENCE: 'soon' }), /positive integer/);
+  assert.throws(
+    () => buildFeed({ version: '0.2.0', commit: null, artifacts: [], pack: null, sequence: 0, releasedAt: '2026-11-08T00:00:00Z' }),
+    /positive integer/,
+  );
 });

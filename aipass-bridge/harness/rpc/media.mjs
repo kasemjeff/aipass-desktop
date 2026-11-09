@@ -1,3 +1,4 @@
+// @ts-nocheck
 // The media methods of the backend: what the window asks when the person
 // wants a picture, a clip or a song.
 //

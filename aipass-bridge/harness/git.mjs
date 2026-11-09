@@ -1,3 +1,4 @@
+// @ts-nocheck
 // The write side of git, and the safe wrapper around the binary.
 //
 // `GIT` in the tool table has always been read-only: the model could look at

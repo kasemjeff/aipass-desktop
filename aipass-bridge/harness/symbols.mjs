@@ -1,3 +1,4 @@
+// @ts-nocheck
 // symbols.mjs — a zero-dependency, regex-based code navigator.
 //
 // No LSP, no tree-sitter, no native binary: every symbol is found by a

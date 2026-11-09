@@ -20,7 +20,7 @@
     "smoke:e2e": "node scripts/smoke-e2e.mjs",
     "qa": "node scripts/qa-loop.mjs",
     "qa:loop": "node scripts/qa-loop.mjs",
-    "check": "node scripts/agents-lint.mjs && node scripts/test.mjs && node scripts/test-rust.mjs && node scripts/qa-loop.mjs && node scripts/coverage-gate.mjs",
+    "check": "npm run typecheck && npm run typecheck:ui && node scripts/agents-lint.mjs && node scripts/test.mjs && node scripts/test-rust.mjs && node scripts/qa-loop.mjs && node scripts/coverage-gate.mjs",
     "dco": "node scripts/dco.mjs",
     "node-floor:check": "node scripts/check-node-floor.mjs",
     "loadtest": "node scripts/loadtest.mjs",

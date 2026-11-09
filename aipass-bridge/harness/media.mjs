@@ -1,3 +1,4 @@
+// @ts-nocheck
 // The media surface of AiPASS: the image, video and music models of the live
 // catalog, the presets the service publishes, and the generation itself.
 //
@@ -396,6 +397,12 @@ export async function generate({
   root = null,
   client = null,
   signal = null,
+  // The signed-link download, stubbed in tests the same way the FETCH tool
+  // stubs its transport and resolver: a test that depends on this machine's
+  // DNS (or on a loopback server) is not hermetic. `fetchResolve` is the
+  // resolveVetted-shaped function, `fetchTransport` the pinnedGet-shaped one.
+  fetchResolve = resolveVetted,
+  fetchTransport = pinnedGet,
 } = {}) {
   const c = clientFor(client);
   const id = String(model ?? '').trim();
@@ -458,7 +465,7 @@ export async function generate({
   /** @type {any[]} */
   const files = [];
   for (const frame of frames) {
-    const payload = await payloadOf(frame);
+    const payload = await payloadOf(frame, { resolve: fetchResolve, transport: fetchTransport });
     if (!payload) continue;
     files.push(await writeMedia(dir, payload, frame, entry));
   }
@@ -570,7 +577,7 @@ function inside(root, target) {
  * is fetched ONCE, here, and the bytes are kept locally, because a link that
  * expires in a few hours is not a file anybody can keep.
  */
-async function payloadOf(frame) {
+async function payloadOf(frame, { resolve = resolveVetted, transport = pinnedGet } = {}) {
   const target = mediaTarget(frame);
   if (!target) return null;
   if (/^data:/i.test(target)) {
@@ -579,7 +586,7 @@ async function payloadOf(frame) {
     const mime = target.slice(5, comma).split(';')[0] || 'application/octet-stream';
     return { bytes: Buffer.from(target.slice(comma + 1), 'base64'), mime };
   }
-  return fetchMedia(target);
+  return fetchMedia(target, { resolve, transport });
 }
 
 /**
@@ -589,7 +596,7 @@ async function payloadOf(frame) {
  * machine it runs on. AIPASS_FETCH_ALLOW_PRIVATE=1 lifts it, and costs the
  * download its innocence.
  */
-async function fetchMedia(url) {
+async function fetchMedia(url, { resolve = resolveVetted, transport = pinnedGet } = {}) {
   let parsed;
   try { parsed = new URL(url); } catch { throw new Error(`the media link is not a URL: ${url}`); }
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
@@ -601,13 +608,13 @@ async function fetchMedia(url) {
     if (isPrivateHost(host)) {
       throw new Error(`refusing to fetch ${host} — private and internal addresses are blocked`);
     }
-    const vetted = await resolveVetted(host);
+    const vetted = await resolve(host);
     if (vetted.private) {
       throw new Error(`refusing to fetch ${host} — it resolves to a private/internal address`);
     }
     addresses = vetted.addresses;
   }
-  const res = await pinnedGet(parsed, {
+  const res = await transport(parsed, {
     addresses,
     timeoutMs: DOWNLOAD_TIMEOUT_MS,
     maxBytes: MAX_MEDIA_BYTES,
